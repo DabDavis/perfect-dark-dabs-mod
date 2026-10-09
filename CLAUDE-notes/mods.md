@@ -10,6 +10,7 @@ the long form.
 - **A mod entered from the Perfect Menu, no restart (2026-10-09)** — mods.md, "A mod entered from the Perfect Menu": the "Perfect Dark Mods" row and its list, `modmode.c`'s queue (sound drains, the Institute reloads, the swap at the stage boundary in **port/src/pdmain.c's** outer loop - the port's main loop, not src/lib/main.c's), `modSwapPath()`, Mod.ModDir no longer mounted at startup and Load Mods gone; online, `modModeRequestAtNextStage()` swaps at the host's next STAGE_LOAD
 - **A mod entered live: data (2026-10-09)** — mods.md, "A mod entered live: data": `modDataUnload()` undoes a data segment import (tables back, then frees, statics reset); a mod with only `segs/data` + `segs/data.names` swaps live (`modDirHasBootSegs()`); a modconfig's weapon edits go into the game's own weapon objects and are kept/undone field by field; `--mod-data-swap A,B,none` + `--mod-dump-data FILE` are the test; hash file ids by name and struct fields, not padding
 - **A mod entered live: segments (2026-10-09)** — mods.md, "A mod entered live: segments": `romdataSegSwap()` + `modSegsEnter/Leave()` (modsegs.c) swap every non-audio segment between stages and back; the boot's and ROM's copies kept, appended animation rows rebased not renumbered, `g_NumListTextures` for a longer texture list; test with `--mod-segs-enter`/`--mod-dump-segs`/`--mod-segs-boot-stock`
+- **A mod entered live: online (2026-10-09, protocol 25)** — mods.md, "A mod entered live: online", and netplay.md's "Content follows the host": a guest follows the host's entered mod at the STAGE_LOAD's stage change (its own copy, or the host's served into `$N/<name>`), the key and RULES resolved again after the swap, no save switch, its own mod back after the session; fs.c resolves "$N" overlays for relative loads
 - **A rule or colour a mod's code changes that is not a weapon's** — mods.md, "The tail": `game/modrules.h` holds it with the stock default, a modconfig block sets it through one setter in mod.c, both importers read it; the branch `lua-pipeline` is the Lua experiment of 2026-09-07, kept and not merged. mods.md, "A GE-X tester's seven reports" (2026-09-13, importer 32): a jump table in rodata is *data* to modcodediff (the third person guns, the sights); GE-X's green menus are dialog **type bytes**, not the palette; a boot re-imports every stale mod, so never run two after a version bump; mods.md, "GE-X's guns threw green sparks behind green tracers" (2026-09-26, importer 33): the wall sparks and tracer texture are two more rodata jump tables on the weapon number (`hitsparks`/`beamtexture` keys), and the Klobb's green tracer was the Mauler's charge beam (`WEAPONFLAG3_CHARGEBEAM`); mods.md, "The Mauler's charge is two flags" (importer 34): `chargeable` is the pitch, `chargespent` the reset, GE-X tests them apart
 - **A mod entered live: audio** — mods.md, "A mod entered live: audio (2026-10-09)": `modaudio.c` swaps the sound table, music bank and sequence table between stages without moving the boot segments' starts (appended GoldenEye/borrowed sounds hang off them); sound ids reserved at boot for the longest installed bank, appended sequences numbered from `SEQ_EXTRA_BASE` (0x200); quiesce first, then every sample cache is flushed (sound cache, players' banks, ADMA); `--mod-audio-enter "A|B|-"` + `--mod-dump-audio FILE` are the test switches
 
@@ -2317,3 +2318,27 @@ Compound[custom music], DarkCorps_Part2 and MrX Classic; stock->GE-X->stock,
 stock->GE-X->Mario->stock and three mods in a row back to stock equal stock.
 Compare dumps without their first line (it names the mod).
 
+## A mod entered live: online (2026-10-09)
+
+Online the host's entered PD mod is followed with no restart (protocol 25;
+the long form is netplay.md's "Content follows the host", bullet "The
+overlay mod on a client"). A guest enters the host's mod through
+`modModeRequestAtNextStage()` from its own installed copy when the "mod"
+hash matches, else from the host's copy, served whole into a memory
+directory `$N/<name>` (fs.c) by the list `netModFileAllowed()` that the hash
+walks too (files/, segs/, animations/, sequences/, textures/*.bin,
+modconfig.txt, IMPORT.txt; not the patch, readmes, the 1964 HD folder or the
+.htc pack). Two things here had to change for a mod held in memory: fs.c's
+primitives (`fsFileSize`, `fsFileLoadPadded`, `fsFileLoadTo`,
+`fsFileOpenRead`, `fsScanDir`) only answered memory for a name that was
+already "$N/...", so a *relative* load found the file inside a "$N" overlay
+(fsFullPath's own probe) and then stat'ed or fopen'ed the "$N/..." string
+and failed - segments, modconfig.txt, the data segment, textures/; they
+resolve memory on the expanded name now (`fsMemResolveName`). And
+`fsReplaceModDir()` dropped every mount, including a "$N" folder mounted for
+its maps that `modMapsMount()` (installed mods only) never mounts again; it
+keeps those now. A swap followed online does not switch the per-mod save
+(`modModeSwitchSave` is skipped for at-next-stage swaps). Verified with
+PerfectDarkAllSoloLevelsInMultiplayer and GE-X (netcontenttest `pdmodown`,
+`pdmodfetch`, `PDMOD=GE-X_6a_01-19-25`: 2833 files, 26.6 MB fetched in 3.4 s,
+every stage hash component the host's).

@@ -36,16 +36,12 @@
  *
  *  - The overlay mod. ACCEPT and RULES carry the host's by its dir name and
  *    a contents hash. The client finds the same name among its installed
- *    mods (modListIndexOf), hashes it (nethash.c's walk: the bytes the
- *    simulation reads, never pictures or text) and, when the bytes are the
- *    host's, switches to it live (modListSwap), keeping its own Mod.ModDir
- *    for pd.ini (H13) and switching back when the session ends. A mod that
- *    holds ROM segments cannot be swapped under a running game (mods.md:
- *    "files swap live; segments cannot"), so for one of those - either the
- *    host's or the one loaded here - the client is told to choose it in
- *    Load Mods, restart and join again. A mod not installed, or not the
- *    host's version, is named. The host checks the one the client then
- *    loaded through the "mod" component of LOADED.
+ *    mods (modListIndexOf), hashes it (nethash.c's walk over
+ *    netModFileAllowed()'s list) and, when the bytes are the host's, enters
+ *    it at the session's next stage change (modmode.c), ROM segments and
+ *    all; else the host serves its own copy into memory (protocol 25). Its
+ *    own mod comes back when the session ends. The host checks the one the
+ *    client then loaded through the "mod" component of LOADED.
  *
  *  - The Stage Loader's maps and the conversions. STAGE_LOAD's key names the
  *    map's mod dir; one installed here but not mounted (Mod.MapMods left it
@@ -592,10 +588,10 @@ void netContentNoStageText(s32 kind, const char *dir, const char *map, s32 id, c
  * maps and read by the mod loader, the textures, the GoldenEye tables and
  * everything else through the same file calls as a folder on disk. Nothing
  * is written to the guest's disk, nothing is offered to anyone outside the
- * room's sessions, and the memory goes with the process. The host serves only a
- * directory it has mounted for its maps (never its overlay mod, which a
- * guest could not take live anyway), leaving out what nothing in play
- * reads: text, caches, the converter's and importer's own notes. A guest
+ * room's sessions, and the memory goes with the process. The host serves a
+ * directory it has mounted for its maps, leaving out what nothing in play
+ * reads (text, caches, the converter's and importer's own notes), and since
+ * protocol 25 its overlay PD mod by netModFileAllowed()'s list. A guest
  * that takes a room over (host migration) serves what it was served in turn.
  */
 

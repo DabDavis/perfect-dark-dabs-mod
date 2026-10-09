@@ -21,8 +21,9 @@
 # good ticket, so the ticket check is passed first. Each must be refused with its reason and component named,
 # and the client exit 3. Content follows the host (protocol 13,
 # netcontent.c): the host-quit client below has no mod loaded, so it must
-# switch to its host's mod_allinone live on ACCEPT, play the match on it
-# (the stage hash's "mod" component the host's) and switch back when the
+# enter its host's mod_allinone (asked for on ACCEPT, entered at the
+# match's stage change: protocol 25, modmode.c), play the match on it
+# (the stage hash's "mod" component the host's) and leave it when the
 # session ends (swap); a client whose mod came from --moddir cannot switch,
 # and must leave with NOMOD naming the host's mod (r-nomod).
 # Host quits: a third host is stopped (SIGTERM) in the middle of a match;
@@ -231,10 +232,12 @@ else
 	fail "r-nomod: $(grep -E 'net: (content|session ended|the host)' "$N" | head -3 | tr '\n' ';')"
 fi
 S=$OUT/qclient.log
-if grep -q "net: content: switched to $MODDIR for the host (this machine's no mod comes back after the session)" "$S" \
+if grep -q "net: content: entering for the host at the next stage from .*$MODDIR (this machine's Perfect Dark comes back after the session)" "$S" \
+		&& grep -q "modmode: entered $MODDIR" "$S" \
 		&& grep -q "net: match 1: loading stage 0x32 of mod $MODDIR as" "$S" && grep -q "net: match 1: GO" "$S" \
-		&& grep -q "net: content: back to no mod after the session" "$S" && grep -qx "ModDir=" "$OUT/save-qclient/pd.ini"; then
-	pass "swap: qclient switched to $MODDIR live on ACCEPT, played its stage, back to no mod after the session, pd.ini's ModDir still empty"
+		&& grep -q "net: content: back to Perfect Dark after the session" "$S" && grep -q "modmode: back to Perfect Dark" "$S" \
+		&& grep -qx "ModDir=" "$OUT/save-qclient/pd.ini"; then
+	pass "swap: qclient entered $MODDIR at the match's stage change (protocol 25, modmode.c), played its stage, back to Perfect Dark after the session, pd.ini's ModDir still empty"
 else
 	fail "swap: $(grep -E 'net: (content|match 1: loading|match 1: GO|session ended)' "$S" | head -5 | tr '\n' ';') pd.ini $(grep -m1 '^ModDir' "$OUT/save-qclient/pd.ini")"
 fi
