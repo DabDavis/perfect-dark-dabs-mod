@@ -1300,8 +1300,10 @@ nothing is ever sent from one machine to another but names and hashes.
 - **Not done.** A restart-and-rejoin for the segs/ mods (the game could
   relaunch itself with the mod selected for that run and join the room
   again: `updateRelaunchSelf` is the relaunch, `--net-lobby-*` the
-  precedent for driving the lobby from arguments); the three MUST_GE keys
-  still refuse rather than follow; a client's prediction held during
+  precedent for driving the lobby from arguments); the MUST_GE keys
+  follow now (the looks by the content latch, Mod.GePlusRevisionFixes as
+  SYNC since 2026-10-09: two testers set differently could join neither
+  one's GoldenEye room); a client's prediction held during
   GoldenEye's opening.
 - **Traps met.** `modListSwap()` sets the selection to what it loaded, which
   is bound to `Mod.ModDir`: the player's own selection must be read before

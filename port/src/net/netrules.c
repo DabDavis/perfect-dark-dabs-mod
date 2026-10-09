@@ -79,7 +79,11 @@ static const struct {
 	{ "Mod.GePlusPdGuns",            NETKEY_SYNC },
 	{ "Mod.GePlusRegion",            NETKEY_SYNC },
 	{ "Mod.BorrowGoldenEyeGuns",     NETKEY_MUST },
-	{ "Mod.GePlusRevisionFixes",     NETKEY_MUST_GE },
+	// read at a stage load (the setup and portals a conversion wrote both of)
+	// and in the host's simulation, like the region: the host's for the
+	// match. MUST_GE kept two players with it set differently out of each
+	// other's GoldenEye rooms whoever hosted (F3 20261009-053550, -060337)
+	{ "Mod.GePlusRevisionFixes",     NETKEY_SYNC },
 	// a mission's guards (spec-coop.md): the host's, as the AI is
 	{ "Mod.GuardsAlerted",           NETKEY_SYNC },
 	{ "Mod.AlertedGuards",           NETKEY_SYNC },
