@@ -87,6 +87,8 @@ s32 gexFrontCreditsAreCinema(void);
 // The Cinema page's credits, left early: back to the page with no cast reel
 void gexFrontLeaveCredits(void);
 void gexFrontTick(void);
+// A stage loading (lvReset(), online): the folder's model and textures, in the stage's pools, are dropped
+void gexFrontStageReset(void);
 Gfx *gexFrontRender(Gfx *gdl);
 
 // GoldenEye's folders theme while open (menuChooseMusic() asks), else -1

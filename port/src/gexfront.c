@@ -1045,7 +1045,8 @@ static s32 frontLoadModel(void)
 		return 0;
 	}
 
-	// the loader takes the file's textures' room from the same buffer
+	// room for the lists the loader rewrites; the textures themselves go in
+	// the stage's shared pool (no pool is handed in), see gexFrontStageReset()
 	g_Front.modelbuflen = ALIGN64(size) + 0x20000;
 	g_Front.modelbuf = sysMemZeroAlloc(g_Front.modelbuflen);
 
@@ -3505,11 +3506,75 @@ static void frontSetCursorForMode(s32 mode)
 	g_Front.cursory = mode * 0x20 + 0xe2;
 }
 
+/**
+ * A stage loading under a folder still loaded (lvReset(), online: a campaign
+ * host's folder stays loaded while the room's stage is reloaded under it -
+ * F3 20261009-045526-e9c53d9f).
+ *
+ * The folder keeps two things in the stage's own memory: its model and TV
+ * instances (the model pool, rebuilt) and its textures (the shared texture
+ * pool texReset() has just emptied - modeldefLoad() is handed no pool of its
+ * own, and texSelect() puts a picture's number there too). Kept, the folder's
+ * lists and configs name the new stage's textures by their old addresses:
+ * the renderer went on drawing what it had uploaded until anything emptied its
+ * cache (a texture pack reloaded, the XBLA switch), and from then on the
+ * folder wore the level's walls. Everything that points there is dropped
+ * without being freed (the pools are the new stage's now), the folder's own
+ * buffers are freed, and the model loads again before it is next drawn.
+ */
+static s32 g_FrontStageGone;
+
+void gexFrontStageReset(void)
+{
+	if (!g_Front.modelbuf && !g_Front.tvbuf && !g_Front.numtextures) {
+		return;
+	}
+
+	g_Front.model = NULL;
+
+	for (s32 i = 0; i < TVS_PER_PAGE; i++) {
+		g_Front.tvmodels[i] = NULL;
+	}
+
+	frontUnloadModel();
+	g_Front.numtextures = 0;
+	g_Front.cursor.texturenum = CURSOR_IMAGE;
+	g_Front.loaded = 0;
+	g_FrontStageGone = 1;
+
+	sysLogPrintf(LOG_NOTE, "gexfront: a stage loaded under the folder; its model and textures load again");
+}
+
+/** The folder's model again after gexFrontStageReset(), if it is open: 0 when it would not load */
+static s32 frontEnsureModel(void)
+{
+	if (!g_FrontStageGone) {
+		return g_Front.model != NULL;
+	}
+
+	g_FrontStageGone = 0;
+
+	if (!frontLoadAll()) {
+		return 0;
+	}
+
+	if (g_Front.screen == SCREEN_MONITORS) {
+		frontOpenMonitors();
+	}
+
+	return 1;
+}
+
 static void frontTickScreen(void);
 
 void gexFrontTick(void)
 {
 	if (!g_Front.active) {
+		return;
+	}
+
+	if (!frontEnsureModel()) {
+		frontClose();
 		return;
 	}
 
@@ -3688,6 +3753,8 @@ s32 gexFrontOpen(void)
 	if (g_Front.loaded && g_Front.moddir != frontWantDir()) {
 		frontUnload();
 	}
+
+	g_FrontStageGone = 0;
 
 	if (!g_Front.loaded && !frontLoadAll()) {
 		return 0;
@@ -7261,7 +7328,7 @@ static Gfx *frontDrawStats(Gfx *gdl)
 
 Gfx *gexFrontRender(Gfx *gdl)
 {
-	if (!g_Front.active) {
+	if (!g_Front.active || !frontEnsureModel()) {
 		return gdl;
 	}
 

@@ -368,6 +368,12 @@ void lvReset(s32 stagenum)
 
 	// what a shot does to a converted GoldenEye level's images is GoldenEye's
 	geTexSurfaceReset(stagenum);
+
+	// online, GoldenEye's folder can still be loaded as a stage loads under it
+	// (a campaign host's): its model and textures were in the pools just reset
+	if (g_NetMode != NETMODE_NONE) {
+		gexFrontStageReset();
+	}
 	geImpactStageStart(stagenum);
 	geHitPuffStageStart(stagenum);
 	traceNoteEvent("stage 0x%02x loading", stagenum);
