@@ -1539,6 +1539,26 @@ had the same folder over its Game Lobby. netmigratetest's `gesecond` case
 (`GESECOND_PLAYERS=2`, `GESECOND_PD=1` for the two other shapes); the guard
 alone was tried with the first fix taken out, and passed.
 
+**The folder over a stage loaded under it (2026-10-09, F3 20261009-045526).**
+A migrated Goldfinger 64 campaign host's folder came out in the level's
+walls. The folder's model (`frontLoadModel()`: `modeldefLoad(..., NULL)`)
+and its pictures (`frontTexture()` through `texSelect(..., NULL)`) load
+their textures into the **stage's shared texture pool**, and the model
+instance is in the stage's model pool; offline every way out of the folder
+unloads it before a stage changes, but a campaign host's folder stays
+loaded (`g_Front.loaded`, and even `active`) while the room's stage reloads
+under it. Its lists then named the new stage's textures by the old
+addresses; the renderer kept drawing its old uploads until something
+emptied its cache (texpack reload, the XBLA switch) and then showed the
+level's walls. Drawn straight after the reload on a build of 1e1949559 it
+crashed in `frontSetSwitch()` (stale instance). `gexFrontStageReset()`,
+called from `lvReset()` online, drops the instances and texture pointers
+without freeing them, frees the folder's own buffers, and the model loads
+again before the folder is next drawn or opened (log: "a stage loaded under
+the folder"). Repro: `--host P --net-test-campaign gf64`, then from gdb
+`mainChangeToStage(0x26)`, `netCoopCampaignMenusOpen()` +
+`players[0]->menuisactive = 1`, `texpackReload()`, `screenshotRequest()`.
+
 ## Joining from anywhere, tried live (2026-10-08)
 
 The user, hosting a GoldenEye campaign room on the deployed lobby from
