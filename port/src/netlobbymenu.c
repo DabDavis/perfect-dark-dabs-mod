@@ -35,7 +35,9 @@
  *                                         REFRESH, JOIN, CREATE
  *     Create Room                         name, password, max players, then
  *                                         the Combat Simulator's own Scenario,
- *                                         Arena, Weapons, Limits, Simulants
+ *                                         Options, Arena, Weapons, Limits,
+ *                                         Handicaps, Simulants, Teams, Load/
+ *                                         Save Settings; Room Rules
  *     Game Lobby                          the roster in team columns with
  *                                         ready marks, chat, the settings;
  *                                         CHANGE TEAM / READY / LEAVE; the
@@ -61,6 +63,8 @@ static char s_JoinId[9];
 static s32 s_WaitingForRoom = 0; // a join or create is in flight from these pages
 static char s_Status[320];
 static char s_BriefingNote[160]; // why the focused room cannot be joined
+static s32 s_HostTeamTouched = 0;  // the room's Teams page was opened (hostTeamSend)
+static void hostTeamSend(void);
 
 extern struct menudialogdef g_NetBriefingMenuDialog;
 extern struct menudialogdef g_NetCreateMenuDialog;
@@ -984,6 +988,7 @@ static MenuItemHandlerResult handlerCreateGo(s32 operation, struct menuitem *ite
 		snprintf(s_Create.password, sizeof(s_Create.password), "%s", s_RoomPassword);
 		s_WaitingForRoom = 1;
 		netLobbyClearMessage();
+		hostTeamSend(); // kept until the room exists
 		netLobbyCreate(&s_Create);
 	}
 
@@ -1011,6 +1016,11 @@ static MenuDialogHandlerResult dialogCreate(s32 operation, struct menudialogdef 
 
 		// the room's host plays: player 1 of the setup
 		g_MpSetup.chrslots |= 1;
+
+		// a new room: everyone at 100%, the host's team the room's own
+		// until its Teams page says otherwise
+		netLobbyHandicapsReset();
+		s_HostTeamTouched = 0;
 	}
 
 	if (operation == MENUOP_TICK && g_Menus[g_MpPlayerNum].curdialog
@@ -1331,18 +1341,196 @@ static MenuItemHandlerResult handlerSetupSimulants(s32 operation, struct menuite
 	return handlerSetupPage(operation, item, &g_MpSimulantsMenuDialog);
 }
 
+/*
+ * The rest of the Combat Simulator's Game Setup (F3 20261009-071718): the
+ * scenario's Options, Handicaps, Teams, Load and Save Settings. Every one
+ * writes what RULES already carries (g_MpSetup.options, the scenario's save
+ * bits, each slot's team and handicap, the sims' teams), so nothing new goes
+ * on the wire. Left out: the Player pages (each player's own, set in their
+ * own game) and the Soundtrack and Team Names (the Combat Simulator's Stuff,
+ * not its setup).
+ */
+static MenuItemHandlerResult handlerSetupOptions(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return g_NetCoopSetup.on;
+	}
+
+	return menuhandlerMpOpenOptions(operation, item, data);
+}
+
+/**
+ * The stock Teams page: the simulants' teams, Teams Enabled, Auto Team, and
+ * the host's own row, which is its team in the room (the launch puts each
+ * member's room team on its slot): the row starts at it, and a change goes
+ * to the room when the page's dialog closes. The other members pick theirs
+ * with the Game Lobby's Change Team.
+ */
+static MenuItemHandlerResult handlerSetupTeams(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		if (netLobbyInRoom() && netLobbyMyTeam() >= 0) {
+			g_PlayerConfigsArray[0].base.team = netLobbyMyTeam();
+		}
+
+		s_HostTeamTouched = 1;
+	}
+
+	return handlerSetupPage(operation, item, &g_MpTeamsMenuDialog);
+}
+
+static void hostTeamSend(void)
+{
+	if (s_HostTeamTouched) {
+		netLobbySetHostTeam(g_PlayerConfigsArray[0].base.team);
+	}
+}
+
+static MenuItemHandlerResult handlerSetupLoad(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return handlerSetupPage(operation, item, &g_MpLoadSettingsMenuDialog);
+}
+
+static MenuItemHandlerResult handlerSetupSave(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return g_NetCoopSetup.on;
+	}
+
+	return menuhandlerMpSaveSettings(operation, item, data);
+}
+
+/**
+ * Handicaps over the room's players rather than the four local ones: the
+ * host's own (its profile's, as offline), then each other member who plays
+ * (by account, netLobbyHandicapOf; the host's slot for it at the match
+ * start). Before the room exists (Create Room) only the host's row.
+ */
+#define HANDICAP_ROWS MAX_PLAYERS
+
+static const struct netlobbymember *handicapMember(s32 row)
+{
+	const struct netlobbyroom *room;
+	s32 i;
+
+	if (row < 1 || !netLobbyInRoom()) {
+		return NULL;
+	}
+
+	room = netLobbyGetRoom();
+
+	for (i = 0; i < room->nmembers; i++) {
+		const struct netlobbymember *m = &room->members[i];
+
+		if (!m->host && !m->spectator && --row == 0) {
+			return m;
+		}
+	}
+
+	return NULL;
+}
+
+static char *textHandicapName(struct menuitem *item)
+{
+	static char name[NETLOBBY_MAXUSER + 2];
+	const struct netlobbymember *m = handicapMember(item->param);
+
+	if (item->param == 0) {
+		return netLobbyInRoom() && netLobbyAccount()[0] ? (char *)netLobbyAccount() : g_PlayerConfigsArray[0].base.name;
+	}
+
+	snprintf(name, sizeof(name), "%s", m ? m->user : "");
+	return name;
+}
+
+static MenuItemHandlerResult handlerHandicapRow(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	const struct netlobbymember *m = handicapMember(item->param);
+	s32 value;
+
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return item->param != 0 && !m;
+	case MENUOP_GETSLIDER:
+		data->slider.value = item->param == 0 ? g_PlayerConfigsArray[0].handicap : m ? netLobbyHandicapOf(m->user) : 0x80;
+		break;
+	case MENUOP_SET:
+		if (item->param == 0) {
+			g_PlayerConfigsArray[0].handicap = (u16)data->slider.value;
+		} else if (m) {
+			netLobbyHandicapSet(m->user, data->slider.value);
+		}
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		value = item->param == 0 ? g_PlayerConfigsArray[0].handicap : m ? netLobbyHandicapOf(m->user) : 0x80;
+		sprintf(data->slider.label, "%.00f%%\n", mpHandicapToDamageScale(value) * 100);
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult handlerHandicapDefaults(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		g_PlayerConfigsArray[0].handicap = 0x80;
+		netLobbyHandicapsReset();
+	}
+
+	return 0;
+}
+
+#define HANDICAP_ROW(n) { MENUITEMTYPE_SLIDER, n, MENUITEMFLAG_LESSLEFTPADDING, (uintptr_t)&textHandicapName, 0xff, handlerHandicapRow }
+
+static struct menuitem s_HandicapItems[] = {
+	HANDICAP_ROW(0), HANDICAP_ROW(1), HANDICAP_ROW(2), HANDICAP_ROW(3), HANDICAP_ROW(4), HANDICAP_ROW(5),
+	HANDICAP_ROW(6), HANDICAP_ROW(7), HANDICAP_ROW(8), HANDICAP_ROW(9), HANDICAP_ROW(10), HANDICAP_ROW(11),
+	{ MENUITEMTYPE_SEPARATOR, 0, 0, 0, 0, NULL },
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_110, 0, handlerHandicapDefaults }, // "Restore Defaults"
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, L_MPMENU_111, 0, NULL }, // "Back"
+	{ MENUITEMTYPE_END },
+};
+
+static struct menudialogdef s_NetHandicapsMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT, L_MPWEAPONS_184, s_HandicapItems, NULL, 0, NULL, // "Player Handicaps"
+};
+
+static MenuItemHandlerResult handlerSetupHandicaps(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return handlerSetupPage(operation, item, &s_NetHandicapsMenuDialog);
+}
+
+
+// Room Rules: the Dab's Mod rules the host decides for the match (optionsmenu.c)
+extern struct menudialogdef g_NetRoomRulesMenuDialog;
+
+static MenuItemHandlerResult handlerSetupRules(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		menuPushDialog(&g_NetRoomRulesMenuDialog);
+	}
+
+	return 0;
+}
+
 #define NETLOBBY_SETUP_ITEMS \
 	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Game", 0, handlerGame }, \
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_019, (uintptr_t)&textScenario, handlerSetupScenario }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_021, 0, handlerSetupOptions }, \
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_020, (uintptr_t)&textArena, handlerSetupArena }, \
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_023, 0, handlerSetupWeapons }, \
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_024, 0, handlerSetupLimits }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPWEAPONS_184, 0, handlerSetupHandicaps }, \
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_025, 0, handlerSetupSimulants }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_022, 0, handlerSetupTeams }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_018, 0, handlerSetupLoad }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_026, 0, handlerSetupSave }, \
 	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Missions", 0, handlerMissionSet }, \
 	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Mission", 0, handlerMission }, \
 	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Difficulty", 0, handlerDifficulty }, \
 	{ MENUITEMTYPE_CHECKBOX, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Radar", 0, handlerCoopRadar }, \
-	{ MENUITEMTYPE_CHECKBOX, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Friendly Fire", 0, handlerCoopFriendlyFire }
+	{ MENUITEMTYPE_CHECKBOX, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Friendly Fire", 0, handlerCoopFriendlyFire }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Room Rules\n", 0, handlerSetupRules }
 
 static struct menuitem s_CreateItems[] = {
 	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)&textMessage, 0, NULL },
@@ -2159,6 +2347,24 @@ struct menudialogdef g_NetKickMenuDialog = {
 static struct mpsetup s_SettingsSetup;
 static struct mpbotconfig s_SettingsBots[MAX_BOTS];
 static struct netcoopsetup s_SettingsCoop;
+static u32 s_SettingsExtra;
+
+/**
+ * What the setup pages change outside g_MpSetup and the simulants: the
+ * handicaps, the scenario's own option (King of the Hill's hill time, its
+ * save bits) and the Room Rules (the host's SYNC settings). The host's own team goes to the room as a Change Team
+ * does, which un-readies nobody
+ */
+static u32 settingsExtra(void)
+{
+	u32 h = netLobbyHandicapsHash();
+
+	h = (h ^ g_PlayerConfigsArray[0].handicap) * 16777619u;
+	h = (h ^ g_Vars.mphilltime) * 16777619u;
+	h = (h ^ netRulesSyncHash()) * 16777619u;
+
+	return h;
+}
 
 static MenuItemHandlerResult handlerSettingsApply(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -2175,14 +2381,19 @@ static MenuDialogHandlerResult dialogRoomSettings(s32 operation, struct menudial
 		memcpy(&s_SettingsSetup, &g_MpSetup, sizeof(s_SettingsSetup));
 		memcpy(s_SettingsBots, g_BotConfigsArray, sizeof(s_SettingsBots));
 		s_SettingsCoop = g_NetCoopSetup;
+		s_SettingsExtra = settingsExtra();
+		s_HostTeamTouched = 0;
 	}
 
 	if (operation == MENUOP_CLOSE) {
 		if (memcmp(&s_SettingsSetup, &g_MpSetup, sizeof(s_SettingsSetup)) != 0
 				|| memcmp(s_SettingsBots, g_BotConfigsArray, sizeof(s_SettingsBots)) != 0
-				|| memcmp(&s_SettingsCoop, &g_NetCoopSetup, sizeof(s_SettingsCoop)) != 0) {
+				|| memcmp(&s_SettingsCoop, &g_NetCoopSetup, sizeof(s_SettingsCoop)) != 0
+				|| settingsExtra() != s_SettingsExtra) {
 			netLobbySendSettings();
 		}
+
+		hostTeamSend();
 	}
 
 	return 0;

@@ -1470,6 +1470,13 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 			p->base.mpbodynum = c->cfg.mpbodynum;
 			memset(&p->fileguid, 0, sizeof(p->fileguid));
 
+			// a lobby room's: the handicap the host gave this member on the
+			// room's Handicaps page (100% unless set); the slot is the
+			// host's again at H12 (saved above)
+			if (s_LobbyRoomOn) {
+				p->handicap = netLobbyHandicapOf(c->name);
+			}
+
 			// its controls, settings and screen (before RULES: they carry
 			// the slot's options)
 			netPlayersHostSlotStart(c->slot, &c->cfg);

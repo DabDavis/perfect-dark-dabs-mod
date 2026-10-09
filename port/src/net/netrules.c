@@ -203,6 +203,7 @@ struct netrulessaved {
 	s32 coopradaron;
 	s32 coopfriendlyfire;
 	s32 numaibuddies;
+	u8 mphilltime; // the scenario's own option (KOH's, its save bits in RULES)
 	struct netkeyvalue keys[NET_MAXKEYS];
 	s32 nkeys;
 	s32 swapped; // H13: the own values are in while pd.ini is written
@@ -512,6 +513,39 @@ void netRulesTraceSync(FILE *f)
 	}
 
 	fprintf(f, "\n");
+}
+
+// Room Settings (netlobbymenu.c): did the Room Rules page change a rule
+u32 netRulesSyncHash(void)
+{
+	struct netkeyvalue kv;
+	char buf[NET_MAXSTRVAL + 4];
+	u32 h = 2166136261u;
+	u32 k;
+	const char *c;
+
+	for (k = 0; k < ARRAYCOUNT(s_NetKeys); k++) {
+		if (s_NetKeys[k].cls == NETKEY_SYNC && netRulesReadKey(s_NetKeys[k].key, &kv)) {
+			netRulesValueString(&kv, buf, sizeof(buf));
+
+			for (c = buf; *c; c++) {
+				h = (h ^ (u8)*c) * 16777619u;
+			}
+
+			h = (h ^ ';') * 16777619u;
+		}
+	}
+
+	// and the simulants' AI, the host's alone (no key class: never sent)
+	if (netRulesReadKey("Mod.SimBrain", &kv)) {
+		netRulesValueString(&kv, buf, sizeof(buf));
+
+		for (c = buf; *c; c++) {
+			h = (h ^ (u8)*c) * 16777619u;
+		}
+	}
+
+	return h;
 }
 
 // this machine's own NETKEY_PLAYER values (what its SLOTCFG says)
@@ -1193,6 +1227,7 @@ static void netRulesSaveInto(struct netrulessaved *out)
 	out->coopradaron = g_Vars.coopradaron;
 	out->coopfriendlyfire = g_Vars.coopfriendlyfire;
 	out->numaibuddies = g_Vars.numaibuddies;
+	out->mphilltime = g_Vars.mphilltime;
 
 	out->nkeys = 0;
 
@@ -1451,6 +1486,7 @@ static void netRulesRestoreFrom(const struct netrulessaved *saved)
 	g_Vars.coopradaron = saved->coopradaron;
 	g_Vars.coopfriendlyfire = saved->coopfriendlyfire;
 	g_Vars.numaibuddies = saved->numaibuddies;
+	g_Vars.mphilltime = saved->mphilltime;
 
 	for (i = 0; i < saved->nkeys; i++) {
 		netRulesWriteKey(&saved->keys[i]);

@@ -404,6 +404,8 @@ struct netcoopsetup {
 	s32 campaign;     // the host picks the missions in its own menus (the set's folder); each one is the session's next match
 };
 extern struct netcoopsetup g_NetCoopSetup;
+// Room Settings: a hash of the host's rules (the SYNC keys and Simulant AI), to see the Room Rules page changed one
+u32 netRulesSyncHash(void);
 // mainmenu.c Accept Mission in a net session: 1 handled (started, or refused with a notice)
 s32 netCoopAcceptMission(void);
 // mainmenu.c Abort Mission: 1 handled (a client leaves; the host's abort ends it for all)

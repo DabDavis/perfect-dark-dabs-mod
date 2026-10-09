@@ -7924,3 +7924,107 @@ void optionsMenuInit()
 {
 	updateMaxAnisotropyLevel();
 }
+
+/**
+ * Room Rules (F3 20261009-071851): the Dab's Mod settings that are the
+ * match's rules online, on Create Room and Room Settings - the SYNC keys of
+ * netrules.c's table (what F3's [netplay] prints as "rules in force"), and
+ * Simulant AI, which the host alone plays by. The rows are the Dab's Mod
+ * menu's own handlers, so they read and act the same, and they edit the
+ * host's own settings as that menu does (pd.ini at the page's close): RULES
+ * takes them at the match's start, as it always has. A player's own
+ * (NETKEY_PLAYER: COD aiming, the third person camera...) and the picture
+ * stay in each player's own menu. Mission Respawn and Lives only for a co-op
+ * room, GoldenEye's only for a GoldenEye room, Simulant AI only for a match.
+ */
+static s32 roomRulesCoop(void)
+{
+	return g_NetCoopSetup.on;
+}
+
+static s32 roomRulesGoldenEye(void)
+{
+	return g_NetCoopSetup.on ? g_NetCoopSetup.game[0] != '\0' : g_GexPlusMode;
+}
+
+static MenuItemHandlerResult menuhandlerRoomMissionRespawn(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return operation == MENUOP_CHECKHIDDEN ? !roomRulesCoop() : menuhandlerModMissionRespawn(operation, item, data);
+}
+
+static MenuItemHandlerResult menuhandlerRoomMissionLives(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return operation == MENUOP_CHECKHIDDEN ? !roomRulesCoop() : menuhandlerModMissionLives(operation, item, data);
+}
+
+static MenuItemHandlerResult menuhandlerRoomSimBrain(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return operation == MENUOP_CHECKHIDDEN ? roomRulesCoop() : menuhandlerModSimBrain(operation, item, data);
+}
+
+static MenuItemHandlerResult menuhandlerRoomGePdGuns(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return operation == MENUOP_CHECKHIDDEN ? !roomRulesGoldenEye() : menuhandlerGePlusPdGuns(operation, item, data);
+}
+
+static MenuItemHandlerResult menuhandlerRoomGeRegion(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return operation == MENUOP_CHECKHIDDEN ? !roomRulesGoldenEye() : menuhandlerGePlusRegion(operation, item, data);
+}
+
+static MenuItemHandlerResult menuhandlerRoomGeRevision(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return operation == MENUOP_CHECKHIDDEN ? !roomRulesGoldenEye() : menuhandlerGePlusRevisionFixes(operation, item, data);
+}
+
+static MenuDialogHandlerResult menudialogRoomRules(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	if (operation == MENUOP_CLOSE) {
+		configSave(CONFIG_PATH);
+	}
+
+	return 0;
+}
+
+#define ROOMRULE(type, text, handler) { type, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)text, 0, handler }
+#define ROOMRULE_SEPARATOR { MENUITEMTYPE_SEPARATOR, 0, 0, 0, 0, NULL }
+
+static struct menuitem g_NetRoomRulesMenuItems[] = {
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Jump", menuhandlerModJump),
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Jump For", menuhandlerModJumpFor),
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Combat Roll", menuhandlerModRoll),
+	ROOMRULE(MENUITEMTYPE_CHECKBOX, "Melee Combos", menuhandlerModMelee),
+	ROOMRULE(MENUITEMTYPE_CHECKBOX, "Flinch When Shot", menuhandlerModFlinch),
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Simulant AI", menuhandlerRoomSimBrain),
+	ROOMRULE_SEPARATOR,
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Start Armed", menuhandlerModStartArmed),
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Start Armed For", menuhandlerModStartArmedFor),
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Akimbo", menuhandlerModAkimbo),
+	ROOMRULE_SEPARATOR,
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Bodies", menuhandlerModBodies),
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Body Time", menuhandlerModBodyTime),
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Bodies Drawn", menuhandlerModBodiesDrawn),
+	ROOMRULE_SEPARATOR,
+	ROOMRULE(MENUITEMTYPE_CHECKBOX, "Mission Respawn", menuhandlerRoomMissionRespawn),
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Lives", menuhandlerRoomMissionLives),
+	ROOMRULE(MENUITEMTYPE_CHECKBOX, "Guards Alerted!", menuhandlerModGuardsAlerted),
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Alerted Guards", menuhandlerModAlertedGuards),
+	{ MENUITEMTYPE_SLIDER, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE, (uintptr_t)"Guard Spawn Speed",
+		MODALARM_SPEED_MAX - MODALARM_SPEED_MIN, menuhandlerModGuardSpawnSpeed },
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Guard Weapons", menuhandlerModGuardWeapons),
+	ROOMRULE(MENUITEMTYPE_CHECKBOX, "GoldenEye: Include Perfect Dark Guns", menuhandlerRoomGePdGuns),
+	ROOMRULE(MENUITEMTYPE_DROPDOWN, "GoldenEye: Region Rules", menuhandlerRoomGeRegion),
+	ROOMRULE(MENUITEMTYPE_CHECKBOX, "GoldenEye: Later Revision (JP/PAL)", menuhandlerRoomGeRevision),
+	ROOMRULE_SEPARATOR,
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, L_OPTIONS_213, 0, NULL }, // "Back"
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_NetRoomRulesMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Room Rules",
+	g_NetRoomRulesMenuItems,
+	menudialogRoomRules,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
