@@ -177,6 +177,8 @@ static u64 s_ReportedAt = 0;
 
 // the launch, as this machine follows it
 static u32 s_LaunchHandled = 0;    // the launch (its "at") this machine acted on
+static u32 s_LaunchEndedAt = 0;    // the launch whose session ended for good here (refused, left): not retried
+static char s_LaunchEndedText[200] = ""; // why (kept apart from s_MainMessage, which the room's page clears on opening)
 static s32 s_LobbyConnSpectator = 0; // a member: the connection it made was a spectator's
 static u64 s_LaunchDeadline = 0;
 static s32 s_HostWaitStart = 0;    // host: launched, waiting for the members to connect
@@ -2239,6 +2241,22 @@ s32 netLobbyLaunchState(void)
 }
 
 /**
+ * A member whose session for the room's current launch ended for good (see
+ * lobbyClientTick): the room's status line shows netLobbyLaunchEndedText() in place
+ * of "connecting to the host"
+ */
+s32 netLobbyLaunchEnded(void)
+{
+	return netLobbyLaunchState() == 2 && !s_MainIsHost && s_LaunchEndedAt != 0 && s_LaunchEndedAt == s_Room.launchat
+		&& netSessionLobbyRole() == 0;
+}
+
+const char *netLobbyLaunchEndedText(void)
+{
+	return s_LaunchEndedText;
+}
+
+/**
  * A launched campaign room between missions (netcoop.c): the host is in its
  * own menus and a member connected to it waits for its next mission, which
  * "waiting for the players" and "connecting" did not say
@@ -2448,6 +2466,7 @@ static void lobbyClientTick(void)
 		}
 
 		s_LaunchRetries = 0;
+		s_LaunchEndedAt = 0;
 	}
 
 	// a session that ended (refused, left the match, the host gone) closes,
@@ -2494,9 +2513,32 @@ static void lobbyClientTick(void)
 			s_CandNext = 0;
 			snprintf(s_MainMessage, sizeof(s_MainMessage), "Could not reach the host; trying again in %d s (try %d).", secs, s_LaunchRetries);
 			sysLogPrintf(LOG_NOTE, "lobby: no address reached the host; trying them all again in %d s (try %d)", secs, s_LaunchRetries);
-		} else if (g_NetNoticePending) {
+		} else {
+			// an end that a retry of the same launch cannot change (the
+			// host's mod not installed here, another build, a setting that
+			// must match, the player's own leaving): the room's status line
+			// says why instead of "connecting" (F3 20261009-070735: a
+			// guest refused [nomod] sat under "Launched: connecting to the
+			// host..." with no word of why), and nothing connects again
+			// until the room launches anew or is joined again
+			// (the notice's text whether or not still pending: the main
+			// menu's tick may have taken the flag for its own dialog first)
 			g_NetNoticePending = 0;
-			snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", netSessionNoticeText());
+
+			if (netSessionLastRefuse() == NETREFUSE_LEFT) {
+				snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "You left the game. Leave the room and join it again to play on.");
+			} else if (netSessionNoticeText()[0]) {
+				snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", netSessionNoticeText());
+			}
+
+			if (s_Room.launched && s_Room.launchat == s_LaunchHandled) {
+				s_LaunchEndedAt = s_Room.launchat;
+				snprintf(s_LaunchEndedText, sizeof(s_LaunchEndedText), "%s", s_MainMessage[0] ? s_MainMessage : "The connection to the host ended.");
+				s_LaunchRetryAt = 0;
+				s_LaunchRetries = 0;
+				sysLogPrintf(LOG_NOTE, "lobby: the session for room %s's launch ended (refusal %d); not connecting again to this launch",
+						s_Room.sum.id, (int)netSessionLastRefuse());
+			}
 		}
 
 		netSessionLobbyStop();
@@ -3017,6 +3059,7 @@ void netLobbyTick(void)
 		s_CreatePending = 0;
 		g_NetLobbyRoom = 1;
 		s_LaunchHandled = 0;
+		s_LaunchEndedAt = 0;
 		s_LaunchSeenAt = 0;
 		s_LaunchRetryAt = 0;
 		s_LaunchRetries = 0;

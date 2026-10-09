@@ -59,7 +59,7 @@ static struct netlobbycreate s_Create = { "", "", 4 };
 static s32 s_SelectedRoom = -1;
 static char s_JoinId[9];
 static s32 s_WaitingForRoom = 0; // a join or create is in flight from these pages
-static char s_Status[200];
+static char s_Status[320];
 static char s_BriefingNote[160]; // why the focused room cannot be joined
 
 extern struct menudialogdef g_NetBriefingMenuDialog;
@@ -1663,7 +1663,15 @@ static char *textRoomStatus(struct menuitem *item)
 		snprintf(s_Status, sizeof(s_Status), "Launching in %d...\n", (netLobbyCountdownMs() + 999) / 1000);
 		break;
 	case 2:
-		if (netLobbyCampaignState() == 1) {
+		if (netLobbyLaunchEnded()) {
+			// refused or left: why, not "connecting"
+			// the reason whole, wrapped to the page (one line cut it off
+			// mid-sentence)
+			char why[256];
+
+			snprintf(why, sizeof(why), "%s\n", netLobbyLaunchEndedText());
+			textWrapN(270, why, s_Status, sizeof(s_Status), g_CharsHandelGothicXs, g_FontHandelGothicXs);
+		} else if (netLobbyCampaignState() == 1) {
 			snprintf(s_Status, sizeof(s_Status), "%s", "Campaign: start missions from your menus.\n");
 		} else if (netLobbyCampaignState() == 2) {
 			snprintf(s_Status, sizeof(s_Status), "%s", "Campaign: you join the host's next mission.\n");
