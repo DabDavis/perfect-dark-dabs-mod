@@ -11,6 +11,7 @@
 
 // Whether a mod is entered, and which (its list name and its folder; "" when none)
 s32 modModeIsActive(void);
+const char *modModeDisplayNameOf(const char *name); // a folder name as menus show it ('_' as ' ')
 const char *modModeName(void);
 const char *modModePath(void);
 

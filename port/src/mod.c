@@ -2717,7 +2717,7 @@ s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim)
 
 #define MOD_MODS_DIR "mods"
 #define MOD_IMPORT_REPORT "IMPORT.txt"
-#define MOD_MAX_MODS 128
+#define MOD_MAX_MODS 256
 #define MOD_NAME_LEN 64
 
 struct modlistentry {

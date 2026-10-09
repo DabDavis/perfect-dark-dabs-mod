@@ -34,6 +34,7 @@
  */
 
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <PR/ultratypes.h>
 #include "types.h"
@@ -240,15 +241,62 @@ static char s_RowText[MODMODE_NAME_LEN + 16];
 static char s_ListNote[160];
 
 // the loadable mods: every installed one but the conversions mounted for
-// their maps alone (GoldenEye Arenas and the ROM hacks: their own rows)
+// their maps alone (GoldenEye Arenas and the ROM hacks: their own rows),
+// in name order - the folders come in whatever order the disk lists them
+#define MODMODE_MAX_ROWS 256
+static s32 s_Order[MODMODE_MAX_ROWS];
+static s32 s_OrderCount = -1;
+
+static void modModeListSort(void)
+{
+	s_OrderCount = 0;
+
+	for (s32 n = 0; n < modListGetLoadableCount() && s_OrderCount < MODMODE_MAX_ROWS; n++) {
+		const s32 index = modListLoadableToIndex(n);
+		s32 at = s_OrderCount++;
+
+		while (at > 0 && strcasecmp(modListGetName(s_Order[at - 1]), modListGetName(index)) > 0) {
+			s_Order[at] = s_Order[at - 1];
+			at--;
+		}
+
+		s_Order[at] = index;
+	}
+}
+
 static s32 modModeListCount(void)
 {
-	return modListGetLoadableCount();
+	if (s_OrderCount < 0 || s_OrderCount != modListGetLoadableCount()) {
+		modModeListSort();
+	}
+
+	return s_OrderCount;
 }
 
 static s32 modModeListIndex(s32 row)
 {
-	return modListLoadableToIndex(row);
+	return row >= 0 && row < modModeListCount() ? s_Order[row] : -1;
+}
+
+// A folder's name as a row says it: the menu font draws '_' as a bar over the
+// line, and imported patches are named with them (GE-X_6a_01-19-25)
+static void modModeDisplayName(const char *name, char *out, u32 outlen)
+{
+	u32 i = 0;
+
+	for (; name && name[i] && i + 1 < outlen; i++) {
+		out[i] = name[i] == '_' ? ' ' : name[i];
+	}
+
+	out[i] = '\0';
+}
+
+const char *modModeDisplayNameOf(const char *name)
+{
+	static char buf[MODMODE_NAME_LEN];
+
+	modModeDisplayName(name, buf, sizeof(buf));
+	return buf;
 }
 
 static s32 modModeRowIsActive(s32 index)
@@ -269,10 +317,12 @@ static MenuItemHandlerResult menuhandlerModModeList(s32 operation, struct menuit
 	case MENUOP_GETOPTIONTEXT:
 		index = modModeListIndex((s32)data->list.value);
 		snprintf(s_RowText, sizeof(s_RowText), "%s%s\n", modModeRowIsActive(index) ? "> " : "",
-				index >= 0 ? modListGetName(index) : "");
+				index >= 0 ? modModeDisplayNameOf(modListGetName(index)) : "");
 		return (intptr_t)s_RowText;
 	case MENUOP_GETSELECTEDINDEX:
-		data->list.value = 0xfffff;
+		// the mod entered, else the first row (none at all centred the list
+		// on an empty middle)
+		data->list.value = 0;
 
 		for (s32 i = 0; i < modModeListCount(); i++) {
 			if (modModeRowIsActive(modModeListIndex(i))) {
@@ -333,6 +383,7 @@ static MenuDialogHandlerResult menudialogModMode(s32 operation, struct menudialo
 	if (operation == MENUOP_OPEN) {
 		// a folder dropped in while the game runs turns up
 		modListRefresh();
+		modModeListSort();
 		s_ListNote[0] = '\0';
 	}
 
@@ -349,12 +400,13 @@ static struct menuitem g_ModModeMenuItems[] = {
 		NULL,
 	},
 	{
-		// param2 is the list width in menu units: a mod folder's name is long
+		// param2 is the list width in menu units (a mod folder's name is
+		// long), param3 its height: twelve rows
 		MENUITEMTYPE_LIST,
 		0,
 		MENUITEMFLAG_LIST_LEAVEATENDS,
 		0x000000d0,
-		0,
+		0x0000008c,
 		menuhandlerModModeList,
 	},
 	{
