@@ -868,7 +868,7 @@ case_endjoin() {
 	grep -q "the host's match is over: in for the next" "$H" && pass "$name: the host took the returning joiner at its end screen, for the next mission" \
 		|| fail "$name: the host did not take the joiner at its end screen"
 	grep -q "net: the host refused \[started\]" "$J2" && fail "$name: the returning joiner was refused STARTED $(grep -c 'refused \[started\]' "$J2") times"
-	grep -q "net: accepted by \"endhost\" into slot [0-9]*$" "$J2" && pass "$name: the returning joiner was accepted, not in progress" \
+	grep -q "net: accepted by \"endhost\" into slot [0-9]* (the host's match is over: in for its next)$" "$J2" && pass "$name: the returning joiner was accepted for the next mission, not in progress" \
 		|| fail "$name: $(grep -o 'net: accepted by.*' "$J2" | head -1)"
 	[ "$(grep -c 'net: co-op: starting dataDyne Defection' "$H")" -ge 2 ] && pass "$name: Defection started again" || fail "$name: Defection did not start again"
 	grep -q "net: co-op client: the first mission block" "$J2" && pass "$name: the returning joiner is in the next mission" \
