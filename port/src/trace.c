@@ -844,7 +844,14 @@ static void traceRoomTextures(FILE *f)
 
 static void traceWrite(FILE *f)
 {
-	const struct player *pl = g_Vars.currentplayer;
+	// online, the player this machine plays: g_Vars.currentplayer is
+	// whichever one the last player loop left, on a client another seat's
+	// puppet (F3 20261009-050119 gave the camera and position of a player
+	// still at the start as the reporter's own, who stood on the roof)
+	const s32 pnum = g_NetMode != NETMODE_NONE && g_NetLocalSlot >= 0 && g_NetLocalSlot < MAX_PLAYERS && g_Vars.players[g_NetLocalSlot]
+		? g_NetLocalSlot : g_Vars.currentplayernum;
+	const struct player *pl = g_NetMode != NETMODE_NONE && pnum >= 0 && pnum < MAX_PLAYERS && g_Vars.players[pnum]
+		? g_Vars.players[pnum] : g_Vars.currentplayer;
 	const time_t now = time(NULL);
 	char stamp[64];
 	u32 gfxused = 0, gfxsize = 0, vtxused = 0, vtxsize = 0;
@@ -953,12 +960,12 @@ static void traceWrite(FILE *f)
 		// of "no crosshair" says nothing of them without this line (F3
 		// 20260930-152306: Sight on Screen off reads exactly like a bug)
 		if (g_Vars.currentplayerstats) {
-			const u32 options = g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].options;
+			const u32 options = g_PlayerConfigsArray[pl == g_Vars.currentplayer ? g_Vars.currentplayerstats->mpindex : g_Vars.playerstats[pnum].mpindex].options;
 
 			fprintf(f, "hand: weapon 0x%02x func %d sight %u gunsightoff 0x%x (0 aiming); options %04x: sight on screen %d,"
 					" always show target %d, zoom range %d, ammo on screen %d\n",
 					pl->hands[HAND_RIGHT].gset.weaponnum, pl->hands[HAND_RIGHT].gset.weaponfunc,
-					currentPlayerGetSight(), pl->gunsightoff, options,
+					pl == g_Vars.currentplayer ? (u32)currentPlayerGetSight() : 99u, pl->gunsightoff, options,
 					(options & OPTION_SIGHTONSCREEN) != 0, (options & OPTION_ALWAYSSHOWTARGET) != 0,
 					(options & OPTION_SHOWZOOMRANGE) != 0, (options & OPTION_AMMOONSCREEN) != 0);
 		}
