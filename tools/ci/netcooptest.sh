@@ -990,7 +990,7 @@ case_campleave() {
 	game campleave-a 500 "[Mod]\nGhostUser=camper\nGhostPin=1234\n[Net]\nLobbyServer=http://127.0.0.1:$lport\nPort=$pa\n" \
 		--net-lobby-script host --net-lobby-room "Camp A" --net-lobby-campaign pd --net-lobby-solo --net-test-sims 0 --skip-cutscenes --rng-seed 7 &
 	local ha=$!
-	local ap bp roomb="" st=""
+	local ap bp roomb="" st="" drawn=""
 	if ! waitfor "$A" "net: co-op: the Perfect Dark campaign begins" 90; then
 		fail "$name: no campaign on A"
 	else
@@ -1025,6 +1025,14 @@ case_campleave() {
 			-ex 'python import gdb; print("STAGE campleave: A launch state %d, status line: %s" % (int(gdb.parse_and_eval("netLobbyLaunchState()")), " ".join(gdb.parse_and_eval("textRoomStatus((struct menuitem *)0)").string().split())))' \
 			2>/dev/null | grep "^STAGE")
 		echo "$st" | tee -a "$OUT/stage.log" | sed 's/^/     /'
+		# B's feed drawn over its end screen (a full-screen menu: lvRender's
+		# var8009dfc0 path, which had drawn no feed), the notice its newest line
+		bp=$(gamepid campleave-b)
+		[ -n "$bp" ] && drawn=$(timeout 20 gdb -p "$bp" -batch -ex "break netHudRenderFeed" -ex "continue" -ex "delete" -ex "call (void)screenshotRequest()" \
+			-ex 'python import gdb; print("STAGE campleave: B feed drawn, full-screen menu %d, menu root %d, newest line: %s" % (int(gdb.parse_and_eval("var8009dfc0")), int(gdb.parse_and_eval("g_MenuData.root")), gdb.parse_and_eval("netHudFeedAt(\x27nethud.c\x27::s_FeedLen - 1)->text").string()))' \
+			2>/dev/null | grep "^STAGE")
+		echo "${drawn:-     (the feed of B was not drawn)}" | tee -a "$OUT/stage.log" | sed 's/^/     /'
+		sleep 2
 		# B out of its end screen: the room opens again; A READY; B launches
 		bp=$(gamepid campleave-b)
 		campleave_gdb "$bp" -ex "call (void)netCoopLeaveMission()" -ex "call (void)menuStop()" -ex 'python print("STAGE campleave: B left its end screen")'
@@ -1053,6 +1061,10 @@ case_campleave() {
 		|| fail "$name: A's Game Lobby status: ${st:-none}"
 	echo "$st" | grep -qi "connecting to the host" && fail "$name: A's Game Lobby still says it is connecting"
 	grep -q "camper is in for the next match" "$B" && pass "$name: B's player was told" || fail "$name: no notice on B"
+	echo "$drawn" | grep -q "full-screen menu 1, .*newest line: camper is in for the next match" \
+		&& pass "$name: B's notice drawn over its end screen" || fail "$name: B's notice not drawn over its end screen: ${drawn:-the feed never drew}"
+	grep -q "net: notice: camper is in for the next match" "$A" && fail "$name: the notice went to A too"
+	grep -o "screenshot: .*png" "$B" | tail -1 | sed 's/^/     B /'
 	grep -q "lobby: the match is over; reopening room" "$B" && pass "$name: B's room open again after its end screen" || fail "$name: B's room was not reopened"
 	grep -q "net: co-op client: the first mission block" "$A" && pass "$name: A is in B's next mission" || fail "$name: A never got into B's next mission"
 }

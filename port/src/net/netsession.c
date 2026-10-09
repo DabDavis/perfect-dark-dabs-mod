@@ -766,6 +766,7 @@ static s32 netHostFreeSlot(s32 peer)
 }
 
 static void netHostNotice(const char *fmt, ...);
+static void netClientShownName(const struct netclient *c, char *out, s32 size);
 
 static void netHostOnConnect(s32 peer, struct netbuf *b)
 {
@@ -1106,9 +1107,16 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 			nextmatch ? "; the host's match is over: in for the next" : !inprogress ? "" : c->spectator ? "; spectating the match in progress" : c->resumed ? "; the seat it held, back in the match in progress" : "; an open seat of the match in progress");
 
 	// the host's own player told, whose end screen is up: someone waits on
-	// it to go (F3 20261009-191306)
-	if (nextmatch && !c->spectator) {
-		netHostNotice("%s is in for the next match", c->name);
+	// it to go (F3 20261009-191306); its HUD only (the feed is drawn over
+	// the end screen, lvRender), not the clients' - the joiner knows
+	if (nextmatch && !c->spectator && !netIsDedicatedHost()) {
+		char shown[NET_MAXNAME + 1];
+		char text[NET_MAXCHAT + 1];
+
+		netClientShownName(c, shown, sizeof(shown));
+		snprintf(text, sizeof(text), "%s is in for the next match", shown);
+		sysLogPrintf(LOG_NOTE, "net: notice on this machine's HUD: %s", text);
+		netHudFeed(NETCHAT_NOTICE, NETCHAT_FROM_NONE, "", text);
 	}
 
 	if (inprogress) {

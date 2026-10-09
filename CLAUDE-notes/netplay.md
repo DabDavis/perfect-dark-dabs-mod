@@ -1808,9 +1808,18 @@ we make this easier for players abroad, so anyone can play anyone".
   join its next." (`netSessionClientWaiting` / `netLobbyJoinedWait`; a
   member in with the host and no match yet, e.g. through a launch's wait
   for the others, reads "In: waiting for the host to start the match."),
-  and the host's own player gets a notice "NAME is in for the next match".
-  Gate: netcooptest `campleave` (fails on 021ce263b: no flag, the
-  connecting line, no notice).
+  and the host's own player gets a notice "NAME is in for the next match"
+  on its HUD only (`netHudFeed`, not sent to the clients: the joiner
+  knows). The feed had never been drawn over an end screen: a full-screen
+  menu (PD's mission end screen, the Combat Simulator's Game Over) takes
+  `lvRender`'s `var8009dfc0` path, which draws only the menus, so
+  `netHudRender` is called there too (behind `g_NetMode`); a client on its
+  own end screen draws its feed there the same way (joins, leaves, chat)
+  and gets no "in for the next match" line. Gate: netcooptest `campleave`
+  (fails on 021ce263b: no flag, the connecting line, no notice; and on
+  the first fix alone: the feed not drawn over the end screen, the notice
+  sent to the joiner), its gdb probe breaking in `netHudRenderFeed` with
+  `var8009dfc0` set and taking the host's screenshot.
 
 - **A refusal said in the room (2026-10-09, F3 20261009-070735).** A guest
   without the host's mod (PerfectBear) joined a launched Perfect Dark
