@@ -2073,7 +2073,7 @@ put back what it does not, and rebuild what was made from a segment:
   slots grow from the heap in one block, frames below headers (the bit reader
   measures a frame against its header's slot), never shrink; then race.c's
   stride loop again. Every archive mod's table has 1207 rows; a longer one
-  would be cut to the boot's count (logged) - the rows past it are taken.
+  would be cut to the boot's count (logged): the rows past it are the appended ones, whose numbers others hold.
 - **textures**: `geTexSurfaceTableChanged()` takes GoldenEye's surface bytes
   out of the list going (and forgets its Perfect Dark snapshot), then
   `g_Textures` = the copy's list (the boot's permanent copy for the boot's) and
@@ -2101,9 +2101,20 @@ gdb. Lines starting `#` (slot sizes) may differ after a swap. Verified: a
 PerfectDark_Plus (a font), the data-only all-solos mod; stock -> GE-X -> stock
 and stock -> GE-X -> Mario -> stock == stock.
 
-**Left for the orchestrator**: call between stages only and reload a stage
-after; mount the mod's files before `modSegsEnter()` when it has an
+**Left for the orchestrator** (pdmain.c's outer loop, before the stage pool
+is reset): call between stages only and load a stage after. `modSegsLeave()`
+before the files swap and `modSegsEnter()` after it is the right order for
+everything here but one thing: `modBorrowCommit()` (inside the files swap)
+judges a borrowed animation with `animIsSame()` against the table *as it is*,
+so it must run after `modSegsEnter()`/`modSegsLeave()` - move it after, or run
+it again. The files must be mounted before `modSegsEnter()` for a mod with an
 `animations/` directory (`preprocessAnimations()` reads its descriptors through
-the overlay); re-run the borrowing (`modBorrowCommit()`), since `animIsSame()`
-judged borrowed animations against the table as it was.
+the overlay), which that order gives. A copy is prepared once per path, so the
+same mod should be entered by the same path string each time (the mod list's
+full path).
+
+Also: the walk measured on Total Darkness's 3534-texture list showed a stage
+loads fine at the higher count, but `NUM_TEXTURES`-sized arrays elsewhere
+(texpack's per-number tables, getexsurface's snapshot) still stop at 3503 and
+simply leave the extra numbers alone; nothing indexes them past their bound.
 
