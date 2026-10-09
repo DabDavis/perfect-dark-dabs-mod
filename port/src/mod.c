@@ -3874,7 +3874,7 @@ s32 modListHasSegs(s32 index)
 }
 
 /**
- * Switch mods now.
+ * Switch the overlay mod now: PATH, or none at all.
  *
  * Everything a mod reaches through the file layer is dropped and looked up
  * again: the port's file slots, the sizes the game remembers for them, the
@@ -3883,16 +3883,19 @@ s32 modListHasSegs(s32 index)
  * need to be - the next stage load wipes that pool and reads everything again,
  * so the level you start after this is the new mod's, while the menu backdrop
  * behind you stays as it was.
+ *
+ * ROM segments are not this function's: modmode.c swaps them at a stage
+ * boundary around it (modSegsEnter(), modAudioEnter()). Nothing is written to
+ * pd.ini here.
  */
-s32 modListSwap(s32 index)
+s32 modSwapPath(const char *path)
 {
-	if (modListIsMapsOnly(index) || !modListSwapIsLive(index)) {
-		return false;
-	}
+	// path may be fsGetModDir()'s own string, which the replace empties
+	char to[FS_MAXPATH + 1];
 
-	const char *path = (index >= 0 && index < numModsListed) ? modList[index].path : NULL;
+	snprintf(to, sizeof(to), "%s", path ? path : "");
 
-	fsReplaceModDir(path);
+	fsReplaceModDir(to[0] ? to : NULL);
 	modMapsMount();
 	modBorrowMount();
 
@@ -3925,9 +3928,24 @@ s32 modListSwap(s32 index)
 
 	videoResetTextureCache();
 
-	modListSetSelected(index);
+	sysLogPrintf(LOG_NOTE, "mod: switched to %s", to[0] ? to : "no mod");
 
-	sysLogPrintf(LOG_NOTE, "mod: switched to %s", path ? modListGetName(index) : "no mod");
+	return true;
+}
+
+/**
+ * Switch to installed mod INDEX (-1: none) now, as the selection: netcontent's
+ * swap to the host's mod. A mod with ROM segments is refused here; the Perfect
+ * Menu's mods (modmode.c) swap those at a stage boundary instead.
+ */
+s32 modListSwap(s32 index)
+{
+	if (modListIsMapsOnly(index) || !modListSwapIsLive(index)) {
+		return false;
+	}
+
+	modSwapPath((index >= 0 && index < numModsListed) ? modList[index].path : NULL);
+	modListSetSelected(index);
 
 	return true;
 }
@@ -3973,19 +3991,13 @@ void modListApplySelection(void)
 		return;
 	}
 
+	// Mod.ModDir is no longer mounted at startup: a mod is entered from the
+	// Perfect Menu's "Perfect Dark Mods" row (modmode.c), without a restart,
+	// the way GoldenEye and its ROM hacks are. A pd.ini from before keeps its
+	// line, unread.
 	if (selectedModName[0]) {
-		const s32 index = modListGetSelected();
-
-		if (modListIsMapsOnly(index)) {
-			// a pd.ini from before Load Mods left it out: mounted for its maps
-			// below, as it always is, and never as the mod
-			sysLogPrintf(LOG_WARNING, "mod: `%s` is only ever mounted for its maps; not loading it as the mod", selectedModName);
-			selectedModName[0] = '\0';
-		} else if (index < 0) {
-			sysLogPrintf(LOG_WARNING, "mod: selected mod `%s` is not installed", selectedModName);
-		} else if (fsAddModDir(modList[index].path) >= 0) {
-			sysLogPrintf(LOG_NOTE, "mod: mounted `%s`", modList[index].name);
-		}
+		sysLogPrintf(LOG_NOTE, "mod: `%s` was the loaded mod; mods are entered from the Perfect Menu now", selectedModName);
+		selectedModName[0] = '\0';
 	}
 
 	// after the overlay, so it stays first in the search order
@@ -4179,7 +4191,13 @@ s32 modMapsPending(void)
  */
 s32 modMapsApply(void)
 {
-	return modListSwap(modListGetSelected());
+	if (modDirsFromArgs) {
+		return false;
+	}
+
+	// the overlay stays what it is - the mod entered from the Perfect Menu,
+	// whose segments are not touched by this - and the maps mount again
+	return modSwapPath(fsGetModDir());
 }
 
 PD_CONSTRUCTOR static void modListConfigInit(void)

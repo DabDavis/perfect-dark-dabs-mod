@@ -294,6 +294,13 @@ void modRemoveDirTree(const char *dir);
 s32 modListIsFromArgs(void);
 s32 modListSwapIsLive(s32 index);
 s32 modListSwap(s32 index);
+// The overlay swap itself, by path (NULL: none), without the selection or the
+// segments check: modmode.c's, around its segment swaps at a stage boundary
+s32 modSwapPath(const char *path);
+// Every non-audio ROM segment a mod ships, in at a stage boundary and back out
+// (wave 1, feat/pdmods-segs)
+void modSegsEnter(const char *moddir);
+void modSegsLeave(void);
 s32 modListIndexOf(const char *name); // the installed mod of this name, or -1
 s32 modListHasSegs(s32 index);       // index's (or -1, the loaded mod's) segs/: a swap to or from it restarts
 

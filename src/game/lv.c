@@ -2429,6 +2429,13 @@ void lvTick(void)
 #ifndef PLATFORM_N64
 	hdPreloadTick();
 
+	// a Perfect Dark mod entered or left from the Perfect Menu: the sound
+	// drains, then the Institute reloads (modmode.c); idle otherwise
+	{
+		extern void modModeTick(void);
+		modModeTick();
+	}
+
 	// A census a few seconds in, for the log: the chrs a stage has once its
 	// intro AI has run, which is where a mod's guards come from when its
 	// setup lists none (GE-X spawns them).

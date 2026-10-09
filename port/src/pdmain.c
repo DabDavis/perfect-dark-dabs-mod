@@ -86,6 +86,7 @@
 #include "gexplus.h"
 #include "gebean.h"
 #include "gexfront.h"
+#include "modmode.h"
 #include "simnav.h"
 #include "net/net.h"
 
@@ -386,6 +387,11 @@ void mainLoop(void)
 		g_MainNumGfxTasks = 0;
 		g_MainGameLogicEnabled = true;
 		g_MainIsEndscreen = false;
+
+		// The one moment nothing points into a ROM segment: the last stage has
+		// stopped and the next has not started. A Perfect Dark mod entered or
+		// left from the Perfect Menu swaps its segments here (modmode.c).
+		modModeStageBoundary();
 
 		if (var8005d9b0 && var8005d9c4 == 0) {
 			index = -1;
