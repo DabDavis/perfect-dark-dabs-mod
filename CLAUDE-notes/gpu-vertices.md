@@ -355,6 +355,19 @@ and Level Metal on the GPU 53M -> 29M; kept runs 29M -> 11M. Before, the frame
 was 55% `xblaMeshPose()` and 17% the interpreter; the match now runs at the
 fixed-step cap. Draw calls fell from ~620 to ~414 a frame (a run is one draw).
 
+**It is not a win everywhere** (2026-10-10, F3 pass 35): GF64 Grounds in the
+N64 look, at a macOS tester's view over 28 rooms (`--boot-ge-mission 6
+--boot-ge-variant "Goldfinger 64"`, the player held at 6545, -794, 10421):
+1169 draws a frame against 841 with `--cpu-vertices`, and the game thread
+26.8M cycles against 24.0M (instructions 23.4M / 22.5M) - 462 room runs a
+draw each where the CPU path merges them, and most model runs still sent to
+the CPU (state, unreadable, lit). Every GPU draw also sets its 45 parameter
+vec4s, a palette, its colours by `glBufferSubData` and a vertex pointer. That
+tester (Apple M1 Pro, Apple's GL 4.1 over Metal, 120 Hz) saw the frame rate
+halve from v3.11 to v3.14 (F3 20261005-035224: 1477 draws, 12.7 ms of work a
+frame); GPU vertices came in between (v3.13). Unmeasured on Apple; asked to
+untick GPU Vertex Shading. On Linux the XBLA look stays a large CPU win.
+
 ## Checking a change to it
 
 - The reference is the same binary with `--cpu-vertices`, frame-exact
