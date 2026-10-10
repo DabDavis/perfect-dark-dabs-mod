@@ -460,3 +460,28 @@ cases' Complex and Randomizer runs unchanged): 2.1 -> 1.5 s on Prison and
 Island, 0.84 -> 0.54 s on Junkyard. What is left is the collision queries of
 the floor search (`cdCollectGeoForCylFromList`, 30%) and the links' tile
 walks (`stanWallFind`, 12%).
+
+## Above 60 FPS: weather, credits and menu text (2026-10-10, high-framerate pass)
+
+Three shapes, each exact at 60 FPS (one 60th a frame) and checked there with the
+replay test and per-frame gdb traces against the base:
+
+- **A 60 Hz counter or fade stepped once a frame** (the rain's volume and sound
+  layer fades, the lightning's 150-step strike in `weatherRenderRain()`): wrap
+  the step in `for (n = 0; n < g_Vars.lvupdate60; n++)` - lvupdate60 is the
+  carried integer 60ths, 1 every fourth frame at 240. In menus and the credits,
+  which run on the frame clock, the same count is `g_Vars.diffframe60`.
+- **A per-frame dice roll** (wind turn 1/100, credits' colour/shape/background
+  rolls, the Perfect Menu hologram's wander): roll once per 60th that passed
+  (`weatherRollWindChange()`, `creditsRoll()`); at 60 it is the one call a frame
+  in the same order, so the RNG stream is unchanged. A roll whose result is
+  *drawn* for a frame (the credits' name flicker and shadow stretch) is rolled
+  on a frame a 60th passed and held through the frames between.
+- **A per-frame cap or nudge** (rain/snow switching at most 2/20 particles a
+  frame; a dialog tween's 1-pixel anti-stall nudge): the cap becomes an
+  allowance refilled per 60th by lvupdate240 and spent by what is used
+  (`weatherParticleChangeCap()`), capped at one frame's 60ths so 60 is the old
+  cap; the nudge waits for `diffframe60 > 0`.
+
+The menus' "text wave" is `dialog->unk54` (`textSetWaveBlend()`): it moved a
+pixel a frame. HUD messages already step by lvupdate60 (right rate, 60 Hz steps).
