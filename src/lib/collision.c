@@ -14,6 +14,9 @@
 #include "lib/libc/ll.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "geroom.h"
+#endif
 
 #define SURFACE_FLOOR   0
 #define SURFACE_CEILING 1
@@ -466,6 +469,50 @@ void cdGetGeoNormal(struct geo *geo, struct coord *normal)
 		normal->y = 1;
 		normal->z = 0;
 	}
+
+#ifndef PLATFORM_N64
+	// A converted GoldenEye tile can begin with three points on one line (a
+	// corner of its polygon with another tile's edge ending on it), and the
+	// first two edges then cross to nothing. Bunker 2's vault floor is one: a
+	// thrown knife landing there found no "up" and bounced in place for good,
+	// spinning, gathering speed it never lost (F3 20261005-223355). The
+	// polygon's own normal, summed over every edge (Newell's), is the same
+	// direction wherever the first three are not in a line
+	if (normal->x == 0 && normal->y == 0 && normal->z == 0
+			&& (geo->type == GEOTYPE_TILE_I || geo->type == GEOTYPE_TILE_F)
+			&& geRoomActive()) {
+		f32 sum[3] = { 0, 0, 0 };
+		s32 n = geo->numvertices;
+		s32 i;
+
+		for (i = 0; i < n; i++) {
+			f32 a[3];
+			f32 b[3];
+
+			if (geo->type == GEOTYPE_TILE_I) {
+				struct geotilei *tile = (struct geotilei *) geo;
+				s32 j = (i + 1) % n;
+
+				a[0] = tile->vertices[i][0]; a[1] = tile->vertices[i][1]; a[2] = tile->vertices[i][2];
+				b[0] = tile->vertices[j][0]; b[1] = tile->vertices[j][1]; b[2] = tile->vertices[j][2];
+			} else {
+				struct geotilef *tile = (struct geotilef *) geo;
+				s32 j = (i + 1) % n;
+
+				a[0] = tile->vertices[i].x; a[1] = tile->vertices[i].y; a[2] = tile->vertices[i].z;
+				b[0] = tile->vertices[j].x; b[1] = tile->vertices[j].y; b[2] = tile->vertices[j].z;
+			}
+
+			sum[0] += (a[1] - b[1]) * (a[2] + b[2]);
+			sum[1] += (a[2] - b[2]) * (a[0] + b[0]);
+			sum[2] += (a[0] - b[0]) * (a[1] + b[1]);
+		}
+
+		normal->x = sum[0];
+		normal->y = sum[1];
+		normal->z = sum[2];
+	}
+#endif
 }
 
 void cdGetFloorCol(struct geo *geo, u16 *floorcol)
