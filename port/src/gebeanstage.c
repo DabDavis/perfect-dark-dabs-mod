@@ -713,10 +713,13 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 }
 
 /**
- * Counts a room's triangles and those of them that lie on Bean's mesh (arg:
- * the grid of Bean's triangles).
+ * Counts a room's triangles, those of them near Bean's mesh (within a cell)
+ * and those lying on it (arg: the grid of Bean's triangles).
  */
-static s32 hiddenTris, hiddenNear;
+static s32 hiddenTris, hiddenNear, hiddenOn;
+
+// a kept room's triangle this near Bean's mesh lies on a surface of Bean's
+#define KEPT_ON_DIST 8.0f
 
 static void fileTriNearBean(void *arg, const f32 v[3][3], s32 room)
 {
@@ -730,6 +733,10 @@ static void fileTriNearBean(void *arg, const f32 v[3][3], s32 room)
 
 	if (tgridNearest(arg, mid, 1, &d) >= 0 && d < BEAN_CELL * BEAN_CELL) {
 		hiddenNear++;
+
+		if (d < KEPT_ON_DIST * KEPT_ON_DIST) {
+			hiddenOn++;
+		}
 	}
 }
 
@@ -5686,7 +5693,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 22
+#define HDCACHE_VERSION 23
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
@@ -7705,17 +7712,21 @@ static s32 build(void)
 				// GoldenEye's own backdrop, which the release remodelled
 				// further out (Dam's far cliffs, Cradle's duct) and does not
 				// draw. Drawn over the HD level, a fogged cliff edge showed
-				// against the sky past Bean's trees ("sky tear"). A kept room
-				// Bean's mesh does lie on (Depot's) stays as it was. One that
+				// against the sky past Bean's trees ("sky tear"). One that
 				// touches Bean's mesh with a triangle or two is backdrop all
 				// the same: Dam's room 31, a low grey boulder of a cliff over
 				// the far end of the reservoir, 1 of its triangles within a
-				// cell of Bean's mountainside, which stands behind it
+				// cell of Bean's mountainside, which stands behind it. And one
+				// lying wholly on Bean's surfaces is a patch of GoldenEye's
+				// that Bean's own surface replaced: Depot's thirty flat floor
+				// quads (rooms 43-81, three to a place), drawn over Bean's
+				// carpet as a patch of GoldenEye's low-detail floor (F3
+				// 20261010-133114, the computer room)
 				if (filerooms[r] && roomHidden) {
-					hiddenTris = hiddenNear = 0;
+					hiddenTris = hiddenNear = hiddenOn = 0;
 					fileRoomTrianglesEach(r, filerooms[r], filelens[r], 1, fileTriNearBean, &beantris);
 
-					if (hiddenTris > 0 && hiddenNear * 4 < hiddenTris) {
+					if (hiddenTris > 0 && (hiddenNear * 4 < hiddenTris || hiddenOn == hiddenTris)) {
 						roomHidden[r] = 1;
 						numHidden++;
 					}
