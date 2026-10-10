@@ -986,15 +986,40 @@ static void netQuatToRot(const f32 *q, f32 scale, f32 m[3][3])
  * stretched along all three (GoldenEye's converted props often are: Dam's
  * doors 1.37 x 1.15 x 0.86).
  */
-static void netRotScales(f32 m[3][3], f32 *scales)
+static void netRotScales(f32 m[3][3], f32 *scales, f32 fallback)
 {
 	s32 j;
 
 	for (j = 0; j < 3; j++) {
 		const f32 len = sqrtf(m[j][0] * m[j][0] + m[j][1] * m[j][1] + m[j][2] * m[j][2]);
 
-		scales[j] = len > 0.000001f && len < 100000.f ? len : 1.f;
+		scales[j] = len > 0.000001f && len < 100000.f ? len : fallback;
 	}
+}
+
+/**
+ * A matrix with a column of nought length: an object whose matrix is made by
+ * its own animation, never by its setup. Defection's two dataDyne banners
+ * (model 0xa7, OBJTYPE_BASIC) are placed by setupCreateObject() with realrot
+ * left all nought, and the AI's aiSetObjAnim() then has objTickPlayer() write
+ * it from the animation's matrices every tick - the host's AI, which a guest
+ * does not run. The guest's banner kept its nought matrix: the first record
+ * found it "the same on the wire" (a nought column made unit is the axis), and
+ * the next took its scale from it, 1 for nought, so from then on the banner
+ * was ten times its size (the model's scale is 0.1) and filled the roof's
+ * view with flat blue (F3 20261009-212235 and an earlier "giant blue thing").
+ */
+static s32 netRotDegenerate(f32 m[3][3])
+{
+	s32 j;
+
+	for (j = 0; j < 3; j++) {
+		if (m[j][0] * m[j][0] + m[j][1] * m[j][1] + m[j][2] * m[j][2] <= 0.000001f * 0.000001f) {
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 /**
@@ -1013,6 +1038,11 @@ static s32 netRotSameOnWire(f32 m[3][3], const f32 *q)
 	f32 dot;
 	s32 i;
 	s32 j;
+
+	// no matrix of its own to keep (netRotDegenerate)
+	if (netRotDegenerate(m)) {
+		return 0;
+	}
 
 	for (j = 0; j < 3; j++) {
 		const f32 len = sqrtf(m[j][0] * m[j][0] + m[j][1] * m[j][1] + m[j][2] * m[j][2]);
@@ -1201,7 +1231,8 @@ static void netPupObj(struct netpup *u, struct prop *prop, const struct netentst
 		} else {
 			f32 scales[3];
 
-			netRotScales(obj->realrot, scales);
+			// a matrix of nought: the model's own scale (netRotDegenerate)
+			netRotScales(obj->realrot, scales, obj->model ? obj->model->scale : 1.f);
 			netPupPlaceObjScaled(obj, s, scales);
 		}
 
