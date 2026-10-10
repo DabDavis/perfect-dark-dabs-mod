@@ -664,12 +664,38 @@ void explosionsUpdateShake(struct coord *arg0, struct coord *arg1, struct coord 
 		}
 	}
 
-	if (g_ExplosionShakeIntensityTimer > 0) {
-		g_ExplosionShakeIntensityTimer--;
-		intensity++;
-	}
+#ifndef PLATFORM_N64
+	if (g_Vars.lvupdate240 != g_Vars.lvupdate60 * 4) {
+		// The timers are 60ths (SHAKE_TIME) but went down by one a frame, so
+		// at 240 FPS the shake lasted a quarter as long and its size
+		// (TotalTimer * intensity) fell four times as fast; and the & 2 below
+		// flipped it at 120 Hz, too fast to see. Off 60 FPS they go down by
+		// the frame's 60ths: the same shake per second at any rate.
+		if (g_ExplosionShakeIntensityTimer > 0) {
+			g_ExplosionShakeIntensityTimer -= g_Vars.lvupdate60;
 
-	g_ExplosionShakeTotalTimer--;
+			if (g_ExplosionShakeIntensityTimer < 0) {
+				g_ExplosionShakeIntensityTimer = 0;
+			}
+
+			intensity++;
+		}
+
+		g_ExplosionShakeTotalTimer -= g_Vars.lvupdate60;
+
+		if (g_ExplosionShakeTotalTimer < 0) {
+			g_ExplosionShakeTotalTimer = 0;
+		}
+	} else
+#endif
+	{
+		if (g_ExplosionShakeIntensityTimer > 0) {
+			g_ExplosionShakeIntensityTimer--;
+			intensity++;
+		}
+
+		g_ExplosionShakeTotalTimer--;
+	}
 
 	if (g_ExplosionShakeTotalTimer & 2) {
 		arg2->y = intensity;

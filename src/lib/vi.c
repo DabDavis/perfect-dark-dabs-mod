@@ -266,6 +266,43 @@ void viHandleRetrace(void)
 	s32 offset;
 	s32 reg;
 
+#ifndef PLATFORM_N64
+	if (g_Vars.diffframe240 != 4) {
+		// The shake flips the picture up and down each retrace, a 60th at 60
+		// FPS; at 240 that was a 240 Hz flicker the eye averages away, and the
+		// timer ran out four times as fast. Off 60 FPS (diffframe240 != 4) the
+		// timer and the flip go by 60ths of the frame's time instead: the
+		// level's 60ths while it runs, so the flip falls on the 60th that
+		// explosionsUpdateShake() steps its own timer on, and the screen's
+		// while it is paused.
+		static s32 shake240;
+		s32 steps;
+
+		if (g_Vars.lvupdate240 > 0) {
+			steps = g_Vars.lvupdate60;
+		} else {
+			shake240 += g_Vars.diffframe240;
+			steps = shake240 >> 2;
+			shake240 &= 3;
+		}
+
+		for (; steps > 0; steps--) {
+
+			if (g_ViShakeTimer != 0) {
+				g_ViShakeTimer--;
+
+				if (g_ViShakeTimer == 0) {
+					g_ViShakeIntensity = 0;
+				}
+			}
+
+			g_ViShakeDirection = -g_ViShakeDirection;
+		}
+
+		offset = g_ViShakeDirection * g_ViShakeIntensity;
+	} else
+#endif
+	{
 	if (g_ViShakeTimer != 0) {
 		g_ViShakeTimer--;
 
@@ -276,6 +313,7 @@ void viHandleRetrace(void)
 
 	offset = g_ViShakeDirection * g_ViShakeIntensity;
 	g_ViShakeDirection = -g_ViShakeDirection;
+	}
 
 #if VERSION >= VERSION_NTSC_1_0
 	prevmask = osSetIntMask(1);
