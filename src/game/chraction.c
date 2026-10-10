@@ -15751,8 +15751,26 @@ void chraTick(struct chrdata *chr)
 			|| chr->alertness >= 65
 			|| (chr->aibot && (chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD))) {
 		u8 pass = race == RACE_HUMAN || race == RACE_SKEDAR;
+#ifndef PLATFORM_N64
+		// An alert or never-sleeping chr comes in here every frame, and its
+		// list ran every frame: four times a 60th at 240 FPS, so whatever a
+		// list does per run (a random roll, a count, a poll in a loop) came
+		// four times as often as at 60. Its list now runs on the frames that
+		// hold a 60th, as an idle chr's and the background lists' already do
+		// (their sleep only goes negative on those). The action tick below
+		// still runs every frame, so the chr moves, turns and aims smoothly.
+		// A frame of a 60th or more (60 and 30 FPS, an online sim tick) runs
+		// it as before.
+		// The two flags cleared after the list (heard the target, consider
+		// proximity mines) wait with it for the next run, so a shot heard on
+		// a frame between runs is still seen.
+		bool runlist = g_Vars.diffframe240 >= 4 || g_Vars.lvupdate60 > 0;
+#endif
 		chr->sleep = 0;
 
+#ifndef PLATFORM_N64
+		if (runlist)
+#endif
 		chraiExecute(chr, PROPTYPE_CHR);
 
 		// Consider setting shootingatmelist
@@ -15849,8 +15867,13 @@ void chraTick(struct chrdata *chr)
 		}
 
 #if VERSION >= VERSION_NTSC_1_0
-		chr->hidden &= ~CHRHFLAG_IS_HEARING_TARGET;
-		chr->hidden2 &= ~CHRH2FLAG_CONSIDERPROXIES;
+#ifndef PLATFORM_N64
+		if (runlist)
+#endif
+		{
+			chr->hidden &= ~CHRHFLAG_IS_HEARING_TARGET;
+			chr->hidden2 &= ~CHRH2FLAG_CONSIDERPROXIES;
+		}
 #else
 		chr->hidden &= ~(CHRHFLAG_IS_HEARING_TARGET | CHRHFLAG_CONSIDERPROXIES);
 #endif
