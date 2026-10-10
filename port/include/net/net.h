@@ -145,6 +145,11 @@ void netRemotePassBegin(void);
 #define NETLOOK_XBLATILES 0x02 // the PD release's collision fixes (xblaStageLoadTiles())
 #define NETLOOK_MESHES    0x04 // the release's meshes: the male guards' heads dealt (bodyreset.c)
 s32 netLookData(u32 *bits);
+// The cheats a net match plays by: the host's enabled cheats on every machine
+// (protocol 28, in RULES), so a client's own (Unlimited Ammo, All Guns...)
+// never makes its player's guns and ammo disagree with the host's. Returns 0
+// offline and on the host (its own are the match's), the banks untouched.
+s32 netCheatsEnabled(u32 *bank0, u32 *bank1);
 // A client: guns its own menu put in its player's hands (PD's pause
 // inventory, GoldenEye's watch), and a device it switched there, for the
 // host to do the same with the next command (protocol 15); nothing offline

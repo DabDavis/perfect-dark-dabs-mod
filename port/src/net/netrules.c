@@ -173,6 +173,7 @@ struct netrulesmsg {
 	u8 gexplusscenario;
 	u8 endless;
 	s32 maxexplosions;
+	u32 cheats[2];            // protocol 28: the host's g_CheatsEnabledBank0/1
 	struct netcooprules coop; // protocol 12: a mission (spec-coop.md)
 	struct netcontentneed content; // protocol 13: the host's mod and ROM hack mode (netcontent.c)
 	struct netkeyvalue keys[NET_MAXKEYS];
@@ -180,6 +181,8 @@ struct netrulesmsg {
 };
 
 static struct netrulesmsg s_NetRules;
+
+static void netRulesTestCheats(void);
 
 /**
  * What a match changed, as it was before: a client's whole match state and
@@ -572,6 +575,12 @@ void netRulesTraceSync(FILE *f)
 	}
 
 	fprintf(f, "\n");
+
+	// the cheats played by (protocol 28: the host's everywhere) and this
+	// machine's own: a cheat on one machine alone had the host's word put
+	// its guns and ammo back all match
+	fprintf(f, "cheats in force: %08x %08x; this machine's own enabled %08x %08x\n",
+			g_CheatsActiveBank0, g_CheatsActiveBank1, g_CheatsEnabledBank0, g_CheatsEnabledBank1);
 }
 
 // Room Settings (netlobbymenu.c): did the Room Rules page change a rule
@@ -1112,6 +1121,11 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 	}
 
 	netWriteStr(b, "", NET_MAXCOMPNAME);
+
+	// (protocol 28) the cheats the match plays by: the host's
+	netRulesTestCheats();
+	netBufWriteU32(b, g_CheatsEnabledBank0);
+	netBufWriteU32(b, g_CheatsEnabledBank1);
 }
 
 s32 netRulesRead(struct netbuf *b)
@@ -1242,6 +1256,8 @@ s32 netRulesRead(struct netbuf *b)
 	}
 
 	netBufReadString(b, spare, sizeof(spare));
+	s_NetRules.cheats[0] = netBufReadU32(b);
+	s_NetRules.cheats[1] = netBufReadU32(b);
 
 	if (s_NetRules.scenario > MPSCENARIO_CAPTURETHECASE || s_NetRules.timelimit > 60 || s_NetRules.scorelimit > 100) {
 		b->error = 1;
@@ -1300,6 +1316,40 @@ u32 netRulesMatchId(void)
 const struct netcontentneed *netRulesContent(void)
 {
 	return &s_NetRules.content;
+}
+
+/**
+ * --net-test-cheats HEX: this machine's own enabled cheats (bank 0) for the
+ * gates, as the Cheats menu would have set them (netpredicttest's cheats)
+ */
+static void netRulesTestCheats(void)
+{
+	const char *arg = sysArgGetString("--net-test-cheats");
+
+	if (arg) {
+		g_CheatsEnabledBank0 = (u32)strtoul(arg, NULL, 0);
+	}
+}
+
+s32 netCheatsEnabled(u32 *bank0, u32 *bank1)
+{
+	netRulesTestCheats();
+
+	if (g_NetMode != NETMODE_CLIENT || !s_NetRules.valid) {
+		*bank0 = g_CheatsEnabledBank0;
+		*bank1 = g_CheatsEnabledBank1;
+		return 0;
+	}
+
+	if (g_CheatsEnabledBank0 != s_NetRules.cheats[0] || g_CheatsEnabledBank1 != s_NetRules.cheats[1]) {
+		sysLogPrintf(LOG_NOTE, "net: cheats: the host's %08x %08x in force, not this machine's own %08x %08x",
+				s_NetRules.cheats[0], s_NetRules.cheats[1], g_CheatsEnabledBank0, g_CheatsEnabledBank1);
+	}
+
+	*bank0 = s_NetRules.cheats[0];
+	*bank1 = s_NetRules.cheats[1];
+
+	return 1;
 }
 
 // the RULES received say a co-op mission (0 a match, or none received)

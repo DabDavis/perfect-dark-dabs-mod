@@ -735,6 +735,7 @@ void netLpPack(const struct netlpstate *s, u8 *out)
 	putF(out + 40, s->health);
 	putF(out + 44, s->shield);
 	put16(out + 48, (u16)s->weaponnum);
+	put16(out + 50, (u16)s->weaponleft);
 
 	for (i = 0; i < 4; i++) {
 		put32(out + 52 + i * 4, (u32)s->loaded[i]);
@@ -782,6 +783,7 @@ void netLpUnpack(const u8 *in, struct netlpstate *s)
 	s->health = getF(in + 40);
 	s->shield = getF(in + 44);
 	s->weaponnum = (s16)get16(in + 48);
+	s->weaponleft = (s16)get16(in + 50);
 
 	for (i = 0; i < 4; i++) {
 		s->loaded[i] = (s32)get32(in + 52 + i * 4);

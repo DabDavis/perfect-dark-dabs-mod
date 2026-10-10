@@ -147,6 +147,7 @@ static u32 s_LpBadFloats = 0;
 // this machine's own ammo and gun as last seen by the pose step
 struct netlplocalsig {
 	s32 weaponnum;
+	s32 weaponleft;
 	s32 switchto;
 	s32 ammo[NETLP_NUMAMMO];
 	s32 loaded[4];
@@ -163,6 +164,7 @@ static u32 s_YoltOutAlive = 0;      // ... of them a second past its last death,
 static u32 s_YoltLocalOut = 0;      // ticks this machine's player was out
 static s32 s_YoltOutSince[MAX_MPCHRS];
 static u32 s_LpEquips = 0;
+static u32 s_LpChangeLogs = 0; // lines said about what the block changed (the first few, then every 64th)
 #define NET_LPREVIVE 90        // ticks of alive blocks before a death only this machine saw is undone
 #define NET_LPSTABLE 30        // ticks a block's inventory/ammo must hold before it overrides this machine's
 #define NET_LPSANE   1000000.f // past this a coordinate is no place (the host's "no ground" is -2^32)
@@ -1008,6 +1010,23 @@ static void netLpTrack(s32 slot, s32 pn)
 	s_LpHavePrev[slot] = 1;
 }
 
+/**
+ * The gun in a player's left hand, as bgunGetWeaponNum(HAND_LEFT) has it,
+ * for any player: an Akimbo mixed pair's own, a pair's second, 0 for none
+ */
+static s32 netLpLeftWeapon(const struct player *p)
+{
+	if (!p->hands[HAND_LEFT].inuse) {
+		return 0;
+	}
+
+	if (p->gunctrl.leftweaponnum > WEAPON_NONE) {
+		return p->gunctrl.leftweaponnum;
+	}
+
+	return p->gunctrl.weaponnum > 0 ? p->gunctrl.weaponnum : 0;
+}
+
 static void netLpCapture(s32 slot, s32 pn, u8 *out)
 {
 	struct player *p = g_Vars.players[pn];
@@ -1034,6 +1053,7 @@ static void netLpCapture(s32 slot, s32 pn, u8 *out)
 	s.health = p->bondhealth;
 	s.shield = p->prop->chr ? chrGetShield(p->prop->chr) : 0;
 	s.weaponnum = p->gunctrl.weaponnum;
+	s.weaponleft = netLpLeftWeapon(p);
 	s.loaded[0] = p->hands[HAND_RIGHT].loadedammo[0];
 	s.loaded[1] = p->hands[HAND_RIGHT].loadedammo[1];
 	s.loaded[2] = p->hands[HAND_LEFT].loadedammo[0];
@@ -1684,7 +1704,7 @@ static void netClientMeasureLocal(const struct netsnaphdr *hdr)
 	// what the pose step applies: the newest block
 	if (!s_LpHaveBlock || memcmp(lp.inv, s_LpPrev.inv, sizeof(lp.inv)) || memcmp(lp.invdual, s_LpPrev.invdual, sizeof(lp.invdual))
 			|| memcmp(lp.ammo, s_LpPrev.ammo, sizeof(lp.ammo)) || memcmp(lp.loaded, s_LpPrev.loaded, sizeof(lp.loaded))
-			|| lp.weaponnum != s_LpPrev.weaponnum || lp.dual != s_LpPrev.dual) {
+			|| lp.weaponnum != s_LpPrev.weaponnum || lp.weaponleft != s_LpPrev.weaponleft || lp.dual != s_LpPrev.dual) {
 		s_LpStableSince = g_NetTick;
 	}
 
@@ -1718,6 +1738,7 @@ static void netLpLocalSig(struct player *p, struct netlplocalsig *sig)
 
 	memset(sig, 0, sizeof(*sig));
 	sig->weaponnum = p->gunctrl.weaponnum;
+	sig->weaponleft = netLpLeftWeapon(p);
 	sig->switchto = p->gunctrl.switchtoweaponnum;
 
 	for (i = 0; i < NETLP_NUMAMMO && i < ARRAYCOUNT(p->ammoheldarr); i++) {
@@ -1753,6 +1774,18 @@ s32 netEntsClientLpHolds(s32 weaponnum)
 	return ((s_LpNew.inv[weaponnum >> 3] | s_LpNew.invdual[weaponnum >> 3]) >> (weaponnum & 7)) & 1;
 }
 
+/**
+ * What the block changed here, named (the first lines, then every 64th): a
+ * trace's "inventory changes" and "ammo sets" counting up all match long
+ * said the host and this machine disagreed, but never about what
+ */
+static s32 netLpSayChange(void)
+{
+	const u32 n = s_LpChangeLogs++;
+
+	return n < 24 || n % 64 == 0;
+}
+
 static void netLpInventory(struct player *p, const struct netlpstate *lp)
 {
 	s32 w;
@@ -1764,11 +1797,21 @@ static void netLpInventory(struct player *p, const struct netlpstate *lp)
 		if (hostsingle && !invHasSingleWeaponExcAllGuns(w)) {
 			invGiveSingleWeapon(w);
 			s_LpInvChanges++;
+
+			if (netLpSayChange()) {
+				sysLogPrintf(LOG_NOTE, "net: local block (tick %u): the host's 0x%02x given here%s", g_NetTick, w,
+						invHasSingleWeaponExcAllGuns(w) ? "" : ", and still not held");
+			}
 		}
 
 		if (hostdual && !invHasDoubleWeaponExcAllGuns(w, w)) {
 			invGiveDoubleWeapon(w, w);
 			s_LpInvChanges++;
+
+			if (netLpSayChange()) {
+				sysLogPrintf(LOG_NOTE, "net: local block (tick %u): the host's pair of 0x%02x given here%s", g_NetTick, w,
+						invHasDoubleWeaponExcAllGuns(w, w) ? "" : ", and still not held");
+			}
 		}
 
 		// taken away only when it is not in the hands
@@ -1776,6 +1819,10 @@ static void netLpInventory(struct player *p, const struct netlpstate *lp)
 				&& p->gunctrl.weaponnum != w) {
 			invRemoveItemByNum(w);
 			s_LpInvChanges++;
+
+			if (netLpSayChange()) {
+				sysLogPrintf(LOG_NOTE, "net: local block (tick %u): 0x%02x taken away here (the host's player has none)", g_NetTick, w);
+			}
 		}
 	}
 }
@@ -1896,18 +1943,47 @@ void netEntsClientApplyLocal(void)
 
 		for (i = 0; i < NETLP_NUMAMMO && i < ARRAYCOUNT(p->ammoheldarr); i++) {
 			if (p->ammoheldarr[i] != lp->ammo[i]) {
+				if (netLpSayChange()) {
+					sysLogPrintf(LOG_NOTE, "net: local block (tick %u): ammo type 0x%02x %d here, the host's %d (in the hands 0x%02x/0x%02x)",
+							g_NetTick, i, p->ammoheldarr[i], lp->ammo[i], bgunGetWeaponNum(HAND_RIGHT), bgunGetWeaponNum(HAND_LEFT));
+				}
+
 				p->ammoheldarr[i] = lp->ammo[i];
 				set = 1;
 			}
 		}
 
-		// a magazine only into the gun it belongs to
-		if (lp->weaponnum == p->gunctrl.weaponnum
-				&& p->hands[HAND_RIGHT].state != HANDSTATE_RELOAD && p->hands[HAND_LEFT].state != HANDSTATE_RELOAD) {
-			if (p->hands[HAND_RIGHT].loadedammo[0] != lp->loaded[0]) { p->hands[HAND_RIGHT].loadedammo[0] = lp->loaded[0]; set = 1; }
-			if (p->hands[HAND_RIGHT].loadedammo[1] != lp->loaded[1]) { p->hands[HAND_RIGHT].loadedammo[1] = lp->loaded[1]; set = 1; }
-			if (p->hands[HAND_LEFT].loadedammo[0] != lp->loaded[2]) { p->hands[HAND_LEFT].loadedammo[0] = lp->loaded[2]; set = 1; }
-			if (p->hands[HAND_LEFT].loadedammo[1] != lp->loaded[3]) { p->hands[HAND_LEFT].loadedammo[1] = lp->loaded[3]; set = 1; }
+		// a magazine only into the gun it belongs to, hand by hand: the left
+		// hand's only when it holds the host's left-hand gun. Under Akimbo
+		// the left can hold a gun of its own, which the block had no word
+		// for: the host's left-hand magazine (another gun's, or an empty
+		// hand's 0) went into this machine's, the Golden Gun there was
+		// emptied at every stretch and reloaded for good (F3 20261010-034434)
+		{
+			const s32 myleft = netLpLeftWeapon(p);
+
+			for (i = 0; i < 4; i++) {
+				const s32 h = i < 2 ? HAND_RIGHT : HAND_LEFT;
+				s32 *loaded = &p->hands[h].loadedammo[i & 1];
+
+				if (h == HAND_RIGHT ? lp->weaponnum != p->gunctrl.weaponnum : (lp->weaponleft != myleft || myleft <= 0)) {
+					continue;
+				}
+
+				if (p->hands[h].state == HANDSTATE_RELOAD) {
+					continue;
+				}
+
+				if (*loaded != lp->loaded[i]) {
+					if (netLpSayChange()) {
+						sysLogPrintf(LOG_NOTE, "net: local block (tick %u): %s hand's 0x%02x magazine %d: %d here, the host's %d",
+								g_NetTick, h == HAND_RIGHT ? "right" : "left", bgunGetWeaponNum(h), i & 1, *loaded, lp->loaded[i]);
+					}
+
+					*loaded = lp->loaded[i];
+					set = 1;
+				}
+			}
 		}
 
 		s_LpAmmoSets += set;
@@ -1917,12 +1993,27 @@ void netEntsClientApplyLocal(void)
 		// its gun stood in the client's opening shots - nor through a
 		// Cinema-page cinema the room watches (protocol 27). Nor while the
 		// watch is up here, its gun put away (gewatch.c): the host never sees
-		// the watch, and the hand it gives back is the host's own
-		if (lp->weaponnum > 0 && lp->weaponnum < NUM_WEAPONS && lp->weaponnum != p->gunctrl.weaponnum
+		// the watch, and the hand it gives back is the host's own. Both hands
+		// (protocol 28): a left hand that held another gun here than on the
+		// host stayed that way all match
+		if (lp->weaponnum > 0 && lp->weaponnum < NUM_WEAPONS
+				&& (lp->weaponnum != p->gunctrl.weaponnum || lp->weaponleft != netLpLeftWeapon(p))
 				&& p->gunctrl.switchtoweaponnum < 0 && !gecinemaIntroIsOn() && !gecinemaIsOn()
 				&& netCoopCinemaKind() == GECINEMA_NET_NONE && !geWatchHoldsPlayer(g_NetLocalSlot)
-				&& (invHasSingleWeaponIncAllGuns(lp->weaponnum) || lp->weaponnum == WEAPON_UNARMED)) {
-			bgunEquipWeapon(lp->weaponnum);
+				&& (invHasSingleWeaponIncAllGuns(lp->weaponnum) || lp->weaponnum == WEAPON_UNARMED)
+				&& (lp->weaponleft <= 0
+					|| (lp->weaponleft < NUM_WEAPONS && (invHasSingleWeaponIncAllGuns(lp->weaponleft)
+							|| invHasDoubleWeaponIncAllGuns(lp->weaponnum, lp->weaponleft))))) {
+			if (netLpSayChange()) {
+				sysLogPrintf(LOG_NOTE, "net: local block (tick %u): hands 0x%02x/0x%02x here, the host's 0x%02x/0x%02x",
+						g_NetTick, p->gunctrl.weaponnum, netLpLeftWeapon(p), lp->weaponnum, lp->weaponleft);
+			}
+
+			// both hands as the host has them: the right's gun alone
+			// (bgunEquipWeapon) let Akimbo's switch carry the old gun into
+			// the left, a pair the host's player never held
+			bgunEquipHands(lp->weaponnum, lp->weaponleft > 0 ? lp->weaponleft : WEAPON_NONE);
+
 			s_LpEquips++;
 		}
 
