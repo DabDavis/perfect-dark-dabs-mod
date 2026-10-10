@@ -16,6 +16,7 @@ void modRespawnRecordDeath(void);
 void modRespawnBegin(void);
 void modRespawnMark(void);
 bool modRespawnIsRespawning(void);
+bool modRespawnPlayerComesBack(s32 playernum);
 s32 modRespawnGetWeapon(s32 handnum);
 void modRespawnEnd(void);
 

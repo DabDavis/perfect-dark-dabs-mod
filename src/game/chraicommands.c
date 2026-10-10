@@ -58,6 +58,7 @@
 #include "game/coop.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
+#include "game/modrespawn.h"
 #include "gesfx.h"
 #include "getank.h"
 #include "gecinema.h"
@@ -604,6 +605,19 @@ bool aiIfChrDeathAnimationFinished(void)
 		if (chr->prop->type == PROPTYPE_PLAYER) {
 			u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 			pass = g_Vars.players[playernum]->isdead;
+
+#ifndef PLATFORM_N64
+			// A converted mission's IFBondIsDead. GoldenEye has no next life,
+			// so its lists take Bond's death for the end: nearly every
+			// mission's exit list - Facility's ai_47, which ends the level when
+			// Bond reaches the exit - goes to GAILIST_DEAD_AI on it, for good.
+			// With Mission Respawn a death that is followed by a new life left
+			// the mission with no ending to reach (F3 20261005-040004), so
+			// Bond is dead to them only when he stays dead.
+			if (pass && modloaderStageIsMission(g_Vars.stagenum) && modRespawnPlayerComesBack(playernum)) {
+				pass = false;
+			}
+#endif
 		} else {
 			pass = (chr->actiontype == ACT_DEAD);
 		}
