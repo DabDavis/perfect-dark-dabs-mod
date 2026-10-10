@@ -460,3 +460,28 @@ cases' Complex and Randomizer runs unchanged): 2.1 -> 1.5 s on Prison and
 Island, 0.84 -> 0.54 s on Junkyard. What is left is the collision queries of
 the floor search (`cdCollectGeoForCylFromList`, 30%) and the links' tile
 walks (`stanWallFind`, 12%).
+
+## Above 60 FPS: the player's own view (2026-10-10, high-framerate pass, fix/highfps-player)
+
+Measure with `--fixed-fps 240` against `--fixed-step` and a gdb breakpoint that prints the state per frame
+(`bgunRender` is once a frame; `bmoveProcessInput` is a good place to force input: OR a button into every
+`g_JoyData[0].samples[k].pads[0].button`, set `g_PlayerConfigsArray[mpindex].controlmode`). Every fix keeps
+the stock expression on the 60 FPS path, tested as `lvupdate240 != lvupdate60 * 4` (true also at 30 and on
+a netplay sim tick 4/1 and a present pass 0/0), or `diffframe240 != 4` for things drawn by screen time.
+The shapes, by kind:
+- **Integer 60th steppers** (applySpeed() in 60ths): run it in lvupdate240 quarter steps with accel scaled
+  by the quarter and the distance step `speed*dt + (speed - prevspeed)*(1 - dt)/2`, which makes four quarter
+  steps cover one 60th step exactly under constant acceleration (crouch: bwalkApplyCrouchSpeed240()).
+- **Pose read off a state's 60ths** (stateframes, count60 in the gun's arm dip and recoil curve): add the time
+  since that 60th, `lvupdate240rem * 0.25f` (bgunArmTicks()) - the state still steps in 60ths, the pose moves
+  every frame and lands on the 60 FPS values on the 60ths.
+- **Model animation in 60ths** (the gun: modelTickAnim(animframeinc = lvupdate60)): tick lvupdate240 with
+  modelTickAnimQuarterSpeed() and read the count as quarter frames in the keyframe tests.
+- **Counters bumped per frame or per input sample** (usedowntime, hand->count, the gun-load step, the
+  explosion shake timers, the vi flip): bump by lvupdate60 instead; where `== 0` means "first frame in this
+  state", bump to 1 on the first frame. Per-frame amounts on the screen (IR scanner sweep): scale by
+  diffframe240/4 and carry the fraction.
+Left: the gun state machine's frame-to-frame transitions (mode 6 -> 7 -> raise each take a frame), so a weapon
+switch at 240 is ~3.5 ticks shorter than at 60 (34.5 vs 38 to the draw); PAL/JPN builds' gun animation
+(animframeincfreal path) still steps; the walk sway catch-up (bondwalk.c `spa8` loop over lvupdate60) still
+comes every fourth frame - unmeasured, as stick input could not be forced from gdb.
