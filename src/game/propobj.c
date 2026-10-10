@@ -11134,13 +11134,30 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 		f2 *= PAL ? 0.976f : 0.98f;
 	}
 
-	chopper->vx += dir->x;
-	chopper->vy += dir->y;
-	chopper->vz += dir->z;
+#ifndef PLATFORM_N64
+	if (g_Vars.lvupdate240 & 3) {
+		// The thrust was added and the drag taken once a frame, so the
+		// speed's response (a shot-down one's fall above all) ran at the
+		// frame rate. Per 240th: a quarter of the thrust, then the fourth
+		// root of the drag.
+		const f32 drag240 = PAL ? __builtin_powf(0.976f, 0.25f) : __builtin_powf(0.98f, 0.25f);
 
-	chopper->vx *= f2;
-	chopper->vy *= f2;
-	chopper->vz *= f2;
+		for (i = 0; i < g_Vars.lvupdate240; i++) {
+			chopper->vx = (chopper->vx + dir->x * 0.25f) * drag240;
+			chopper->vy = (chopper->vy + dir->y * 0.25f) * drag240;
+			chopper->vz = (chopper->vz + dir->z * 0.25f) * drag240;
+		}
+	} else
+#endif
+	{
+		chopper->vx += dir->x;
+		chopper->vy += dir->y;
+		chopper->vz += dir->z;
+
+		chopper->vx *= f2;
+		chopper->vy *= f2;
+		chopper->vz *= f2;
+	}
 
 	if (chopper->attackmode != CHOPPERMODE_FALL) {
 		if (chopper->attackmode != CHOPPERMODE_PATROL || chopper->patroltimer60 > 0) {
@@ -11758,11 +11775,29 @@ void hovercarTick(struct prop *prop)
 			}
 		} else {
 			if (hovercar->speedtime60 == 0) {
-				hovercar->speed += 6;
-
 				sp1c0.x = prop->pos.x;
-				sp1c0.y = prop->pos.y - hovercar->speed;
 				sp1c0.z = prop->pos.z;
+
+#ifndef PLATFORM_N64
+				// A shot-down taxi or limo gained 6 of speed and fell by it
+				// once a frame: sixteen times the drop per second at 240 FPS.
+				// A frame of a fraction of a 60th takes quarter steps.
+				if (g_Vars.lvupdate240 & 3) {
+					f32 drop = 0.0f;
+					s32 i;
+
+					for (i = 0; i < g_Vars.lvupdate240; i++) {
+						hovercar->speed += 1.5f;
+						drop += hovercar->speed * 0.25f;
+					}
+
+					sp1c0.y = prop->pos.y - drop;
+				} else
+#endif
+				{
+					hovercar->speed += 6;
+					sp1c0.y = prop->pos.y - hovercar->speed;
+				}
 
 				if (sp1c0.y < hovercar->speedaim) {
 					sp1c0.y = hovercar->speedaim;
