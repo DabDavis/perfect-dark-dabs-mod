@@ -52,8 +52,10 @@
  * (modelSetMatricesWithAnim with chrHandleJointPositioned, in the shooter's
  * camera) into fresh gfxAllocate memory. model->matrices points at those
  * only for the chr loop: netLagCompShotEnd puts every pointer back, so the
- * live matrices are never written. Held guns and hats ride along (their
- * matrices moved rigidly with the node they hang from). Health, shields and
+ * live matrices are never written - except an off-screen chr's, which keeps
+ * the rebuilt ones (its own are not this frame's; netLcRestore). Held guns
+ * and hats ride along (their matrices moved rigidly with the node they hang
+ * from). Health, shields and
  * who is alive stay current: only where the body was is taken back, and
  * never from an earlier life (a respawn or a teleport since ends the
  * history: struct netlclife). How far back is bounded by the host's own
@@ -902,7 +904,7 @@ static s32 netLcDeadPlayer(struct prop *prop)
  * a shot's whose swept box its ray crosses, or (the autoaim) whose old place
  * is in front of this camera. Rebuilt the same way, flagged on this screen
  * and put on the end of the on-screen list for the chr loop; both taken off
- * again with the matrices (netLcRestore)
+ * again in netLcRestore, which leaves it the rebuilt matrices
  */
 static void netLcRewindOffscreen(const struct shotdata *sd, f64 view)
 {
@@ -1087,7 +1089,19 @@ static void netLcRestore(void)
 			r->kids[k].model->matrices = r->kids[k].oldmtx;
 		}
 
-		r->model->matrices = r->oldmtx;
+		// A chr rewound from off this screen keeps the matrices it was
+		// rebuilt in: its own pointer is not this frame's (a frame long gone,
+		// or, for a chr this machine has never drawn - a guard spawned out of
+		// sight - NULL or whatever the stage pool held), and the shot's hits
+		// are dealt after this, by chrHit(), which finds the blood's place in
+		// the hit model's matrices. A remote player's shot on such a chr read
+		// through that pointer (crash 20261010-051827: NULL; 194537: garbage).
+		// The rebuilt ones are this frame's memory, in this pass's camera,
+		// which is what the hit was found in; nothing draws the chr from them.
+		if (!r->offscreen) {
+			r->model->matrices = r->oldmtx;
+		}
+
 		r->prop->z = r->oldz;
 
 		if (r->offscreen) {

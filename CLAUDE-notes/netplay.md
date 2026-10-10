@@ -2654,3 +2654,17 @@ in their own sections' notes.
   crates by the line; prop placement on Train matches the cartridge (the
   gefidelity world gate), the solo mission just never goes outside.
   randomizer-run.md, "Wider spacing left pieces", has the pad-graph side.
+
+- **Lag compensation: an off-screen chr keeps its rebuilt matrices (F3
+  pass 36, crashes 20261010-051827 and -194537).** netLcRestore() used to
+  put every rewound chr's `model->matrices` back before the shot's hits were
+  dealt. For a chr rewound from off the shooter's screen that pointer is not
+  this frame's: a long-gone frame's, or for a chr the host has never drawn (a
+  GoldenEye guard spawned out of sight) NULL or leftover stage-pool bytes,
+  since modelInit() never sets it. chrHit() then read the blood's place
+  through it (mtx0001719c from chrHit, under lvRender in a remote player's
+  pass). The off-screen ones now keep the rebuilt matrices (this frame's gfx
+  memory, this pass's camera, where the hit was found); on-screen ones are
+  put back as before. Reproduced by forcing every rewind the off-screen way
+  with a NULL old pointer (the netlagcomptest `on` case): the reported stack
+  exactly, gone with the fix.
