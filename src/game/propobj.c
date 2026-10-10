@@ -5051,8 +5051,24 @@ void weaponTick(struct prop *prop)
 			// empty
 		}
 	} else if (weaponHasFlag3(weapon->weaponnum, WEAPONFLAG3_REMOTEDETONATED)) {
+#ifndef PLATFORM_N64
+		// A remote mine in a hand is no mine thrown. The body third person
+		// shows (and a split-screen player's or a simulant's) holds one as a
+		// weapon prop, and weaponCreateForChr() leaves its owner bits clear,
+		// which read as player 1's: the detonator blew up the mine in the
+		// hand, and the player with it, whether or not one had been thrown
+		// (F3 20261006-021755, the Institute's firing range; GoldenEye's own
+		// remote mine the same since its held prop is GoldenEye's)
+		struct prop *holder = prop->parent;
+		const bool held = holder && (holder->type == PROPTYPE_CHR || holder->type == PROPTYPE_PLAYER)
+			&& holder->chr
+			&& (holder->chr->weapons_held[HAND_RIGHT] == prop || holder->chr->weapons_held[HAND_LEFT] == prop);
+#else
+		const bool held = false;
+#endif
+
 		// Handle remote mines
-		if (g_PlayersDetonatingMines != 0) {
+		if (g_PlayersDetonatingMines != 0 && !held) {
 			s32 ownerplayernum = OBJ_OWNER(obj);
 			struct chrdata *parentchr = prop->parent ? prop->parent->chr : NULL;
 
@@ -16418,6 +16434,18 @@ void objCheckDestroyed(struct defaultobj *obj, struct coord *pos, s32 playernum)
 
 				func0f065e74(&rootprop->pos, rootprop->rooms, pos, rooms);
 
+#ifndef PLATFORM_N64
+				// GoldenEye blows a destroyed prop apart again with its
+				// explosion 0x10 (propobj.c's objExplode(), every fourth shot
+				// past a destroyed level, whatever the prop's own explosion
+				// is): debris and a puff, no flame, no blast, no shake - the
+				// row Perfect Dark kept as its 16. Perfect Dark's own small
+				// fireball (6) hurt and burned on a converted level's
+				// wreckage at every fourth shot (F3 20261005-035700, Aztec)
+				if (geRoomActive()) {
+					explosionCreateSimple(prop, pos, rooms, EXPLOSIONTYPE_16, playernum);
+				} else
+#endif
 				if (exptype != EXPLOSIONTYPE_NONE) {
 					explosionCreateSimple(prop, pos, rooms, EXPLOSIONTYPE_6, playernum);
 				}
@@ -16825,6 +16853,52 @@ void cctvHandleLensShot(struct defaultobj *obj)
 	rwdata->toggle.visible = false;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * A shot on a camera drawn from the XBLA release (the HD look's GoldenEye
+ * cameras): whether it went through the lens, which objHit() makes a one-shot
+ * kill as GoldenEye does (propobj.c: a hit on Switches[1], the lens's list).
+ * The release draws the camera in one piece, and its hit names the list that
+ * piece was drawn for - the mount's - so no shot in the HD look was ever on the
+ * lens and a camera took four PP7 rounds (F3 20261006-025257 and
+ * 20261004-224327, Bunker; the N64 look was right). The ROM model the mesh is
+ * posed on still has the lens: the shot counts as the lens's when it passes
+ * through the ROM lens no deeper than the drawn surface it hit (not out of the
+ * camera's front after entering its back), while the glass is still there.
+ */
+static void cctvMeshHitLens(struct model *model, struct shotdata *shotdata, struct hitthing *meshhit,
+		s32 meshmtx, struct modelnode **dlnode)
+{
+	struct modelnode *lens = modelGetPart(model->definition, MODELPART_CCTV_LENS);
+	struct modelnode *toggle = modelGetPart(model->definition, MODELPART_CCTV_0003);
+	struct hitthing lensthing;
+	struct modelnode *lensnode = NULL;
+	struct coord meshpos;
+	struct coord lenspos;
+	s32 lensmtx = -1;
+
+	if (lens == NULL || (lens->type & 0xff) != MODELNODETYPE_DL
+			|| (toggle && !((union modelrwdata *) modelGetNodeRwData(model, toggle))->toggle.visible)) {
+		return;
+	}
+
+	if (!func0f0849dc(model, lens, &shotdata->gunpos2d, &shotdata->gundir2d, &lensthing, &lensmtx, &lensnode)
+			|| lensmtx < 0 || lensmtx >= model->definition->nummatrices
+			|| meshmtx < 0 || meshmtx >= model->definition->nummatrices) {
+		return;
+	}
+
+	mtx4TransformVec(&model->matrices[meshmtx], &meshhit->pos, &meshpos);
+	mtx4TransformVec(&model->matrices[lensmtx], &lensthing.pos, &lenspos);
+
+	// both in the camera's space: the lens no more than a little behind the
+	// release's front face (the two are modelled within a couple of units)
+	if (-lenspos.z <= -meshpos.z + 6.0f) {
+		*dlnode = lens;
+	}
+}
+#endif
+
 void func0f085050(struct prop *prop, f32 damage, struct coord *pos, s32 arg3, s32 playernum)
 {
 	struct defaultobj *obj = prop->obj;
@@ -17228,6 +17302,8 @@ void func0f0859a0(struct prop *prop, struct shotdata *shotdata)
 		if (meshhit >= 0) {
 			if (meshhit == 0) {
 				hitpart = 0;
+			} else if (obj->type == OBJTYPE_CCTV && model->definition->skel == &g_SkelCctv) {
+				cctvMeshHitLens(model, shotdata, &hitthing1, spe4, &node2);
 			}
 		} else if (doorIsGeWholeModel(obj, false)) {
 			hitpart = doorGeTestWholeModel(obj, &shotdata->gunpos2d, &shotdata->gundir2d, &hitthing1, &spe4, &node1, &node2);
@@ -18717,9 +18793,10 @@ s16 g_AmmoTypeWeapons[AMMOTYPE_ECM_MINE + 1] = {
  * add_ammo_to_inventory() gives ITEM_GRENADE (F3 20260926-222337, Runway: a
  * crate's grenades put Perfect Dark's grenade and its HUD in Bond's hand with
  * "Include Perfect Dark Guns" off). The Perfect Dark one stays the answer when
- * it is already held - the two share the pool - and for anything a mod set.
+ * it is already held (`pdheld`) - the two share the pool - and for anything a
+ * mod set. A simulant asks with its own inventory (botactGetWeaponByAmmoType()).
  */
-static s32 ammotypeGeWeapon(s32 weapon)
+s32 ammotypeGeWeaponFor(s32 weapon, bool pdheld)
 {
 	s32 ge;
 
@@ -18736,7 +18813,12 @@ static s32 ammotypeGeWeapon(s32 weapon)
 	default: return weapon;
 	}
 
-	return invHasSingleWeaponExcAllGuns(weapon) ? weapon : ge;
+	return pdheld ? weapon : ge;
+}
+
+static s32 ammotypeGeWeapon(s32 weapon)
+{
+	return ammotypeGeWeaponFor(weapon, invHasSingleWeaponExcAllGuns(weapon));
 }
 #endif
 

@@ -843,7 +843,7 @@ bool botTestPropForPickup(struct prop *prop, struct chrdata *chr)
 		}
 
 		for (i = 0; i < 0x13; i++) {
-			weaponnum = botactGetWeaponByAmmoType(i + 1);
+			weaponnum = botactGetWeaponByAmmoType(chr, i + 1);
 
 			if (crate2->slots[i].quantity > 0) {
 				if (botactGetAmmoQuantityByType(chr->aibot, i + 1, false) < bgunGetCapacityByAmmotype(i + 1)) {
@@ -2427,7 +2427,7 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 							s32 ammotype = i + 1;
 
 							if (crate->slots[i].quantity > 0) {
-								weaponnum = botactGetWeaponByAmmoType(ammotype);
+								weaponnum = botactGetWeaponByAmmoType(chr, ammotype);
 
 								if (weaponnum > 0) {
 									for (j = 0; j < ARRAYCOUNT(weaponnums); j++) {
