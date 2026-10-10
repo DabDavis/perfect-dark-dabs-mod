@@ -14862,3 +14862,32 @@ time a pane touches its portal): a portal behind a far pane is open in the XBLA
 look where the N64 look shuts it, so chrs beyond count as seen (they move with
 collision, `chraction.c`'s off-screen test) - as with Glass See-Through. Not
 part of the built level: no HDCACHE bump.
+
+## A converted mission's clock, the tank's shells under Infinite Ammo, a psychosed guard's voice (36th F3 pass, 2026-10-10, fix/f3-1010c-geplay)
+
+**The mission time.** GoldenEye adds to `mission_timer` (bondview2.c) only in
+`CAMERAMODE_NONE`, in `CAMERAMODE_FP` while `is_timer_active` is set, and in the
+fade to the title - so never over the opening's still, fade or swirl, and never
+between a list's `BondDisableControl` and its `BondEnableControl` (chrai.c sets
+`is_timer_active` false/true there). The port's clock (`bondviewlevtime60`,
+`playerGetMissionTime()`, which the GoldenEye HUD timer, the report and the
+death camera read) ran over all of them: only the swirl is `TICKMODE_WARP`, the
+still and the fade tick as normal play. `gecinemaMissionTimerHeld()` holds it
+on a converted mission from the stage start (`g_GeIntroPending`) to the end of
+the opening, and while `aiRevokeControl()` has taken control
+(`gecinemaSetMissionTimerHeld()`, converted missions only; a Randomizer run
+never revokes control, so never holds).
+
+**Infinite Ammo and the tank.** GoldenEye's cheat calls
+`set_max_ammo_for_cur_player()` each frame, every ammunition type to its
+`ammo_related` most, AMMO_TANK (50) among them, on foot as in the seat.
+Perfect Dark's `bgunAmmotypeAllowsUnlimitedAmmo()` left out `AMMOTYPE_1D` (its
+leftover of GoldenEye's AMMO_TANK, which getank.c spends), so the All Guns
+"Tank" showed no shells. It is filled on the remake's stages
+(`modloaderStageIsRemake()`); Perfect Dark never uses the type.
+
+**Voices.** GoldenEye's lists have no quip command; a converted guard reaches
+`aiSayQuip()` only through Perfect Dark's own lists, i.e. the psychosis gun's
+(`GAILIST_PSYCHOSISED` and the combat it hands to), where he spoke Perfect
+Dark's guard lines. `aiSayQuip()` says nothing on a conversion's stage
+(`modloaderDirIndexIsConversion()`, GoldenEye's and its ROM hacks' levels).

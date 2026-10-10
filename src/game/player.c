@@ -5618,7 +5618,11 @@ void playerTick(bool arg0)
 	bgunSetGunAmmoVisible(GUNAMMOREASON_OPTION, optionsGetAmmoOnScreen(g_Vars.currentplayerstats->mpindex));
 	bgunSetSightVisible(GUNSIGHTREASON_1, true);
 
-	if ((g_Vars.tickmode == TICKMODE_GE_FADEIN || g_Vars.tickmode == TICKMODE_NORMAL) && !g_InCutscene && !g_MainIsEndscreen) {
+	if ((g_Vars.tickmode == TICKMODE_GE_FADEIN || g_Vars.tickmode == TICKMODE_NORMAL) && !g_InCutscene && !g_MainIsEndscreen
+#ifndef PLATFORM_N64
+			&& !gecinemaMissionTimerHeld()
+#endif
+			) {
 		g_Vars.currentplayer->bondviewlevtime60 += g_Vars.lvupdate60;
 	}
 

@@ -50,6 +50,10 @@ void gecinemaArm(s32 mission, s32 what);
 s32 gecinemaEndingOver(void);
 // Every stage load, from setup.c: takes up what the folder armed.
 void gecinemaStageStart(void);
+// Whether a converted mission's clock (playerGetMissionTime()) stands still:
+// its opening, and a list's BondDisableControl to its BondEnableControl
+s32 gecinemaMissionTimerHeld(void);
+void gecinemaSetMissionTimerHeld(s32 held);
 s32 gecinemaIsOn(void);
 // Every frame of a level, from lvTick().
 void gecinemaTick(void);

@@ -223,6 +223,7 @@ static const struct { s16 geanim; f32 start; f32 end; f32 speed; } g_GeIntroAnim
 
 static s32 g_GeBondBodyWeapon = WEAPON_NONE;   // gecinemaBondBodyWeapon()
 static s32 g_GeIntroPending;          // this stage is a mission that has not opened yet
+static s32 g_GeTimerHeld;             // GoldenEye's is_timer_active, the other way round
 static s32 g_GeIntroStage;
 static const u8 *g_GeIntroShot;
 // whether the level's opening sky is up (gecinemaCinemaFog())
@@ -354,6 +355,7 @@ void gecinemaStageStart(void)
 	// A mission that is not the Cinema page's opens on its own cinema. The
 	// probes that boot straight into a level can ask for it not to.
 	g_GeIntroStage = GEINTRO_NONE;
+	g_GeTimerHeld = 0;
 	g_GeIntroPending = g_GeCinemaMission < 0
 		&& modloaderStageIsMission(g_Vars.stagenum)
 		&& !sysArgCheck("--skip-mission-intro");
@@ -383,6 +385,27 @@ s32 gecinemaIntroIsStill(void)
 {
 	return g_GeIntroPending || g_GeIntroStage == GEINTRO_STILL || g_GeIntroStage == GEINTRO_FADE
 		|| (gecinemaIsOn() && g_GeCinemaWhat == GECINEMA_OPENING && g_GeIntroStage == GEINTRO_NONE);
+}
+
+/**
+ * Whether a converted mission's clock stands still this frame. GoldenEye's
+ * mission time (bondview2.c, mission_timer) runs only in CAMERAMODE_NONE, in
+ * CAMERAMODE_FP while is_timer_active is set, and in the fade to the title:
+ * never over the opening's still, fade or swirl, and never between a list's
+ * BondDisableControl and its BondEnableControl (chrai.c), which is where a
+ * level's own cutscenes are. Perfect Dark's ran over all of them
+ * (F3 20261010-202018, "the timer should only count from when you take
+ * control of Bond").
+ */
+s32 gecinemaMissionTimerHeld(void)
+{
+	return g_GeIntroPending || g_GeIntroStage != GEINTRO_NONE || g_GeTimerHeld;
+}
+
+/** A converted mission's list took Bond's control away (held) or gave it back. */
+void gecinemaSetMissionTimerHeld(s32 held)
+{
+	g_GeTimerHeld = held && modloaderStageIsMission(g_Vars.stagenum);
 }
 
 /** And its IFCameraIsInBondSwirl. */
