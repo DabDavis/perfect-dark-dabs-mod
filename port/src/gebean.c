@@ -2121,7 +2121,9 @@ static const char *gebeanPoolEntryMissing(s32 i)
 
 		snprintf(source, sizeof(source), "%s/%s", looks[look], poolRows[i].row.source);
 
-		snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
+		if (!gebeanCeFilePath(path, sizeof(path), source, "default.bin")) {
+			snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
+		}
 
 		if (fsFileSize(path) <= 0) {
 			return look ? "its N64-look entry is missing" : "its entry is missing";
@@ -5183,7 +5185,11 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 	memset(bm, 0, sizeof(*bm));
 	bm->keepparts = keepparts;
 	bm->original = strncmp(source, "original/", 9) == 0;
-	snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
+	// the Community Edition's copy first, where it is art and this session
+	// draws it (gebeance.c)
+	if (!gebeanCeFilePath(path, sizeof(path), source, "default.bin")) {
+		snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
+	}
 
 	fp = fopen(path, "rb");
 
@@ -14700,6 +14706,17 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	// Also what the pictures are keyed on, so the two looks never share one
 	snprintf(source, sizeof(source), "%s/%s", original ? "original" : "new", r->source);
 
+	// Doctor Doak with the Community Edition's art on: its own Doak head, the
+	// release's headneil (his face, which he wears otherwise) refitted for his
+	// place and without the glasses GoldenEye's Doak never wore (gebeance.c)
+	if (!original && r->file && strcmp(r->file, "Cgx051Z") == 0) {
+		char cepath[FS_MAXPATH + 1];
+
+		if (gebeanCeFilePath(cepath, sizeof(cepath), "new/head/headdave", "default.bin")) {
+			snprintf(source, sizeof(source), "new/head/headdave");
+		}
+	}
+
 	if (gebeanEnvNames("PD_GEBEAN_FAILBUILD", r->source)) {
 		beanWhy = "its mesh did not build (PD_GEBEAN_FAILBUILD)";
 		return NULL;
@@ -16172,10 +16189,12 @@ struct gebeanlevel *gebeanSkyOpen(const char *name)
 
 	snprintf(source, sizeof(source), "new/skydome/%s", name);
 
-	snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
+	if (!gebeanCeFilePath(path, sizeof(path), source, "default.bin")) {
+		snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
 
-	if (fsFileSize(path) < 0) {
-		return NULL;
+		if (fsFileSize(path) < 0) {
+			return NULL;
+		}
 	}
 
 	level = calloc(1, sizeof(*level));
@@ -17013,7 +17032,9 @@ static s32 beanLoadFile(struct beanmodel *bm, const char *source, const char *na
 		return 0;
 	}
 
-	snprintf(path, sizeof(path), "%s/%s/%s", rootPath, source, name);
+	if (!gebeanCeFilePath(path, sizeof(path), source, name)) {
+		snprintf(path, sizeof(path), "%s/%s/%s", rootPath, source, name);
+	}
 
 	fp = fopen(path, "rb");
 

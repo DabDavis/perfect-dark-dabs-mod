@@ -5674,15 +5674,14 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * Building the release's mesh into the rooms takes a second or more a load
  * (Dam 1.6 s, Frigate 2.5 s) and comes out the same every time for the same
  * inputs, so what it leaves behind is written to
- * cache/xbla/goldeneye/levels/<key>_<file>.bin and read back instead (a
- * <key>_<file>_ce.bin is an old one built from the Community Edition's overlay,
- * deleted at the start: gebeanCePurge()).
+ * cache/xbla/goldeneye/levels/<key>_<file>[_ce].bin and read back instead
+ * (_ce: built with the Community Edition's art, gebeance.c).
  *
  * The key is a hash of everything the build reads: HDCACHE_VERSION (bump it
  * on ANY change to what build() or the functions it calls produce, here or
  * in gebean.c's level walk and pictures), the binary's commit, the struct
  * layouts, the level's table row, the release's level file byte for
- * byte, the pictures' alpha as bound, the level file's rooms
+ * byte, whether the Community Edition's art is on, the pictures' alpha as bound, the level file's rooms
  * (their bytes, bases, positions and boxes), the doors' boxes and the
  * environment's water. No setting is read by the build. A file whose header,
  * length, key or checksum is wrong is built over and rewritten.
@@ -5777,6 +5776,8 @@ static u64 hdcacheKey(const char *levelname, u8 **filerooms, u32 *filelens, s32 
 	h = hashBytes(h, &row->scale, sizeof(row->scale));
 	h = hashBytes(h, row->offset, sizeof(row->offset));
 	h = hashStr(h, levelname);
+	// the Community Edition's art: Control's and Bunker 2's pictures are its own
+	h = hashU32(h, gebeanCeIsActive());
 
 	file = gebeanLevelFileBytes(level, &filelen);
 	h = hashU32(h, filelen);
@@ -5845,7 +5846,8 @@ static s32 hdcachePath(char *dst, u32 dstLen, const char *levelname, s32 temp)
 		fsCreateDir(dst);
 	}
 
-	snprintf(dst, dstLen, "%s/levels/%s_%s.bin%s", dir, row->key, levelname, temp ? ".tmp" : "");
+	snprintf(dst, dstLen, "%s/levels/%s_%s%s.bin%s", dir, row->key, levelname,
+			gebeanCeIsActive() ? "_ce" : "", temp ? ".tmp" : "");
 
 	return 1;
 }
@@ -8146,7 +8148,8 @@ static const struct { s16 levelid; s32 end; } beanFogsCe[] = {
 /**
  * The table, once a session: the player's default.xex beside the release's
  * files/, else the retail rows built in; the Community Edition's distances
- * over either.
+ * over either, and with its art on (its skydomes) the colours its own table
+ * gives them (gebeanCeFogTablePath(), its patched default.xex).
  */
 static void fogTableLoad(void)
 {
@@ -8194,6 +8197,32 @@ static void fogTableLoad(void)
 				beanFogs[i].end = beanFogsCe[k].end;
 			}
 		}
+	}
+
+	// The colours go with the Community Edition's own domes: taken only with
+	// its art on, level by level from its patched table
+	if (gebeanCeFogTablePath(path, sizeof(path)) && (data = fogFileLoad(path, &len)) != NULL) {
+		s32 recoloured = 0;
+
+		for (u32 o = 0; o + BEANFOG_ROW <= len; o += BEANFOG_ROW) {
+			const s16 levelid = (s16)(data[o] << 8 | data[o + 1]);
+
+			if (levelid == 0) {
+				break;
+			}
+
+			for (s32 i = 0; i < numBeanFogs; i++) {
+				const u32 rgb = beBe32(data + o + 0x28) >> 8;
+
+				if (beanFogs[i].levelid == levelid && beanFogs[i].rgb != rgb && levelid != 34) {
+					beanFogs[i].rgb = rgb;
+					recoloured++;
+				}
+			}
+		}
+
+		free(data);
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %d of the HD fog's colours from the Community Edition's art", recoloured);
 	}
 
 	sysLogPrintf(LOG_NOTE, "gebeanstage: the HD levels' fog: %d rows from %s", numBeanFogs, from);
@@ -8252,6 +8281,10 @@ s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb)
 	rgb[0] = f->rgb >> 16;
 	rgb[1] = f->rgb >> 8;
 	rgb[2] = f->rgb;
+
+	// A Community Edition dome whose horizon is not the fog's colour gives
+	// it its own (Surface 2's grey storm), with its art on
+	gebeanSkyFogColour(rgb);
 
 	// GoldenEye's gas cloud (and sky switch) fades the level's fog to its
 	// second sky (bgfog.c's fogSwitchToSolosky2(); env.c's

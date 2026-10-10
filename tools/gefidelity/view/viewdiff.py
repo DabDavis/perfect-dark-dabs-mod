@@ -58,11 +58,12 @@ DEFAULT_OUT = {'ares': os.path.join(RUNROOT, 'view-ares'), 'port': os.path.join(
 # --oracle xenia: GoldenEye XBLA ("Bean") is the reference for our HD look, and
 # both sides run the Community Edition (user 2026-10-01: "use Community
 # edition, since that is what we use for ge plus"): Bean's CE build in Xenia,
-# Mod.GeXblaCommunityEdition with the updater in our added-content
+# Mod.GeXblaCommunityEditionArt with the updater in our added-content (the CE's
+# fixes are built in; its art needs the zip)
 BEAN_CE_XEX = '/home/sdg/perfect-dark/.xbla-work/ge-bean/BeanCE/defaultCE.xex'
 CE_ZIP = '/home/sdg/perfect-dark/perfect_dark/build/gexrom/added-content/CommunityEditionUpdaterV6.zip'
 BEAN_DIR = '/home/sdg/perfect-dark/.xbla-work/ge-bean/Bean'
-HD_KEYS = {'XblaMeshes': 1, 'XblaStages': 1, 'XblaSkies': 1, 'XblaMeshTextures': 1, 'GeXblaCommunityEdition': 1}
+HD_KEYS = {'XblaMeshes': 1, 'XblaStages': 1, 'XblaSkies': 1, 'XblaMeshTextures': 1, 'GeXblaCommunityEditionArt': 1}
 BEAN_FRAME = (1280, 720)        # what Bean presents; the rig photographs it into 1280x695
 W, H = 320, 220                 # the compare size: GoldenEye's in-level viewport (set_geometry() per run)
 PD_SCALE = 2                    # ours renders at twice GoldenEye's viewport
