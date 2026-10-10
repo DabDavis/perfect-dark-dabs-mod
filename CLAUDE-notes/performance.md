@@ -460,3 +460,46 @@ cases' Complex and Randomizer runs unchanged): 2.1 -> 1.5 s on Prison and
 Island, 0.84 -> 0.54 s on Junkyard. What is left is the collision queries of
 the floor search (`cdCollectGeoForCylFromList`, 30%) and the links' tile
 walks (`stanWallFind`, 12%).
+
+## Props above 60 FPS: the shapes the fixes took (2026-10-10, fix/highfps-props)
+
+Above 60 FPS a prop's tick sees lvupdate240 = 1-3 and lvupdate60 0 on most
+frames (per prop: propsTickPlayer() hands a prop ticked every frame the
+global values, one that skipped frames its own accumulated 240ths and
+propupdate60err). One test separates the two worlds: **`(g_Vars.lvupdate240 &
+3) == 0`** is a frame of whole 60ths - every frame at 60 and 30 FPS and an
+online sim tick - and there lvupdate60 == lvupdate240 / 4 exactly, so the
+original arithmetic runs there and 60 FPS stays bit-identical (replay test,
+and per-frame gdb traces of each object). Only the other frames take the
+new path. Three shapes, all in src/game/propobj.c:
+
+- **Moves in steps** (doors, lifts, chopper/hovercar turns, the chopper's gun
+  aim): `applySpeedSmooth()` / `applyRotationSmooth()` - applySpeed's
+  accelerate/decelerate loop in lvupdate240 quarter steps (a quarter of
+  accel/decel, a quarter of the speed travelled). Opt-in per caller; crouch,
+  chr turning and the title logo still call applySpeed. A player on a lift
+  follows it every frame for free (platformDisplaceProps() moves riders by the
+  lift's delta).
+- **Runs at the frame rate** (an easing `x += (t - x) * k`, a drag `v *= f`, a
+  phase `+= c`, an acceleration added once a frame): per-240th constants -
+  `1 - (1-k)^(1/4)` and `f^(1/4)` as `__builtin_powf` constants (fold at
+  compile time) in a `for (i < lvupdate240)` loop, or `c * lvupdate60f`.
+- **A discrete per-step event** (a wobble that flips side per step, a gun that
+  fires every other step, a random roll against a frame counter): gate it to
+  frames where `lvupdate60 > 0`, so it happens once per 60th; roll against
+  lvframe60 instead of lvframenum there. Keep the rngRandom() call inside the
+  gate on the original path so 60 FPS draws call for call.
+
+Measuring: `--fixed-fps 240` against `--fixed-step`, gdb Python on
+videoEndFrame (stop() returning False, reads and `set var` only), the prop
+found by walking g_Vars.activeprops (doors are PROPTYPE_DOOR, not OBJ) and
+`prop->forcetick = 1` so an off-screen one ticks every frame (a background
+prop ticks once per numpropstates frames with the time accumulated - which
+looks like 60 Hz-ish stepping and is not the bug). Kills and teleports were
+emulated by writing the fields the death code writes, or by an inferior call
+from a top-level stop (`chrMoveToPos(player chr, &lift->pos, rooms, 0, 1)`
+puts Jo on a lift).
+
+Left as they were (seen, not in this pass): escalator steps (escastepTick,
+frame += lvupdate60), hoverprop bob (hov->bob* through applySpeed), autogun
+turning (applyRotation), the projectile's lastwooshframe/bounceframe gates.
