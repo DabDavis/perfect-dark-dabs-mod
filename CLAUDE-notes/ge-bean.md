@@ -14895,4 +14895,5 @@ part of the built level: no HDCACHE bump.
   guard spawned beside him (chr 2, heading for pad 2) and he steer round each
   other step by step (WAYMODE_NEWOBSTACLE every few ticks, both with
   CDTYPE_CHRS as on the cartridge). Not fixed; twin scenario
-  tools/gefidelity/scratch/janus.py style (GF_TURNPOS=10962,2003,181).
+  ~/wt/f3-1010c-gemission-run/twin-scenarios/janus.py (copy into tools/gefidelity;
+  GF_TURNPOS=10962,2003,181 puts Bond where the tester stood).
