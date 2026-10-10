@@ -16724,6 +16724,7 @@ void chrsClearRefsToPlayer(s32 playernum)
 	s32 otherplayernum;
 	s32 playerpropnum;
 	s32 i;
+	bool keepp1p2 = false;
 
 	if (g_Vars.coopplayernum >= 0 && playernum >= 0 && playernum < MAX_PLAYERS
 			&& g_Vars.players[playernum] && g_Vars.players[playernum]->prop) {
@@ -16731,8 +16732,19 @@ void chrsClearRefsToPlayer(s32 playernum)
 		otherplayernum = coopOtherPlayerNum(playernum);
 		playerpropnum = g_Vars.players[playernum]->prop - g_Vars.props;
 
+#ifndef PLATFORM_N64
+		// A converted mission's lists keep the host's player as Bond
+		// (CHR_P1P2, coop.c's coopRetarget()) for what only Bond does - its
+		// exit among them. A death online co-op brings back (Mission Respawn)
+		// moved every list's Bond to another player for good, and the host's
+		// player, back in the game, reached Bunker's exit with nothing
+		// happening (F3 20261010-044027). Such a death leaves p1p2 where it
+		// is; the guards' targets still let go of the dead player.
+		keepp1p2 = modloaderStageIsMission(g_Vars.stagenum) && netCoopRespawnDue(playernum);
+#endif
+
 		for (i = 0; i < chrsGetNumSlots(); i++) {
-			if (g_ChrSlots[i].p1p2 == playernum) {
+			if (g_ChrSlots[i].p1p2 == playernum && !keepp1p2) {
 				g_ChrSlots[i].p1p2 = chrsPlayerAfterDeath(&g_ChrSlots[i], playernum, otherplayernum);
 			}
 
@@ -16742,7 +16754,7 @@ void chrsClearRefsToPlayer(s32 playernum)
 		}
 
 		for (i = 0; i < g_NumBgChrs; i++) {
-			if (g_BgChrs[i].p1p2 == playernum) {
+			if (g_BgChrs[i].p1p2 == playernum && !keepp1p2) {
 				g_BgChrs[i].p1p2 = chrsPlayerAfterDeath(&g_BgChrs[i], playernum, otherplayernum);
 			}
 
@@ -16778,6 +16790,17 @@ s32 chrResolveId(struct chrdata *ref, s32 id)
 			}
 			break;
 		case CHR_COOP:
+			// past two players: the co-op player that list last saw
+			// activate something (coop.c), else the game's own
+			if (coopActorFor(ref) >= 0) {
+				struct player *actor = g_Vars.players[coopActorFor(ref)];
+
+				if (actor->prop->chr) {
+					id = actor->prop->chr->chrnum;
+					break;
+				}
+			}
+
 			if (g_Vars.coop && g_Vars.coop->prop && g_Vars.coop->prop->chr) {
 				id = g_Vars.coop->prop->chr->chrnum;
 			}

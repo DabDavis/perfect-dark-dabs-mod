@@ -182,6 +182,15 @@ void netStageStart(void)
 	s_NetMouseDY = 0;
 	frametimeNetReset();
 
+	// The host's last tick rate is a client's tick rate (lvTick), and only
+	// the host writes it: a game that hosted a match and then joined someone
+	// else's room as a client kept the 0 its last hosted tick left (a mission
+	// aborted, a barrier held) and ran the whole match paused - lvframenum 0,
+	// no gun, a walk the host's snapshots kept pulling back, GoldenEye's
+	// opening never ending (F3 20261010-053457, -050110). Every stage starts
+	// at the stock rate, as lvReset() starts lvupdate240.
+	g_NetHostSocketLvupdate240 = 4;
+
 	// a match's stage: the entity table (setup commands <-> props)
 	netEntsStageStart();
 	netEventsStageStart();

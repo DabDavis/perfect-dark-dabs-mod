@@ -5,6 +5,7 @@
 #include "game/inv.h"
 #include "game/modoptions.h"
 #include "game/modrespawn.h"
+#include "game/coop.h"
 #include "game/music.h"
 #include "game/player.h"
 #include "net/net.h"
@@ -56,6 +57,8 @@ void modRespawnReset(void)
 	// online co-op plays by these rules too, its lives the team's (netcoop.c)
 	netCoopStageReset();
 #endif
+
+	coopActorsReset();
 }
 
 /**
@@ -134,6 +137,14 @@ bool modRespawnPlayerComesBack(s32 playernum)
 	if (playernum < 0 || playernum >= MAX_PLAYERS) {
 		return false;
 	}
+
+	// online co-op's deaths are the host's to bring back (netcoop.c):
+	// modRespawnCanRespawn() is a solo mission's answer and says no there
+#ifndef PLATFORM_N64
+	if (netCoopRespawnDue(playernum)) {
+		return true;
+	}
+#endif
 
 	return g_ModRespawning[playernum] || modRespawnCanRespawn();
 }

@@ -3,6 +3,8 @@
 #include "game/chr.h"
 #include "game/chraction.h"
 #include "game/coop.h"
+#include "game/inv.h"
+#include "game/bondgun.h"
 #include "game/playermgr.h"
 #include "game/modspectate.h"
 #include "modloader.h"
@@ -15,6 +17,180 @@ bool coopPlayerAlive(s32 playernum)
 {
 	return playernum >= 0 && playernum < MAX_PLAYERS
 		&& g_Vars.players[playernum] && !g_Vars.players[playernum]->isdead;
+}
+
+/**
+ * A converted mission's lists (GoldenEye's, Goldfinger 64's, TND64's) ask
+ * about Bond through CHR_P1P2, which coopRetarget() leaves on the host's
+ * player. Where the question is what Bond did - the objects he collected,
+ * the item in his hand, a gadget used on an object (IFBondCollectedObject,
+ * IFBondHasItemEquipped, IFBondUsedGadgetOnObject) - only the host's player
+ * could answer it: a co-op player who attached Bunker's data thief to the
+ * mainframe never downloaded the data (F3 20261010-044027). With two players
+ * or more on such a mission every player is Bond to those three.
+ */
+bool coopAnyPlayerIsBond(s32 chrref)
+{
+	return chrref == CHR_P1P2 && coopIsOn() && PLAYERCOUNT() >= 2 && modloaderStageIsMission(g_Vars.stagenum);
+}
+
+#define COOP_MAX_ACTIVATIONS 16
+
+static struct {
+	struct defaultobj *obj;
+	s8 playernum;
+} g_CoopActivations[COOP_MAX_ACTIVATIONS];
+
+static struct {
+	struct chrdata *ref;
+	s8 playernum;
+} g_CoopActors[COOP_MAX_ACTIVATIONS];
+
+bool coopBgListAsksAnyPlayer(struct chrdata *chr)
+{
+	return chr && chr->prop == NULL && chr->target == -1 && coopIsOn() && PLAYERCOUNT() >= 2
+		&& modloaderStageIsMission(g_Vars.stagenum);
+}
+
+void coopActorsReset(void)
+{
+	s32 i;
+
+	for (i = 0; i < COOP_MAX_ACTIVATIONS; i++) {
+		g_CoopActivations[i].obj = NULL;
+		g_CoopActors[i].ref = NULL;
+	}
+}
+
+void coopNoteActivation(struct defaultobj *obj, s32 playernum)
+{
+	s32 i;
+	s32 slot = -1;
+
+	if (PLAYERCOUNT() <= 2) {
+		return;
+	}
+
+	for (i = 0; i < COOP_MAX_ACTIVATIONS; i++) {
+		if (g_CoopActivations[i].obj == obj) {
+			slot = i;
+			break;
+		}
+
+		if (slot < 0 && g_CoopActivations[i].obj == NULL) {
+			slot = i;
+		}
+	}
+
+	if (slot < 0) {
+		slot = 0;
+	}
+
+	g_CoopActivations[slot].obj = obj;
+	g_CoopActivations[slot].playernum = playernum;
+}
+
+void coopTakeActivation(struct chrdata *ref, struct defaultobj *obj)
+{
+	s32 i;
+	s32 playernum = -1;
+	s32 slot = -1;
+
+	if (PLAYERCOUNT() <= 2 || ref == NULL) {
+		return;
+	}
+
+	for (i = 0; i < COOP_MAX_ACTIVATIONS; i++) {
+		if (g_CoopActivations[i].obj == obj) {
+			playernum = g_CoopActivations[i].playernum;
+			g_CoopActivations[i].obj = NULL;
+			break;
+		}
+	}
+
+	if (playernum < 0) {
+		return;
+	}
+
+	for (i = 0; i < COOP_MAX_ACTIVATIONS; i++) {
+		if (g_CoopActors[i].ref == ref) {
+			slot = i;
+			break;
+		}
+
+		if (slot < 0 && g_CoopActors[i].ref == NULL) {
+			slot = i;
+		}
+	}
+
+	if (slot < 0) {
+		slot = 0;
+	}
+
+	g_CoopActors[slot].ref = ref;
+	g_CoopActors[slot].playernum = playernum;
+}
+
+s32 coopActorFor(struct chrdata *ref)
+{
+	s32 i;
+
+	if (PLAYERCOUNT() <= 2 || ref == NULL) {
+		return -1;
+	}
+
+	for (i = 0; i < COOP_MAX_ACTIVATIONS; i++) {
+		if (g_CoopActors[i].ref == ref) {
+			s32 pn = g_CoopActors[i].playernum;
+
+			if (pn >= 0 && pn < PLAYERCOUNT() && g_Vars.players[pn] && g_Vars.players[pn]->prop) {
+				return pn;
+			}
+
+			return -1;
+		}
+	}
+
+	return -1;
+}
+
+void coopGiveWeaponToOthers(struct defaultobj *obj, s32 givenplayernum)
+{
+	struct weaponobj *weapon;
+	s32 prevplayernum = g_Vars.currentplayernum;
+	s32 ammotype;
+	s32 qty = 0;
+	s32 i;
+
+	if (PLAYERCOUNT() <= 2 || obj == NULL || obj->type != OBJTYPE_WEAPON || !coopIsOn()) {
+		return;
+	}
+
+	weapon = (struct weaponobj *)obj;
+
+	setCurrentPlayerNum(givenplayernum);
+	ammotype = bgunGetAmmoTypeForWeapon(weapon->weaponnum, FUNC_PRIMARY);
+
+	if (ammotype > 0) {
+		qty = bgunGetReservedAmmoCount(ammotype);
+	}
+
+	for (i = 0; i < PLAYERCOUNT(); i++) {
+		struct player *p = g_Vars.players[i];
+
+		if (i == givenplayernum || !p || !p->prop || !coopIsCoopPlayer(p)) {
+			continue;
+		}
+
+		setCurrentPlayerNum(i);
+		invGiveSingleWeapon(weapon->weaponnum);
+
+		if (ammotype > 0 && bgunGetReservedAmmoCount(ammotype) < qty) {
+			bgunSetAmmoQuantity(ammotype, qty);
+		}
+	}
+
+	setCurrentPlayerNum(prevplayernum);
 }
 
 bool coopAllDead(void)

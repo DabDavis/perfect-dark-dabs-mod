@@ -2013,7 +2013,33 @@ bool aiIfDistanceFromTargetToPadLessThan(void)
 	u16 pad = cmd[5] | (cmd[4] << 8);
 	f32 value = (cmd[3] | (cmd[2] << 8)) * 10.0f;
 
-	if (chrGetDistanceFromTargetToPad(g_Vars.chrdata, pad) < value) {
+	f32 dist = chrGetDistanceFromTargetToPad(g_Vars.chrdata, pad);
+
+#ifndef PLATFORM_N64
+	// a converted mission's background list in co-op: the nearest living
+	// player is Bond (coopBgListAsksAnyPlayer)
+	if (coopBgListAsksAnyPlayer(g_Vars.chrdata)) {
+		struct chrdata *chr = g_Vars.chrdata;
+		s32 keep = chr->p1p2;
+		s32 i;
+
+		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (g_Vars.players[i] && g_Vars.players[i]->prop && !g_Vars.players[i]->isdead) {
+				f32 d;
+				chr->p1p2 = i;
+				d = chrGetDistanceFromTargetToPad(chr, pad);
+
+				if (d < dist) {
+					dist = d;
+				}
+			}
+		}
+
+		chr->p1p2 = keep;
+	}
+#endif
+
+	if (dist < value) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
 	} else {
 		g_Vars.aioffset += 7;
@@ -2031,7 +2057,33 @@ bool aiIfDistanceFromTargetToPadGreaterThan(void)
 	u16 pad = cmd[5] | (cmd[4] << 8);
 	f32 value = (cmd[3] | (cmd[2] << 8)) * 10.0f;
 
-	if (chrGetDistanceFromTargetToPad(g_Vars.chrdata, pad) > value) {
+	f32 dist = chrGetDistanceFromTargetToPad(g_Vars.chrdata, pad);
+
+#ifndef PLATFORM_N64
+	// a converted mission's background list in co-op: the nearest living
+	// player is Bond (coopBgListAsksAnyPlayer)
+	if (coopBgListAsksAnyPlayer(g_Vars.chrdata)) {
+		struct chrdata *chr = g_Vars.chrdata;
+		s32 keep = chr->p1p2;
+		s32 i;
+
+		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (g_Vars.players[i] && g_Vars.players[i]->prop && !g_Vars.players[i]->isdead) {
+				f32 d;
+				chr->p1p2 = i;
+				d = chrGetDistanceFromTargetToPad(chr, pad);
+
+				if (d < dist) {
+					dist = d;
+				}
+			}
+		}
+
+		chr->p1p2 = keep;
+	}
+#endif
+
+	if (dist > value) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
 	} else {
 		g_Vars.aioffset += 7;
@@ -2096,6 +2148,23 @@ bool aiIfTargetInRoom(void)
 	u16 pad_id = cmd[3] | (cmd[2] << 8);
 	s32 room_id = chrGetPadRoom(g_Vars.chrdata, pad_id);
 
+#ifndef PLATFORM_N64
+	// a converted mission's background list in co-op: any living player
+	// reaching that room is Bond reaching it (Bunker's exit, F3 20261010-044027)
+	if (room_id >= 0 && coopBgListAsksAnyPlayer(g_Vars.chrdata)) {
+		s32 i;
+
+		for (i = 0; i < PLAYERCOUNT(); i++) {
+			struct player *p = g_Vars.players[i];
+
+			if (p && p->prop && !p->isdead && p->prop->rooms[0] == room_id) {
+				prop = p->prop;
+				break;
+			}
+		}
+	}
+#endif
+
 	if (room_id >= 0 && prop && room_id == prop->rooms[0]) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
 	} else {
@@ -2121,6 +2190,23 @@ bool aiIfChrHasObject(void)
 		hasprop = invHasProp(obj->prop);
 		setCurrentPlayerNum(prevplayernum);
 	}
+
+#ifndef PLATFORM_N64
+	// a converted mission in co-op: whoever collected it (coopAnyPlayerIsBond)
+	if (!hasprop && obj && obj->prop && coopAnyPlayerIsBond(cmd[2])) {
+		s32 prevplayernum = g_Vars.currentplayernum;
+		s32 i;
+
+		for (i = 0; i < PLAYERCOUNT() && !hasprop; i++) {
+			if (g_Vars.players[i] && g_Vars.players[i]->prop) {
+				setCurrentPlayerNum(i);
+				hasprop = invHasProp(obj->prop);
+			}
+		}
+
+		setCurrentPlayerNum(prevplayernum);
+	}
+#endif
 
 	if (hasprop) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
@@ -2225,6 +2311,24 @@ bool aiIfChrHasWeaponEquipped(void)
 		setCurrentPlayerNum(prevplayernum);
 	}
 
+#ifndef PLATFORM_N64
+	// a converted mission in co-op: any living player with it in the hand
+	// (coopAnyPlayerIsBond) - Bunker's data thief equipped by a co-op player
+	if (!passes && coopAnyPlayerIsBond(cmd[2])) {
+		u32 prevplayernum = g_Vars.currentplayernum;
+		s32 i;
+
+		for (i = 0; i < PLAYERCOUNT() && !passes; i++) {
+			if (g_Vars.players[i] && g_Vars.players[i]->prop && !g_Vars.players[i]->isdead) {
+				setCurrentPlayerNum(i);
+				passes = bgunGetWeaponNum(HAND_RIGHT) == cmd[3];
+			}
+		}
+
+		setCurrentPlayerNum(prevplayernum);
+	}
+#endif
+
 	if (passes) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
 	} else {
@@ -2300,6 +2404,15 @@ bool aiIfChrActivatedObject(void)
 				pass = true;
 				obj->hidden &= ~(OBJHFLAG_ACTIVATED_BY_BOND | OBJHFLAG_ACTIVATED_BY_COOP);
 			}
+#ifndef PLATFORM_N64
+		} else if (coopAnyPlayerIsBond(cmd[2])) {
+			// a converted mission in co-op: a gadget used on it by any player
+			// (coopAnyPlayerIsBond), the host's or a co-op player's
+			if (obj->hidden & (OBJHFLAG_ACTIVATED_BY_BOND | OBJHFLAG_ACTIVATED_BY_COOP)) {
+				pass = true;
+				obj->hidden &= ~(OBJHFLAG_ACTIVATED_BY_BOND | OBJHFLAG_ACTIVATED_BY_COOP);
+			}
+#endif
 		} else {
 			struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
@@ -2310,6 +2423,7 @@ bool aiIfChrActivatedObject(void)
 				} else if (coopIsPlayerProp(chr->prop) && chr->prop != g_Vars.bond->prop && (obj->hidden & OBJHFLAG_ACTIVATED_BY_COOP)) {
 					pass = true;
 					obj->hidden &= ~OBJHFLAG_ACTIVATED_BY_COOP;
+					coopTakeActivation(g_Vars.chrdata, obj);
 				}
 			}
 		}
@@ -2471,6 +2585,13 @@ bool aiGiveObjectToChr(void)
 			playernum = playermgrGetPlayerNumByProp(chr->prop);
 			obj2->hidden = (playernum << 28) | (obj2->hidden & 0x0fffffff);
 			NET_OBJ_OWNER(obj2, playernum);
+
+			// past two players every co-op player gets the co-op player's
+			// gun (Defection's data uplink and ECM mines)
+			if (cmd[3] == CHR_COOP) {
+				coopGiveWeaponToOthers(obj2, playernum);
+			}
+
 			setCurrentPlayerNum(prevplayernum);
 		} else {
 			if (obj->prop->parent) {
