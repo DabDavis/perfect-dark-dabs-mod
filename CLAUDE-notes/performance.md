@@ -491,8 +491,10 @@ a sim tick; none on a 0/0 pass), and hand->count's first-frame 1 absorbs the nex
 switch from unarmed to the Falcon 2 is 152 / 276 240ths to the draw / idle at 60, 120 and 240 (was 138 / 257 at
 240) and 151 / 275 at 144 (was 143 / 266); the Falcon 2's empty-clip reload 372 at both (was 367-368 at 240).
 Fire cadence was already equal (CMP150 16 240ths a shot, shotgun 300). PAL/JPN gun animation
-(animframeincfreal path): not done - the tree does not build for pal-final (game_1531a0.c `numchars`, modimport.c, optionsmenu.c), so it
-cannot even be compile-checked.
+(animframeincfreal path, fix/pal-gunanim): off the native rate animframeinc holds lvupdate240 quarter ticks there
+too, animframeincfreal is `speed * PALUPF(animframeinc * 0.25f)` (bgunAnimFrameIncReal()), the play speed
+PALUPF(1.0f) instead of PALUPF(4.0f) for modelTickAnimQuarterSpeed(), and WAITFORZRELEASED's clamp converts to
+quarter ticks; the keyframe tests already read animframeincfreal. Compile-checked only (no PAL or JPN ROM here).
 
 ## Above 60 FPS: weather, credits and menu text (2026-10-10, high-framerate pass)
 

@@ -723,6 +723,27 @@ f32 bgun0f09815c(struct hand *hand)
 	return 0;
 }
 
+#if VERSION >= VERSION_PAL_BETA
+/**
+ * PAL and JPN tick the gun's animation through animframeincfreal, the
+ * frame's animation frames (speed * PALUPF(ticks)). Off the native path
+ * (BGUN_OFF60(): above 50 FPS on PAL, 60 on JPN) animframeinc holds the
+ * frame's quarter ticks (lvupdate240) as on NTSC, so the frames are a
+ * quarter of that each. On the native path (lvupdate240 == 4 * lvupdate60)
+ * this is the stock expression.
+ */
+static f32 bgunAnimFrameIncReal(struct hand *hand)
+{
+#ifndef PLATFORM_N64
+	if (BGUN_OFF60()) {
+		return modelGetAbsAnimSpeed(&hand->gunmodel) * PALUPF(hand->animframeinc * 0.25f);
+	}
+#endif
+
+	return modelGetAbsAnimSpeed(&hand->gunmodel) * PALUPF(hand->animframeinc);
+}
+#endif
+
 void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 {
 #if VERSION >= VERSION_PAL_BETA
@@ -776,7 +797,7 @@ void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 			hand->animload = -1;
 			hand->animmode = HANDANIMMODE_BUSY;
 #if VERSION >= VERSION_PAL_BETA
-			hand->animframeincfreal = modelGetAbsAnimSpeed(&hand->gunmodel) * PALUPF(hand->animframeinc);
+			hand->animframeincfreal = bgunAnimFrameIncReal(hand);
 #endif
 		}
 
@@ -850,12 +871,24 @@ void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 									tmp /= 2;
 
 									if (hand->animframeincfreal > tmp) {
+#ifndef PLATFORM_N64
+										if (BGUN_OFF60()) {
+											// in quarter ticks, as animframeinc is here
+#if PAL
+											hand->animframeinc = tmp * 4.0f * 0.83333333f / modelGetAbsAnimSpeed(&hand->gunmodel);
+#else
+											hand->animframeinc = tmp * 4.0f / modelGetAbsAnimSpeed(&hand->gunmodel);
+#endif
+										} else
+#endif
+										{
 #if PAL
 										hand->animframeinc = tmp * 0.83333333f / modelGetAbsAnimSpeed(&hand->gunmodel);
 #else
 										hand->animframeinc = tmp / modelGetAbsAnimSpeed(&hand->gunmodel);
 #endif
-										hand->animframeincfreal = modelGetAbsAnimSpeed(&hand->gunmodel) * PALUPF(hand->animframeinc);
+										}
+										hand->animframeincfreal = bgunAnimFrameIncReal(hand);
 									}
 
 									s2 = hand->animframeincfreal + s4;
@@ -926,6 +959,13 @@ void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 		}
 
 #if VERSION >= VERSION_PAL_BETA
+#ifndef PLATFORM_N64
+		// a quarter step a 240th (200th on PAL) off the native path: a
+		// quarter of the play speed, the same frames a tick
+		if (BGUN_OFF60()) {
+			modelSetAnimPlaySpeed(&hand->gunmodel, PALUPF(1.0f), 0);
+		} else
+#endif
 		modelSetAnimPlaySpeed(&hand->gunmodel, PALUPF(4.0f), 0);
 		modelTickAnimQuarterSpeed(&hand->gunmodel, hand->animframeinc, true);
 #else
@@ -4116,13 +4156,19 @@ void bgunTickHand(s32 handnum)
 
 	hand->animframeinc = g_Vars.lvupdate60;
 #if !defined(PLATFORM_N64) && VERSION < VERSION_PAL_BETA
-	// (PAL and JPN tick it through animframeincfreal; not done there)
 	if (BGUN_OFF60()) {
 		hand->animframeinc = g_Vars.lvupdate240;
 	}
 #endif
 #if VERSION >= VERSION_PAL_BETA
-	hand->animframeincfreal = modelGetAbsAnimSpeed(&hand->gunmodel) * PALUPF(hand->animframeinc);
+#ifndef PLATFORM_N64
+	// PAL and JPN: the same quarter ticks, read through animframeincfreal
+	// (bgunAnimFrameIncReal())
+	if (BGUN_OFF60()) {
+		hand->animframeinc = g_Vars.lvupdate240;
+	}
+#endif
+	hand->animframeincfreal = bgunAnimFrameIncReal(hand);
 #else
 	hand->animframeincfreal += PALUPF(g_Vars.lvupdate60);
 #endif
