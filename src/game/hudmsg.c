@@ -1164,6 +1164,14 @@ void hudmsgCreateFromArgs(char *text, s32 type, s32 conf00, s32 conf01, s32 conf
 	char stacktext[400];
 	s32 writeindex;
 
+#ifndef PLATFORM_N64
+	// a mod's AI list can show a text id its language file leaves empty,
+	// which langGet() gives as NULL
+	if (text == NULL) {
+		return;
+	}
+#endif
+
 	if (g_NetMode != NETMODE_NONE && netEvHudmsg(text, type, conf00, conf01, conf02, textcolour, glowcolour, alignh, conf16, alignv, conf18, arg14, flags)) return; // netplay E7: to the player's own machine
 
 #ifndef PLATFORM_N64
