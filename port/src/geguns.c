@@ -1846,6 +1846,11 @@ static s32 gegunsLendDir(void)
 	return g_GunSetLent ? g_GunSetDir : -1;
 }
 
+s32 gegunsLentDir(void)
+{
+	return gegunsLendDir();
+}
+
 static void gegunsFindConverted(void)
 {
 	const s32 numdirs = fsGetNumModDirs();

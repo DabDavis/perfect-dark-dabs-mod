@@ -10647,6 +10647,10 @@ void bgunTickGameplay2(void)
 		// on matrices from a frame long gone: a ghost gun flickering every
 		// other frame over the right hand's.
 		player->hands[HAND_LEFT].visible = false;
+		// and so did its laser sight, which only bgun0f0a5550() frees: an
+		// akimbo Falcon 2 swapped away left the left gun's beam drawn where
+		// it last was, a red line on the screen (F3 20261010-140516)
+		lasersightFree(HAND_LEFT);
 #endif
 	}
 

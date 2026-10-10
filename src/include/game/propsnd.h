@@ -21,6 +21,11 @@ void psTick(void);
 void psSetPitch(struct prop *prop, f32 targetpitch, s32 changespeed);
 void psSetVolume(struct prop *prop, s32 vol);
 void psStopOneShootChannel(struct prop *prop);
+#ifndef PLATFORM_N64
+// set by chrUpdateFireslot() around its shot sound: a shot replaces the chr's
+// oldest past the cap on sounds playing (propsnd.c psCreate())
+extern s32 g_PsShootReplaces;
+#endif
 s16 psCreate(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 padnum, s32 vol, u16 flags, u16 flags2, s32 type, struct coord *pos, f32 pitch, RoomNum *rooms, s32 room, f32 dist1, f32 dist2, f32 dist3);
 s32 psPlayFromProp(s32 channelnum, s16 soundnum, s32 vol, struct prop *prop, s16 type, u16 flags);
 void psMuteChannel(s32 channelnum);

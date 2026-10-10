@@ -41,6 +41,7 @@
 #include "data.h"
 #include "fs.h"
 #include "gesfx.h"
+#include "geguns.h"
 #include "gexfront.h"
 #include "modloader.h"
 #include "preprocess.h"
@@ -756,6 +757,19 @@ s32 geSfxHeardAsRemapped(s32 num)
 
 s32 geSfxGunShot(s32 id)
 {
+	// a ROM hack's guns chosen for a stage not its own (ROM Hack Guns,
+	// Mod.CsHackGuns): its own bank's sample, which it re-recorded for many
+	// of its guns (Goldfinger 64 replaced 41 samples, TND64 the Norinco's
+	// and more) - on Perfect Dark's stages and GoldenEye's arenas alike they
+	// were GoldenEye's (F3 20261010-073856)
+	if (gegunsLentDir() >= 0) {
+		struct sfxbank *hack = sfxBankAt(gegunsLentDir());
+
+		if (hack) {
+			return sfxPropNumIn(hack, id);
+		}
+	}
+
 	if (modloaderStageIsRemake(g_Vars.stagenum)) {
 		if (!geSfxStage()) {
 			return 0;

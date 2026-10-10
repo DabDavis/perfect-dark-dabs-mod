@@ -443,6 +443,12 @@ Custom would carry it invisibly.
   GoldenEye's own then (Goldfinger's thrown Oddjob's Hat is GoldenEye's
   knife there). Neither hack has a rocket of its own (GoldenEye's, as their
   cartridges).
+- **Shots** (F3 20261010-073856): out of the hack's own bank wherever its set
+  is lent (`gegunsLentDir()` -> `geSfxGunShot()`: `sfxPropNumIn()` on
+  `sfxBankAt()` of the hack's dir), on Perfect Dark's stages and GoldenEye's
+  arenas alike; they were GoldenEye's samples under the same numbers, which
+  both hacks re-recorded for many guns (goldfinger64.md "Its sounds", tnd64.md
+  "Shot sounds"). Reload clicks and hits are still the host's / GoldenEye's.
 - **Online**, the host's: `Mod.CsHackGuns` is a SYNC key, applied before the
   host's slots and set number (`netRulesApplyCsHackGuns()`) and the guest's
   own again before its own setup comes back. At STAGE_LOAD a guest with the
