@@ -194,6 +194,7 @@ void netStageStart(void)
 	// a match's stage: the entity table (setup commands <-> props)
 	netEntsStageStart();
 	netEventsStageStart();
+	netWorldStageStart();
 	netLagCompStageStart();
 	netScenStageStart();
 }
@@ -305,6 +306,7 @@ void netTickBegin(void)
 {
 	netSessionTickBegin();
 	netPlayersTickBegin();
+	netWorldTickBegin();
 }
 
 void netTickEnd(void)
@@ -324,6 +326,8 @@ void netTickEnd(void)
 			netEventsClientTickEnd();
 		}
 	}
+
+	netWorldTickEnd();
 
 	if (g_NetMode == NETMODE_CLIENT) {
 		netPuppetsTraceFlush();

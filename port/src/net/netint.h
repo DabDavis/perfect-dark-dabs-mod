@@ -230,6 +230,14 @@ void netEventsHostViewReset(s32 view); // a new client in the view: its EVENTS c
 void netEventsHostCatchUp(s32 view);   // its first EVENTS: the kill table (a SCORES event)
 void netEventsHostScores(void);        // the kill table to everyone (a seat's row cleared)
 
+// networld.c: the world's state outside the entity records (the test's wreck and census)
+void netWorldStageStart(void);   // after netEntsStageStart
+void netWorldMatchStopped(void);
+void netWorldTickBegin(void);
+void netWorldTickEnd(void);
+void netWorldNoteDeform(void);   // an objDeform made (host) or applied (client)
+void netWorldCensus(const char *why);
+
 // netpuppets.c
 void netPuppetsStageStart(void);  // the client's match stage began (after netEntsStageStart)
 void netPuppetsStop(void);        // H12, or the tables went

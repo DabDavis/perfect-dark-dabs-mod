@@ -4397,6 +4397,7 @@ void netStageStopped(void)
 	netMigrateMatchStopped();
 	netRulesRestore();
 	netEventsMatchStopped();
+	netWorldMatchStopped();
 	netEntsMatchStopped();
 	netLagCompMatchStopped();
 	netPlayersMatchStopped();

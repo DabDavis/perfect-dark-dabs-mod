@@ -9,9 +9,18 @@
 # the clients' "puppets"/"events client" lines (CLAUDE-notes/netplay.md,
 # Traps "Snapshots in a crowded match").
 #   netcrowd.sh BIN LABEL      logs in build/crowd/LABEL; CMOD= for coop clients
+# STAGE= the mp arena (0x32); WRECK=T1,T2 has the host break half the
+# stage's glass and windowed doors, crumple six objects and start an N-bomb
+# storm at each host tick (the first lets the gas go too: networld.c);
+# CENSUS=T has every machine count its world at tick T ("world census"
+# lines), so a late joiner's broken glass, doors, deforms, storms and gas
+# can be held against the host's. Each client logs "events lag by type".
 set -u
 BIN=$1; LABEL=$2
 SIMS=${SIMS:-24}; SIM=${SIM:-2,75}; PORT=${PORT:-27370}; LATE=${LATE:-25}
+STAGE=${STAGE:-0x32}
+TEST=""; [ -n "${WRECK:-}" ] && TEST="--net-test-wreck $WRECK"
+CTEST=""; [ -n "${CENSUS:-}" ] && { TEST="$TEST --net-test-census $CENSUS"; CTEST="--net-test-census $CENSUS"; }
 BUILD=$(cd "$(dirname "$0")/../.." && pwd)/build
 OUT=$BUILD/crowd/$LABEL; rm -rf "$OUT"; mkdir -p "$OUT"
 export SDL_VIDEODRIVER=offscreen SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0ce6,0x045e/0x028e \
@@ -32,21 +41,21 @@ game() {
 }
 waitfor() { local n=$3; while [ $n -gt 0 ]; do grep -q -- "$2" "$1" 2>/dev/null && return 0; sleep 1; n=$((n-1)); done; return 1; }
 if [ "${MODE:-mp}" = coop ]; then
-game h 150 "[Mod]\nMissionRespawn=1\n[Net]\nMaxPlayers=12\n" --host $PORT --net-test-host 2 --rng-seed 7 --net-test-coop 0 --skip-cutscenes --net-sim $SIM &
+game h 150 "[Mod]\nMissionRespawn=1\n[Net]\nMaxPlayers=12\n" --host $PORT --net-test-host 2 --rng-seed 7 --net-test-coop 0 --skip-cutscenes --net-sim $SIM $TEST &
 else
 game h 150 "[Mod]\nStartArmed=1\n[Net]\nMaxPlayers=12\nJoinInProgress=1\n" --moddir mod_allinone --dedicated --host $PORT \
-	--net-test-host 2 --net-test-stage 0x32 --net-test-sims $SIMS --net-test-timelimit 2 --net-test-scorelimit 100 --net-test-teamscorelimit 400 --rng-seed 7 \
-	--mp-weapons 9,9,9,9,9,9 --net-sim $SIM &
+	--net-test-host 2 --net-test-stage $STAGE --net-test-sims $SIMS --net-test-timelimit 2 --net-test-scorelimit 100 --net-test-teamscorelimit 400 --rng-seed 7 \
+	--mp-weapons 9,9,9,9,9,9 --net-sim $SIM $TEST &
 fi
 H=$!
 waitfor "$OUT/h.log" "net: hosting on UDP port" 60 || { echo "host did not start"; kill -TERM $H; exit 2; }
 P=""
 for k in 1 2; do
-	game c$k 140 "[Mod]\nStartArmed=1\n" ${CMOD---moddir mod_allinone} --connect 127.0.0.1:$PORT --net-sim $SIM --net-test-input "$OUT/client.script" &
+	game c$k 140 "[Mod]\nStartArmed=1\n" ${CMOD---moddir mod_allinone} --connect 127.0.0.1:$PORT --net-sim $SIM --net-test-input "$OUT/client.script" $CTEST &
 	P="$P $!"; sleep 0.5
 done
 sleep $LATE
-game c3 100 "[Mod]\nStartArmed=1\n" ${CMOD---moddir mod_allinone} --connect 127.0.0.1:$PORT --net-sim $SIM --net-test-input "$OUT/client.script" &
+game c3 100 "[Mod]\nStartArmed=1\n" ${CMOD---moddir mod_allinone} --connect 127.0.0.1:$PORT --net-sim $SIM --net-test-input "$OUT/client.script" $CTEST &
 P="$P $!"
 sleep 50
 kill -TERM $H $P 2>/dev/null

@@ -182,6 +182,9 @@ static f64 s_LagSum = 0;
 static u32 s_LagN = 0;
 static f64 s_LagMax = 0;  // the latest an event was applied, ticks past its own
 static u32 s_LagLate = 0; // events applied more than 6 ticks (100 ms) past their tick
+static f64 s_LagSumBy[NETEV_COUNT]; // the same per type
+static u32 s_LagNBy[NETEV_COUNT];
+static f64 s_LagMaxBy[NETEV_COUNT];
 static u32 s_NextKill = NETEV_KILLEVERY;
 static u32 s_LocalSkipped = 0;  // this machine's own mpstatsRecordDeath calls refused
 #define NETEV_MYSHOTS 64
@@ -667,6 +670,10 @@ void netEvChoke(struct chrdata *chr, s32 choketype)
 void netEvObjDeform(struct defaultobj *obj, s32 level)
 {
 	struct netbuf b;
+
+	if (obj && g_NetMode == NETMODE_SERVER) {
+		netWorldNoteDeform();
+	}
 
 	if (!obj || !obj->prop || !netEvHostOn()) {
 		return;
@@ -1472,6 +1479,7 @@ static void netEvQueueAlloc(void)
 }
 
 static void netEvApply(struct netevc *e, f64 rt);
+static void netEvClientLagLog(const char *why);
 
 void netEventsClientOnMsg(const u8 *data, s32 len)
 {
@@ -1726,6 +1734,15 @@ static void netEvApply(struct netevc *e, f64 rt)
 		}
 
 		s_LagLate += rt - e->tick > 6;
+
+		if (e->type < NETEV_COUNT) {
+			s_LagSumBy[e->type] += rt - e->tick;
+			s_LagNBy[e->type]++;
+
+			if (rt - e->tick > s_LagMaxBy[e->type]) {
+				s_LagMaxBy[e->type] = rt - e->tick;
+			}
+		}
 	}
 
 	const u32 unresolved = s_Unresolved;
@@ -1929,6 +1946,7 @@ static void netEvApply(struct netevc *e, f64 rt)
 		}
 
 		objDeform(prop->obj, e->s0);
+		netWorldNoteDeform();
 		break;
 	case NETEV_GLASS:
 		prop = netEvResolve(&e->r0);
@@ -2118,6 +2136,26 @@ static void netEvClientLog(const char *why)
 			why, g_NetTick, counts, s_RecvMsgs, s_RecvBytes, s_OutOfOrder, s_Malformed, s_OtherMatch, s_Unresolved, s_Overflow,
 			s_QMax, s_LagN ? s_LagSum / s_LagN : 0.0, s_LagMax, s_LagLate, s_ShotSounds, s_ShotNoGun, s_ShotPlayed, s_HitsOnMe, s_MyHits, s_HudForMe, s_LocalSkipped,
 			s_OwnDupes + s_OwnUnpredicted, s_OwnDupes, s_OwnUnpredicted, s_GlassViaSetup, s_GasReleased, ucounts[0] ? ucounts : "none");
+	netEvClientLagLog(why);
+}
+
+// per type: mean/max ticks past its own tick at which it was applied
+static void netEvClientLagLog(const char *why)
+{
+	char buf[640];
+	s32 len = 0;
+	s32 i;
+
+	buf[0] = '\0';
+
+	for (i = 1; i < NETEV_COUNT && len < (s32)sizeof(buf); i++) {
+		if (s_LagNBy[i]) {
+			len += snprintf(buf + len, sizeof(buf) - len, "%s%s %u %.1f/%.1f", len ? ", " : "", s_EvNames[i],
+					s_LagNBy[i], s_LagSumBy[i] / s_LagNBy[i], s_LagMaxBy[i]);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: events lag by type %s (tick %u; n mean/max ticks): %s", why, g_NetTick, buf[0] ? buf : "none");
 }
 
 // F3 (nettrace.c): the events' summary into the log now
@@ -2224,6 +2262,9 @@ void netEventsStageStart(void)
 	s_LagN = 0;
 	s_LagMax = 0;
 	s_LagLate = 0;
+	memset(s_LagSumBy, 0, sizeof(s_LagSumBy));
+	memset(s_LagNBy, 0, sizeof(s_LagNBy));
+	memset(s_LagMaxBy, 0, sizeof(s_LagMaxBy));
 	s_NextKill = NETEV_KILLEVERY;
 	s_LocalSkipped = 0;
 
