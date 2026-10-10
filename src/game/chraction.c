@@ -10426,6 +10426,25 @@ void chrTickDie(struct chrdata *chr)
 			return;
 		}
 
+#ifndef PLATFORM_N64
+		// The same fall in GoldenEye's own numbers. Perfect Dark's stomach
+		// death is GoldenEye's death_left_leg (its 57), which its
+		// chrlvTickDie() runs on into jump_backwards (60) from frame 50 just
+		// as above; on a converted level the thigh deaths play it under
+		// geChrAnim(57), which the line above never matched, so a guard shot
+		// in the thigh ended its death kneeling hunched over the floor
+		// (F3 20261010-020011, Control)
+		if (CHRRACE(chr) == RACE_HUMAN && g_GeChrAnims && modelGetAnimNum(model) == geChrAnim(57)) {
+			s32 next = geChrAnim(60);
+
+			if (next > 0) {
+				modelSetAnimation(model, next, !modelIsFlipped(model), 50, 0.3, animGetNumFrames(next) - 51.0f);
+				modelSetAnimSpeed(model, 0.5, animGetNumFrames(next) - 51.0f);
+				return;
+			}
+		}
+#endif
+
 		chrBeginDead(chr);
 	}
 
@@ -10613,7 +10632,13 @@ void chrTickArgh(struct chrdata *chr)
 	if (modelGetCurAnimFrame(model) >= modelGetAnimEndFrame(model)) {
 		chrRecordLastSeeTargetTime(chr);
 
-		if (CHRRACE(chr) == RACE_HUMAN && modelGetAnimNum(model) == ANIM_DEATH_STOMACH_LONG) {
+		if (CHRRACE(chr) == RACE_HUMAN && (modelGetAnimNum(model) == ANIM_DEATH_STOMACH_LONG
+#ifndef PLATFORM_N64
+					// GoldenEye's thigh flinch on its death_left_leg, under
+					// its own number on a converted level (chrTickDie())
+					|| (g_GeChrAnims && modelGetAnimNum(model) == geChrAnim(57))
+#endif
+					)) {
 			func0f02ed28(chr, 26);
 		} else {
 			if (chr->race == RACE_DRCAROLL) {
