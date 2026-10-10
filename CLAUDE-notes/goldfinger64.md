@@ -939,3 +939,36 @@ explosive props and counts explosion props.
   is unchanged (replay gate). Probe: `repro/sweep.gdb.py` in the worktree
   (REORDER=1 puts the near guards at the active list's tail; spot 12900,-6300
   theta 58: before 33 counted, room-15 guards 7/8/9 dropped; after all drawn).
+
+## F3 pass 35: no bullet holes, scattered Garand (2026-10-10, fix/f3-1010a-gfshots)
+
+- **No bullet holes on Cartel (F3 20261004-225803/-225913/-230444; Mike D's
+  bars by the bathroom door, 20261005-042347, very likely the same).** The
+  wall hits were made and drawn, but `g_Wallhits` sat on an odd address: the
+  stage pool (memp.c) never rounds, and bg.c's AVOID_UB section loads add the
+  compressed length (Cartel: 455 and 3251 bytes), the spectator colours are
+  ALIGN8. gfx_pc.cpp's `seg_addr()` took any odd word for a SEGADDR(), so where
+  bits 24-27 of the heap address named a live segment (3-6, 13-15 are set on a
+  converted level) every hole's G_VTX read that segment's memory: all four
+  corners at one point (nothing drawn), or garbage quads. It came and went with
+  the heap's layout - here a Vulkan pipeline cache in `save/` was enough to move
+  it onto segment 4 - so the first runs look fine. Now `gfx_seg_marked()` (odd
+  AND below 0x10000000) everywhere gfx_pc decodes a segment, and
+  `mempAllocFromBank()` rounds to 16 on PC. Replay gate 8/8 the same (both fixes). The
+  Windows crashes in `gfx_sp_vertex()` the `gfx_readable()` comment describes
+  ("heap addresses ... not even on a four byte boundary", a load of the frame's
+  own list) fit this misread too. Probe: `~/wt/f3-1010a-gfshots-run/probe/
+  holes.py` (+ `segcheck.py`: g_Wallhits' parity, nibble and that segment).
+- Glass in a room's own lists lets bullets through on converted levels, as in
+  GoldenEye (bgTestHitInRoom()'s skipxlu): Cartel's hut window takes no hole;
+  the wall behind it does.
+- **M1 Garand scatter (F3 20261004-174748).** GoldenEye's
+  WEAPONSTATBITFLAG_FIRST_SHOT_ACCURACY (0x1000: a volley's first shot at a
+  quarter of the Inaccuracy, gunfire.c's bullet_path_from_screen_center()) is
+  PD's INVAIMFLAG_ACCURATESINGLESHOT, which a GE gun took from its host's aim
+  settings. Goldfinger's Garand (Inaccuracy 5, the bit set) rides the Golden
+  Gun (neither), so single shots went at the full spread. `gegunsAim()` takes
+  it from the row now; GoldenEye's own set differed only on the 0-spread sniper
+  rifle. `probe/aim.py` (NOAUTOAIM=1 patches auto-aim out: Cartel's guards
+  pull shots ~2.4 degrees otherwise) and `probe/aimflags.py` (every gun's flag
+  against its row's bit).
