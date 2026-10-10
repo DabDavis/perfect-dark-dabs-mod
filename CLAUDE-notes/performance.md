@@ -511,7 +511,25 @@ replay test and per-frame gdb traces against the base:
   cap; the nudge waits for `diffframe60 > 0`.
 
 The menus' "text wave" is `dialog->unk54` (`textSetWaveBlend()`): it moved a
-pixel a frame. HUD messages already step by lvupdate60 (right rate, 60 Hz steps).
+pixel a frame.
+
+Later (fix/hfleft-world), the 60 Hz steppers left here, all off the 60 FPS path
+only (`lvupdate240 != lvupdate60 * 4`, so 60, 30 and an online sim tick or
+present pass run the stock line):
+- **HUD messages** (state timer += lvupdate60; slide, fade, flash drawn from it):
+  the "pose read off a state's 60ths" shape - `hudmsgDrawTimer()` draws the
+  timer plus `lvupdate240rem * 0.25f`; the state machine still counts 60ths.
+  An objective's HUDMSGFLAG_DELAY wait (timer++ a frame) counts lvupdate60.
+  Online the timer moves on sim ticks only, so there they still step at 60 Hz
+  (frametimeNetAlpha() would be the fraction to add, not done).
+- **Wind turn and the rain's streak length** (`windanglerad` to unk0c over unk10,
+  `unkb8` - the drop quad's tail length, positions[2..3].y - to unkbc over unkc0,
+  both `x += lvupdate * (t - x) / n`): `weatherWalkSmooth()` moves by the
+  frame's time against the time left (the 60ths left less the carried 240ths
+  before this frame), and still counts the 60ths down whole, so the walk ends
+  on the same 60th.
+- **Rain splashes** (`numsparksavailable`, one a frame): only on frames a 60th
+  passed.
 
 ## Props above 60 FPS: the shapes the fixes took (2026-10-10, fix/highfps-props)
 

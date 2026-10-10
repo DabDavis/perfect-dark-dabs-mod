@@ -497,6 +497,47 @@ static void weatherParticleChangesUsed(s32 count)
 {
 	g_WeatherChangeAllowance4 -= ABS(count) * 4;
 }
+
+/**
+ * A value walked in a straight line to a target over a count of 60ths: the
+ * wind's turn (windanglerad to unk0c over unk10) and the rain's streak length
+ * (unkb8 to unkbc over unkc0). The game steps it by lvupdate60 a frame, so at
+ * 240 FPS it moved on one frame in four. Off the 60 FPS path this moves it by
+ * the frame's own time instead: the time left is the 60ths left counted from
+ * the last whole 60th less what of the current one had passed before this
+ * frame (the carried 240ths), and the count still drops by whole 60ths, so
+ * the walk ends on the same 60th. Returns false on a frame of whole 60ths
+ * (every frame at 60 and 30 FPS, an online sim tick or present pass), where
+ * the caller runs the stock step and stays bit-identical.
+ */
+static bool weatherWalkSmooth(f32 *value, f32 target, s32 *left60)
+{
+	s32 prevrem;
+	f32 left;
+	f32 dt;
+
+	if (g_Vars.lvupdate240 == g_Vars.lvupdate60 * 4) {
+		return false;
+	}
+
+	prevrem = g_Vars.lvupdate60 * 4 + g_Vars.lvupdate240rem - g_Vars.lvupdate240;
+	left = *left60 - prevrem * 0.25f;
+	dt = g_Vars.lvupdate60f;
+
+	if (left <= dt) {
+		*value = target;
+	} else {
+		*value += dt * ((target - *value) / left);
+	}
+
+	*left60 -= g_Vars.lvupdate60;
+
+	if (*left60 < 0) {
+		*left60 = 0;
+	}
+
+	return true;
+}
 #endif
 
 void weatherTickRain(struct weatherdata *weather)
@@ -579,7 +620,11 @@ void weatherTickRain(struct weatherdata *weather)
 		}
 	}
 
-	if (weather->unkc0 > 0) {
+	if (weather->unkc0 > 0
+#ifndef PLATFORM_N64
+			&& !weatherWalkSmooth(&weather->unkb8, weather->unkbc, &weather->unkc0)
+#endif
+			) {
 		lvupdate = g_Vars.lvupdate60;
 
 		if (weather->unkc0 < lvupdate) {
@@ -608,6 +653,11 @@ void weatherTickRain(struct weatherdata *weather)
 	else if (weather->unk10 > 0) {
 		s32 lvupdate = g_Vars.lvupdate60;
 
+#ifndef PLATFORM_N64
+		if (weatherWalkSmooth(&weather->windanglerad, weather->unk0c, &weather->unk10)) {
+			// turned by the frame's time
+		} else
+#endif
 		if (weather->unk10 < lvupdate) {
 			weather->windanglerad = weather->unk0c;
 		} else {
@@ -733,6 +783,11 @@ void weatherTickSnow(struct weatherdata *weather)
 	else if (weather->unk10 > 0) {
 		s32 lvupdate = g_Vars.lvupdate60;
 
+#ifndef PLATFORM_N64
+		if (weatherWalkSmooth(&weather->windanglerad, weather->unk0c, &weather->unk10)) {
+			// turned by the frame's time
+		} else
+#endif
 		if (weather->unk10 < lvupdate) {
 			weather->windanglerad = weather->unk0c;
 		} else {
@@ -1127,6 +1182,15 @@ Gfx *weatherRenderRain(Gfx *gdl, struct weatherdata *weather, s32 arg2)
 	if (g_Vars.lvupdate240 <= 0) {
 		numsparksavailable = 0;
 	}
+
+#ifndef PLATFORM_N64
+	// One splash a frame, for a drop within a 60th's fall (inc) of a floor:
+	// at 240 FPS a drop sat in that window for four frames and splashes came
+	// 4x as often. One a 60th, on the frames a 60th passed (every frame at 60).
+	if (g_Vars.lvupdate60 <= 0) {
+		numsparksavailable = 0;
+	}
+#endif
 
 	osGetCount();
 
