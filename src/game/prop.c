@@ -2184,6 +2184,7 @@ void propsTickPlayer(bool islastplayer)
 	bool done;
 	struct chrdata *chr1;
 	struct chrdata *chr2;
+	bool bgturn = true;
 
 	g_Vars.hardfreeabletally = 0;
 
@@ -2213,16 +2214,37 @@ void propsTickPlayer(bool islastplayer)
 		g_Vars.propstates[i].slotupdate240 += g_Vars.lvupdate240;
 	}
 
-	g_Vars.runstateindex++;
+#ifndef PLATFORM_N64
+	// A background prop (off screen, not in a standby room) ticks only when
+	// its propstate has the turn, and the turn moved on every frame: a solo
+	// prop ticked every 7th frame, a multiplayer one every 4th. At 240 FPS
+	// that is four times as often per second as at 60, so off-screen guards
+	// and simulants ran their AI lists (an alert guard's on every tick) and
+	// took their steps four times as often. Above 60 FPS the turn now moves
+	// on once per 60th of game time - chraTick()'s test for an AI list - and
+	// on a frame between two 60ths no background prop ticks. The one that
+	// does still gets all the time since its last tick, as at 60 FPS. At 60
+	// FPS and below the test passes on every frame, as on an online sim
+	// tick; it fails on an online present-only pass (0, 0), which is meant to
+	// advance nothing.
+	bgturn = g_Vars.diffframe240 >= 4 || g_Vars.lvupdate60 > 0;
+#endif
 
-	if (g_Vars.runstateindex >= g_Vars.numpropstates) {
-		g_Vars.runstateindex = 0;
+	if (bgturn) {
+		g_Vars.runstateindex++;
+
+		if (g_Vars.runstateindex >= g_Vars.numpropstates) {
+			g_Vars.runstateindex = 0;
+		}
 	}
 
 	runstateindex = g_Vars.runstateindex;
 
 	savedslotupdate240_60 = g_Vars.propstates[runstateindex].slotupdate240 + g_Vars.propstates[runstateindex].slotupdate60error;
-	g_Vars.propstates[runstateindex].slotupdate60error = (savedslotupdate240_60 & 3);
+
+	if (bgturn) {
+		g_Vars.propstates[runstateindex].slotupdate60error = (savedslotupdate240_60 & 3);
+	}
 
 	savedslotupdate240 = g_Vars.propstates[runstateindex].slotupdate240;
 	savedslotupdate240f = g_Vars.propstates[runstateindex].slotupdate240 / 4.0f;
@@ -2418,7 +2440,7 @@ void propsTickPlayer(bool islastplayer)
 				g_Vars.propstates[prop->propstateindex].propcount++;
 			}
 
-			if (prop->propstateindex == runstateindex) {
+			if (bgturn && prop->propstateindex == runstateindex) {
 				if (prop->lastupdateframe != g_Vars.propstates[runstateindex].lastupdateframe) {
 					g_Vars.lvupdate240 = prop->propupdate240;
 					g_Vars.lvupdate60 = prop->propupdate240 + prop->propupdate60err;
@@ -2523,7 +2545,7 @@ void propsTickPlayer(bool islastplayer)
 	// For each combination of background/foreground and chr/nonchr, take the
 	// propstates with the highest quantity of these props and move some to the
 	// lowest quantity propstate.
-	if (g_Vars.currentplayerindex == 0 && g_Vars.runstateindex == 0) {
+	if (bgturn && g_Vars.currentplayerindex == 0 && g_Vars.runstateindex == 0) {
 		// Background non-chrs
 		leastindex = g_Vars.numpropstates;
 		mostindex = g_Vars.numpropstates;
@@ -2678,8 +2700,10 @@ void propsTickPlayer(bool islastplayer)
 	g_Vars.lvupdate60f = savedlvupdate60f;
 	g_Vars.lvupdate60freal = savedlvupdate60freal;
 
-	g_Vars.propstates[runstateindex].slotupdate240 = 0;
-	g_Vars.propstates[runstateindex].lastupdateframe = g_Vars.updateframe;
+	if (bgturn) {
+		g_Vars.propstates[runstateindex].slotupdate240 = 0;
+		g_Vars.propstates[runstateindex].lastupdateframe = g_Vars.updateframe;
+	}
 
 	if (islastplayer) {
 		alarmTick();

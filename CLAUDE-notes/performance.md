@@ -546,7 +546,9 @@ videoEndFrame (stop() returning False, reads and `set var` only), the prop
 found by walking g_Vars.activeprops (doors are PROPTYPE_DOOR, not OBJ) and
 `prop->forcetick = 1` so an off-screen one ticks every frame (a background
 prop ticks once per numpropstates frames with the time accumulated - which
-looks like 60 Hz-ish stepping and is not the bug). Kills and teleports were
+looks like 60 Hz-ish stepping and is not the bug; above 60 FPS once per
+numpropstates 60ths since fix/highfps-bgturns, chrs-and-memory.md "Chrs above
+60 FPS"). Kills and teleports were
 emulated by writing the fields the death code writes, or by an inferior call
 from a top-level stop (`chrMoveToPos(player chr, &lift->pos, rooms, 0, 1)`
 puts Jo on a lift).

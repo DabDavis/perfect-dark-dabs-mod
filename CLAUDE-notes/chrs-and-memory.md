@@ -544,6 +544,28 @@ runs the frame it is made as at 60 - Facility's Doak), and
 (by the frame's real length a list run once a 60th - a background list -
 moved a quarter of the distance at 240).
 
+Off-screen chrs still decided four times as often at 240 after that
+(fix/highfps-bgturns). A background prop - in no on-screen or standby room,
+not on screen the tick before, not forced - ticks only when its propstate has
+the turn in `propsTickPlayer()` (7 propstates in a mission, 4 in
+multiplayer), and the turn moved on every frame: a background guard ticked
+every 7th frame, 28/240 s at 60 FPS but 7/240 s at 240, and every tick ran its
+list (the tick's `lvupdate60` is all the time since its last one, so > 0).
+The turn now moves on only on a frame that passes `runlist`'s test
+(`diffframe240 >= 4 || lvupdate60 > 0`): every frame at 60 FPS and below and
+on an online sim tick, once per 60th above 60. A frame between two 60ths
+ticks no background prop, the propstates are rebalanced once a cycle as
+before, and the prop that ticks still gets all its time. An online
+present-only pass (0, 0) no longer gives a propstate its turn either; it did,
+so a host drawing faster than 60 ticked its off-screen props, lists and all,
+on frames between sim ticks. Measured with gdb Python on `chrTick`,
+`botTick` and `chraiExecute`, each classed by the `propsTickPlayer()` line it
+came from (the background or the foreground tick call): the gap from one
+background tick of a chr to its next went from 7 to 28 240ths in a mission
+(60 FPS's 28) and from 4 to 16 in an 80-simulant match (60's 16; at 144 FPS
+15 and 17 alternating, mean 16.00), and a seeded idle mission's background
+ticks over 20 s of game time from 8915 to 2229, 60 FPS's count exactly.
+
 Probing the AI cheaply: break on `*chraiExecute` (the exact entry, so `$rdi`
 is the entity and `$esi` the prop type) and filter in `stop()`; a breakpoint at
 a line inside it can see `g_Vars.chrdata` still 0 (the store is not made yet),
