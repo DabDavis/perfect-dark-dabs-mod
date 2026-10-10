@@ -10070,6 +10070,35 @@ bool aiChrEmitSparks(void)
 	return false;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Whether a Dr Caroll image set to DRCAROLLIMAGE_RANDOM25 (7) or
+ * DRCAROLLIMAGE_RANDOM (8) picks a new face on this execution of the list.
+ *
+ * Stock rerolls RANDOM on every execution and RANDOM25 when the frame number
+ * is 2 mod 4: at 60 FPS, a new face every 60th and every fourth 60th. Faster
+ * than 60 the list that does it (Deep Sea's mid cutscene, a background list)
+ * runs only on the frames that hold a 60th, every fourth at 240, so the frame
+ * number was the same mod 4 each time and RANDOM25 changed the face on every
+ * run or on none; and a list run every frame (an alert or never-sleeping chr's)
+ * would reroll RANDOM four times as often. A frame shorter than a 60th now
+ * rerolls only when it holds one, RANDOM25 by the 60ths count. Frames of a
+ * 60th or more keep stock's test exactly.
+ */
+static bool aiDrCarollImageRolls(s32 mode)
+{
+	if (g_Vars.diffframe240 >= 4) {
+		return mode == DRCAROLLIMAGE_RANDOM || (g_Vars.lvframenum % 4) == 2;
+	}
+
+	if (g_Vars.lvupdate60 == 0) {
+		return false;
+	}
+
+	return mode == DRCAROLLIMAGE_RANDOM || (g_Vars.lvframe60 % 4) == 2;
+}
+#endif
+
 /**
  * @cmd 01d3
  */
@@ -10079,6 +10108,21 @@ bool aiSetDrCarollImages(void)
 	struct chrdata *drcaroll = chrFindById(g_Vars.chrdata, cmd[2]);
 
 	if (drcaroll) {
+#ifndef PLATFORM_N64
+		if (cmd[4] == 7 || cmd[4] == 8) {
+			if (aiDrCarollImageRolls(cmd[4])) {
+				drcaroll->drcarollimage_left = rngRandom() % 6;
+			}
+		} else {
+			drcaroll->drcarollimage_left = cmd[4];
+		}
+
+		if (cmd[3] == 7 || cmd[3] == 8) {
+			if (aiDrCarollImageRolls(cmd[3])) {
+				drcaroll->drcarollimage_right = rngRandom() % 6;
+			}
+		} else {
+#else
 		if (cmd[4] == 7) {
 			if ((g_Vars.lvframenum % 4) == 2) {
 				drcaroll->drcarollimage_left = rngRandom() % 6;
@@ -10096,6 +10140,7 @@ bool aiSetDrCarollImages(void)
 		} else if (cmd[3] == 8) {
 			drcaroll->drcarollimage_right = rngRandom() % 6;
 		} else {
+#endif
 			drcaroll->drcarollimage_right = cmd[3];
 		}
 	}
