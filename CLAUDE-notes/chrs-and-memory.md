@@ -572,3 +572,17 @@ is the entity and `$esi` the prop type) and filter in `stop()`; a breakpoint at
 a line inside it can see `g_Vars.chrdata` still 0 (the store is not made yet),
 and a `condition` set on a Python breakpoint that has a `stop()` method did
 not filter anything here - filter in `stop()`.
+
+## Guards Alerted!: a stuck guard leaves the count (F3 20261010-035509, 2026-10-10)
+
+Offline as online: on Ravine (0x17) alarm guards ended up at the bottom of the ravine (room 21, floor
+y -1235, 2500 under the arena), in ACT_GOPOS and running on the spot for minutes. They had walked off an
+edge after someone, or appeared on a waypoint whose piece of the graph has no route up. Each one held its
+place in Alerted Guards' count, so a few of them stalled the waves. In a match `modAlarmIsStuck()` now
+checks every guard every ten seconds. A guard that is travelling or standing (GOPOS, RUNPOS, PATROL,
+STAND), has moved no more than 150 units, and has failed two checks in a row while on nobody's screen is
+deleted quietly (CHRHFLAG_DELETING), and the next guard comes. A guard fighting, being hit or in an
+animation never counts as stuck. Missions are left alone: the replay test's optsolo case runs Guards
+Alerted! on one. Ravine, 40000 fixed-step frames, seed 1, 3 sims, 4 guards: 31 spawns / 23 killed before,
+44 / 29 after, with 6 taken out (4 at the ravine floor, 2 jammed in room 12). `--chr-trace` logs each one
+("alarm: guard N stuck at ...: taken out").
