@@ -202,6 +202,14 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 `SDL_VIDEODRIVER=offscreen`. Each writes its logs under
 `build/<name>-out/` and screenshots under `build/net-shots/`.
 
+`tools/ci/netallgates.sh [LOG]` runs them all in turn (~2 h) and reruns a
+gate that fails once: passing the second time it is FLAKY (first run kept as
+`build/gate-NAME.try1.log`), failing twice it is FAIL; the log ends with
+`== summary`. `RERUN=0` turns the rerun off. Before a deploy the set that
+matters is each changed area's own case, `replaytest.sh compare` against the
+deployed build, `pd-nettest` and `netlobbywinetest.sh` (~25 min); the full
+run follows the deploy in the background.
+
 | Gate | Time (2026-10-06 run) | What it proves |
 |---|---|---|
 | `netclocktest.sh` | 0.5 min | `--net-clock-test N` state hashes equal the stock run |
