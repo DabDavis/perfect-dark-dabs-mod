@@ -1497,7 +1497,10 @@ const char *gebeanHeadName(s32 headnum)
  */
 static s32 gebeanGunsAreN64(void)
 {
-	return !xblaMeshGetEnabled();
+	// a ROM hack's guns are its own models alone: the release has none of
+	// them (its stages are N64 anyway; off them, Perfect Dark's Combat
+	// Simulator with Mod.CsHackGuns)
+	return !xblaMeshGetEnabled() || gegunsHackSetIn();
 }
 
 /**

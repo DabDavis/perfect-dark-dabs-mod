@@ -982,3 +982,14 @@ explosive props and counts explosion props.
   depth along cam_look; the fog-on test is untouched. Probe:
   `probe/popin.py` (who is on screen and flagged) and `probe/popin2.py` (a
   guard held 450 in front: 0/30 frames on screen before, 30/30 after).
+
+## Its guns in Perfect Dark's Combat Simulator (2026-10-10, feat/cs-hack-guns)
+
+"ROM Hack Guns: Goldfinger 64" on the Weapons page (`Mod.CsHackGuns` gf64)
+plays its guns in GoldenEye's slots on any arena of Perfect Dark's or
+GoldenEye's, with its fourteen sets in the list ([GF]); its own maps keep
+its guns whatever is chosen. weapons.md, "A ROM hack's guns in Perfect
+Dark's Combat Simulator". Its props off its maps: 30 of its own for its guns
+(held, lying, its grenade and mines thrown); its rocket is GoldenEye's (it
+has none of its own), and on GoldenEye's arenas its thrown Oddjob's Hat is
+GoldenEye's knife (it is thrown as slot 186, which is the arena's there).

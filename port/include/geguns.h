@@ -205,6 +205,8 @@ u16 gegunsMenuNameId(s32 weaponnum); // the menus' name of a GoldenEye gun: a ha
 void gegunsExtraRowsRefresh(void); // a hack's own pistols' Combat Simulator rows shown or hidden
 void gegunsCheatRowsRefresh(void); // GoldenEye's cheat guns' rows, by Mod.GePlusCheatGuns
 void gegunsExtraModelsRefresh(void); // the models in the hand of the guns gebean.c has no rows for
+void gegunsHackPropsRefresh(void); // a ROM hack's guns' own props off its stages
+s32 gegunsSetAvailable(s32 moddir); // a gun set of the mod dir's can be put in
 s32 gegunsCheatGunsOffered(void); // whether the Weapons page offers them at all
 
 /** Weapon `index`'s own name (its text id), the gun set's. */

@@ -59,6 +59,10 @@ s32 modloaderDirIndexIsConversion(s32 moddir);
 // Perfect Dark's, from the mod that brings it, until the next stage; -1 where
 // no mod has it or the stage is one of the remake's own
 s32 modloaderLendRemakeModel(s32 slot);
+// a ROM hack's own (mod dir `modindex`) where it has the slot, GoldenEye's otherwise
+s32 modloaderLendRemakeModelFrom(s32 slot, s32 modindex);
+// mod dir `modindex`'s own model file for a remake slot, registered (0 none)
+s32 modloaderRemakeModelFileOf(s32 modindex, s32 slot, u16 *scale);
 
 // The GoldenEye remake's solo missions, from a mod's `missions` block: the
 // stage mission n registered as (0 for none), and how many there are.

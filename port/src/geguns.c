@@ -1834,6 +1834,17 @@ static s32 convertedSet = -2;
 
 // the mod dir whose gun set is in (gegunsStageSet()), -1 GoldenEye's own
 static s32 g_GunSetDir = -1;
+// and whether it is in off the hack's own stages, chosen for Perfect Dark's
+// Combat Simulator (Mod.CsHackGuns): its props are lent (gegunsLendDir())
+static s32 g_GunSetLent = 0;
+// the guns whose own model state holds the hack's prop (gegunsHackPropsRefresh())
+static u8 g_HackPropIn[NUM_GE_WEAPONS];
+
+/** The mod dir whose props a gun of the set in is lent from on a stage of Perfect Dark's, -1 GoldenEye's. */
+static s32 gegunsLendDir(void)
+{
+	return g_GunSetLent ? g_GunSetDir : -1;
+}
 
 static void gegunsFindConverted(void)
 {
@@ -2263,9 +2274,15 @@ s32 gegunsOwnPropModel(s32 weaponnum)
 
 	prop = gegunsChrProp(index);
 
+	// a ROM hack's gun off the hack's own stages: its own prop, in the gun's
+	// own model state, where the remake slot may be GoldenEye's arena's
+	if (prop > 0 && g_HackPropIn[index]) {
+		return MODEL_GE_FIRST + index;
+	}
+
 	// lent on a stage of Perfect Dark's (modloaderLendRemakeModel()), where
 	// a sim or a guard held the host's gun and the floor had it
-	return prop > 0 ? modloaderLendRemakeModel(prop) : -1;
+	return prop > 0 ? modloaderLendRemakeModelFrom(prop, gegunsLendDir()) : -1;
 }
 
 /**
@@ -2302,7 +2319,7 @@ s32 gegunsOwnRocketModel(s32 weaponnum, s32 fallback)
 		return fallback;
 	}
 
-	model = modloaderLendRemakeModel(202); // PROP_CHRROCKET
+	model = modloaderLendRemakeModelFrom(202, gegunsLendDir()); // PROP_CHRROCKET
 
 	return model >= 0 ? model : fallback;
 }
@@ -2341,6 +2358,12 @@ s32 gegunsThrownModel(s32 weaponnum, s32 fallback)
 	default: return fallback;
 	}
 
+	// a ROM hack's off its own stages, where it is the prop the gun is held
+	// as (its grenade, its mines): that, held in the gun's own model state
+	if (g_HackPropIn[weaponnum - WEAPON_GE_FIRST] && gegunsChrProp(weaponnum - WEAPON_GE_FIRST) == prop) {
+		return MODEL_GE_FIRST + weaponnum - WEAPON_GE_FIRST;
+	}
+
 	if (g_ModelStates[MODEL_REMAKE_FIRST + prop].fileid) {
 		return MODEL_REMAKE_FIRST + prop;
 	}
@@ -2349,7 +2372,7 @@ s32 gegunsThrownModel(s32 weaponnum, s32 fallback)
 		return fallback;
 	}
 
-	model = modloaderLendRemakeModel(prop);
+	model = modloaderLendRemakeModelFrom(prop, gegunsLendDir());
 
 	return model >= 0 ? model : fallback;
 }
@@ -2447,8 +2470,8 @@ s32 gegunsChrProjectileModel(s32 weaponnum, s32 fallback)
 
 	// lent on a stage of Perfect Dark's, as the player's (gegunsOwnRocketModel())
 	switch (weaponnum) {
-	case WEAPON_GE_ROCKETLAUNCHER:  model = modloaderLendRemakeModel(202); break;
-	case WEAPON_GE_GRENADELAUNCHER: model = modloaderLendRemakeModel(203); break;
+	case WEAPON_GE_ROCKETLAUNCHER:  model = modloaderLendRemakeModelFrom(202, gegunsLendDir()); break;
+	case WEAPON_GE_GRENADELAUNCHER: model = modloaderLendRemakeModelFrom(203, gegunsLendDir()); break;
 	default: return fallback;
 	}
 
@@ -4409,18 +4432,28 @@ void gegunsStageSet(s32 stagenum)
 {
 	struct gegunset *set = NULL;
 	s32 dir = -1;
+	s32 lent = 0;
 
 	gegunsOwnSwingsStop();
 
 	if (modloaderStageIsRemake(stagenum) && !modloaderStageIsGexPlus(stagenum)) {
 		set = gegunsSetAt(modloaderGetStageModDirIndex(stagenum));
 		dir = set ? set->moddir : -1;
+	} else if (g_Vars.normmplayerisrunning && !g_GexPlusMode) {
+		// a match of Perfect Dark's Combat Simulator with a ROM hack's guns
+		// chosen (Mod.CsHackGuns, gexplus.c): the hack's on any stage but a
+		// hack's own, which keeps its own above
+		set = gegunsSetAt(gexPlusCsHackDirIndex());
+		dir = set ? set->moddir : -1;
+		lent = set != NULL;
 	}
 
-	if (dir == g_GunSetDir) {
+	if (dir == g_GunSetDir && lent == g_GunSetLent) {
 		gegunsExtraRowsRefresh();
 		return;
 	}
+
+	g_GunSetLent = lent;
 
 	// the watch laser is put in again by its own stage (gegadgets.c)
 	gegunsSetWatchLaser(0);
@@ -4477,7 +4510,7 @@ void gegunsStageSet(s32 stagenum)
 	gegunsExtraModelsRefresh();
 	gegunsExtraRowsRefresh();
 
-	sysLogPrintf(LOG_NOTE, "geguns: %s guns", set ? "a ROM hack's own" : "GoldenEye's own");
+	sysLogPrintf(LOG_NOTE, "geguns: %s", !set ? "GoldenEye's own guns" : lent ? "a ROM hack's guns, chosen for the match" : "a ROM hack's own guns");
 }
 
 /**
@@ -4504,6 +4537,66 @@ void gegunsExtraModelsRefresh(void)
 			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
 		}
 	}
+
+	gegunsHackPropsRefresh();
+}
+
+/**
+ * A ROM hack's guns held and lying as the hack's own props off its own
+ * stages (g_GunSetLent: Perfect Dark's Combat Simulator with Mod.CsHackGuns):
+ * each gun's own model state (MODEL_GE_FIRST) takes the prop the hack's
+ * models block has for it (gegunsChrProp()), which gegunsOwnPropModel()
+ * answers with. GoldenEye's under the same number was lent instead - its KF7
+ * Soviet for Goldfinger 64's AK47, nearly all of the hacks' gun props being
+ * their own - and on GoldenEye's own arenas the remake slot is the arena's.
+ * Run where gebean.c sets the states (gebeanGunsRefresh(), its tail), after
+ * it; a gun put back gets its host's pickup again, which gebean.c sets for
+ * GoldenEye's 25 itself.
+ */
+void gegunsHackPropsRefresh(void)
+{
+	s32 put = 0;
+
+	for (s32 i = 0; i < NUM_GE_WEAPONS; i++) {
+		struct modelstate *state = &g_ModelStates[MODEL_GE_FIRST + i];
+		// (GoldenEye's cheat guns are GoldenEye's own whatever the set)
+		const s32 cheat = i >= WEAPON_GE_SILVERPP7 - WEAPON_GE_FIRST && i <= WEAPON_GE_TASER - WEAPON_GE_FIRST;
+		const s32 prop = g_GunSetLent && GE_GUN_INDEX(i) && !cheat ? gegunsChrProp(i) : 0;
+		u16 scale = 0;
+		const s32 fileid = prop > 0 ? modloaderRemakeModelFileOf(g_GunSetDir, prop, &scale) : 0;
+
+		if (fileid > 0) {
+			if (state->fileid != fileid) {
+				state->modeldef = NULL;
+			}
+
+			state->fileid = (u16)fileid;
+			state->scale = scale;
+			g_HackPropIn[i] = 1;
+			put++;
+			continue;
+		}
+
+		if (g_HackPropIn[i] && i >= NUM_GE_GUNS) {
+			const s32 hostmodel = gegunsHostModel(i);
+
+			state->fileid = hostmodel >= 0 && hostmodel < MODEL_GE_FIRST ? g_ModelStates[hostmodel].fileid : 0;
+			state->scale = hostmodel >= 0 && hostmodel < MODEL_GE_FIRST ? g_ModelStates[hostmodel].scale : 0;
+			state->modeldef = NULL;
+		}
+
+		g_HackPropIn[i] = 0;
+	}
+
+	if (put) {
+		sysLogPrintf(LOG_NOTE, "geguns: %d of the ROM hack's own props for its guns off its stages", put);
+	}
+}
+
+/** Whether a gun set of `moddir`'s can be put in: its menu/geguns.bin is there. */
+s32 gegunsSetAvailable(s32 moddir)
+{
+	return gegunsSetAt(moddir) != NULL;
 }
 
 /** Whether a ROM hack's own gun set is in (gegunsStageSet()): its stage is loaded. */
@@ -4525,7 +4618,13 @@ static struct gegunset *gegunsMenuSet(void)
 		return gegunsSetAt(modloaderGexPlusVariantDirIndex());
 	}
 
-	return g_GunSetDir >= 0 ? gegunsSetAt(g_GunSetDir) : NULL;
+	if (g_GunSetDir >= 0) {
+		return gegunsSetAt(g_GunSetDir);
+	}
+
+	// Perfect Dark's Combat Simulator with a ROM hack's guns chosen for its
+	// matches (Mod.CsHackGuns): its menus between them name the hack's
+	return gegunsSetAt(gexPlusCsHackDirIndex());
 }
 
 /**

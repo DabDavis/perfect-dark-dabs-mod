@@ -395,3 +395,67 @@ PP7's, Gold 100, taser once a press), `toggle.py` (rows, sets, set numbers,
 GoldenEye's mode to Goldfinger 64's and back), `allguns.py`/`allguns-gf.py`
 (the list on Dam and on a Goldfinger 64 mission), `menu.py` (the page).
 
+
+## A ROM hack's guns in Perfect Dark's Combat Simulator (2026-10-10)
+
+The owner said yes to Goldfinger 64's and TND64's guns in the Combat
+Simulator on any map (F3 20261009-173850, pdplay's analysis). A hack's guns
+are GoldenEye's gun numbers with the hack's versions put in (`gegunsStageSet()`
+swaps `g_GeWeaponDefs` for the hack's `menu/geguns.bin` set), and until now
+only on the hack's own stages. **Design: a match plays one game's guns** -
+GoldenEye's, or one hack's - chosen on the Weapons page. Distinct weapon
+numbers for every hack gun were the other way: ~60 weapons and rows, past the
+7 bits a setup file keeps a row in, each needing a host, a model state and the
+tables GoldenEye's 25 have; and mixing families in one match was never asked
+for. The chosen set's family deciding was the third: no explicit choice, and
+Custom would carry it invisibly.
+
+- **The choice**: `Mod.CsHackGuns`, the hack's conversion tag ("gf64",
+  "tnd64"; "" GoldenEye's own, the default): **"ROM Hack Guns"** on the
+  Weapons page, Off or each hack converted and mounted here
+  (`gexPlusCsHackNumOptions()`, by its `menu/geguns.bin`). Hidden in
+  GoldenEye's own Combat Simulator (its mode decides there), under a mod with
+  its own weapon list, and with no hack converted.
+- **Sets and menus**: the block after Perfect Dark's sets holds the hack's
+  fourteen, tagged [GF] or [TND], where GoldenEye's were
+  (`gexPlusWeaponSetsAppend()`; the chosen set keeps its index, Random Five,
+  Random and Custom their meaning: `geSetsNumMoved()`); the menus name the
+  hack's guns and show its pistols' rows (`gegunsMenuSet()` falls back to
+  the choice between matches); GoldenEye's cheat guns' toggle and rows go
+  (they are GoldenEye's own).
+- **A match** (`g_Vars.normmplayerisrunning`, not GoldenEye's mode): the
+  hack's set on any stage but a ROM hack's own, which keeps its own as it
+  always has (TND64 chosen on Goldfinger's Junkyard plays Goldfinger's);
+  `g_GunSetLent` says the set is in off the hack's stages. GoldenEye's
+  arenas take the choice too. Solo missions and co-op never do.
+- **Looks**: the hack's own first-person models in either look
+  (`gebeanGunsAreN64()` is true while a hack's set is in: the release has none
+  of its guns). Its props, held and lying, are its own: nearly all of a
+  hack's gun props differ from GoldenEye's under the same number (GF64's
+  AK47 on 184 is not the KF7), so each gun's own model state
+  (`MODEL_GE_FIRST`) takes the hack's file for its prop
+  (`gegunsHackPropsRefresh()`, `modloaderRemakeModelFileOf()`), which works on
+  GoldenEye's arenas too, whose remake slots are the arena's. A thrown or
+  fired one: the per-weapon state where the gun is held as what it throws
+  (the grenade, the mines), else lent from the hack on a stage of Perfect
+  Dark's (`modloaderLendRemakeModelFrom()`); on GoldenEye's arenas
+  GoldenEye's own then (Goldfinger's thrown Oddjob's Hat is GoldenEye's
+  knife there). Neither hack has a rocket of its own (GoldenEye's, as their
+  cartridges).
+- **Online**, the host's: `Mod.CsHackGuns` is a SYNC key, applied before the
+  host's slots and set number (`netRulesApplyCsHackGuns()`) and the guest's
+  own again before its own setup comes back. At STAGE_LOAD a guest with the
+  hack installed but left out of Mod.MapMods mounts it, and one without it
+  fetches it from the host as a map's conversion is
+  (`netContentCsHackGunsFollow()`, reading the host's value out of the RULES
+  before `netRulesApply()` writes them; the STAGE_LOAD kept meanwhile), which
+  the host serves as a folder its session needs (`netContentSessionNeeds()`).
+  Keys go by name, so RULES' shape is unchanged: no protocol bump. Gates:
+  `netcontenttest.sh` gfcs and gfcsfetch (Goldfinger 64 fetched: 3491
+  files, 19.9 MB in 3.9 s on loopback).
+
+Probes (`~/wt/f3-1010a-geplay-run/probes/`): `hackmenu.py` (the choice, the
+block, the rows, both hacks), `hackmatch.py` (Complex: names, models, props,
+pickups, a sim), `hackcheck.py` (Temple, the HD look, a hack's own map with
+the other chosen), `hackthrow.py` (a grenade and a rocket).
+

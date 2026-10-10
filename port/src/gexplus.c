@@ -2030,6 +2030,29 @@ static const struct {
 
 static s32 g_GePlusPdGuns = 0;
 static s32 g_GePlusCheatGuns = 0;
+
+/**
+ * A GoldenEye ROM hack's guns in Perfect Dark's own Combat Simulator, on any
+ * arena (the owner's call on F3 20261009-173850): Mod.CsHackGuns, the hack's
+ * conversion tag ("gf64", "tnd64"), "" for GoldenEye's own. A hack's guns are
+ * GoldenEye's gun numbers with the hack's versions put in (geguns.c's gun
+ * sets), so a match plays one game's guns: GoldenEye's, or one hack's. With
+ * one chosen ("ROM Hack Guns" on the Weapons page, setup.c), outside
+ * GoldenEye's own Combat Simulator, whose mode decides:
+ *  - the weapon set block after Perfect Dark's sets holds the hack's sets,
+ *    tagged [GF] or [TND], where GoldenEye's were
+ *    (gexPlusWeaponSetsAppend());
+ *  - the menus name the hack's guns and list its pistols
+ *    (geguns.c's gegunsMenuSet());
+ *  - a Combat Simulator match puts the hack's guns in on any stage but a
+ *    ROM hack's own, which keeps its own as it always has
+ *    (gegunsStageSet()), with the hack's props held and on the floor
+ *    (gegunsHackPropsRefresh()) and its own first-person models in either
+ *    look.
+ * Online it is the host's (netrules.c's SYNC keys), put in step before the
+ * host's set number is read. Off by default.
+ */
+static char g_CsHackGuns[16] = "";
 static struct gesetsgroup g_GeSetsGroups[GESETS_GROUPS];
 static s32 g_GeSetsFirst = -1; // the block of the list
 static s32 g_GeSetsNum = 0;
@@ -2039,6 +2062,7 @@ PD_CONSTRUCTOR static void gexPlusGunsConfigInit(void)
 {
 	configRegisterInt("Mod.GePlusPdGuns", &g_GePlusPdGuns, 0, 1);
 	configRegisterInt("Mod.GePlusCheatGuns", &g_GePlusCheatGuns, 0, 1);
+	configRegisterString("Mod.CsHackGuns", g_CsHackGuns, sizeof(g_CsHackGuns));
 }
 
 s32 gexPlusGetPdGuns(void)
@@ -2389,9 +2413,130 @@ static s32 geSetsUse(s32 own)
  */
 void gexPlusWeaponSetsAppend(void)
 {
-	if (!modDataMpWeaponsImported()) {
-		geSetsUse(1);
+	if (modDataMpWeaponsImported()) {
+		return;
 	}
+
+	// or the ROM hack's whose guns Perfect Dark's matches play with
+	{
+		const s32 hack = gexPlusCsHackDirIndex();
+		const s32 index = hack >= 0 ? geSetsGroup(fsGetModDirAt(hack)) : -1;
+
+		if (index >= 0) {
+			geSetsPut(index);
+			return;
+		}
+	}
+
+	geSetsUse(1);
+}
+
+/** The mounted mod dir of the conversion tagged `tag` when it is a ROM hack's with a gun set, else -1. */
+s32 gexPlusCsHackDirOfTag(const char *tag)
+{
+	const char *name;
+
+	if (!tag || !tag[0] || !strcasecmp(tag, geconvertGoldenEyeTag()) || !(name = gexPlusRomDirOfTag(tag))) {
+		return -1;
+	}
+
+	for (s32 i = 0; i < fsGetNumModDirs(); i++) {
+		const char *dir = fsGetModDirAt(i);
+		const char *base = dir;
+
+		for (const char *c = dir; c && *c; c++) {
+			if (*c == '/' || *c == '\\') {
+				base = c + 1;
+			}
+		}
+
+		if (base && !strcasecmp(base, name) && gegunsSetAvailable(i)) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+s32 gexPlusCsHackDirIndex(void)
+{
+	if (g_GexPlusMode || modDataMpWeaponsImported()) {
+		return -1;
+	}
+
+	return gexPlusCsHackDirOfTag(g_CsHackGuns);
+}
+
+const char *gexPlusGetCsHackGuns(void)
+{
+	return g_CsHackGuns;
+}
+
+/**
+ * Mod.CsHackGuns as `tag` ("" GoldenEye's own), and what it decides put in
+ * step at once: the weapon set block (the chosen set keeps its place, as on
+ * a change of mode: geSetsPut()) and the menus' rows. Also where netrules.c
+ * wrote a host's value, or the player's own back, straight into the setting.
+ */
+void gexPlusSetCsHackGuns(const char *tag)
+{
+	snprintf(g_CsHackGuns, sizeof(g_CsHackGuns), "%s", tag ? tag : "");
+
+	if (!g_GexPlusMode) {
+		gexPlusWeaponSetsAppend();
+		gegunsExtraRowsRefresh();
+	}
+}
+
+/**
+ * The Weapons page's "ROM Hack Guns": the hacks converted and mounted here,
+ * by their names, after "Off" (option 0). `option` counts from 1.
+ */
+s32 gexPlusCsHackNumOptions(void)
+{
+	s32 n = 0;
+
+	for (s32 i = 0; gexPlusRomGetVariant(i); i++) {
+		n += gexPlusCsHackDirOfTag(gexPlusRomDirTag(gexPlusRomGetVariant(i))) >= 0;
+	}
+
+	return n;
+}
+
+static const char *gexPlusCsHackOptionVariant(s32 option)
+{
+	for (s32 i = 0; gexPlusRomGetVariant(i); i++) {
+		if (gexPlusCsHackDirOfTag(gexPlusRomDirTag(gexPlusRomGetVariant(i))) >= 0 && --option == 0) {
+			return gexPlusRomGetVariant(i);
+		}
+	}
+
+	return NULL;
+}
+
+const char *gexPlusCsHackOptionName(s32 option)
+{
+	return option > 0 ? gexPlusCsHackOptionVariant(option) : NULL;
+}
+
+void gexPlusCsHackOptionSet(s32 option)
+{
+	const char *variant = option > 0 ? gexPlusCsHackOptionVariant(option) : NULL;
+
+	gexPlusSetCsHackGuns(variant ? gexPlusRomDirTag(variant) : "");
+}
+
+s32 gexPlusCsHackOptionSelected(void)
+{
+	const s32 dir = gexPlusCsHackDirOfTag(g_CsHackGuns);
+
+	for (s32 option = 1; dir >= 0 && gexPlusCsHackOptionVariant(option); option++) {
+		if (gexPlusCsHackDirOfTag(gexPlusRomDirTag(gexPlusCsHackOptionVariant(option))) == dir) {
+			return option;
+		}
+	}
+
+	return 0;
 }
 
 /**
