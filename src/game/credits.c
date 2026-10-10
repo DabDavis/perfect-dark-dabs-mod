@@ -668,6 +668,71 @@ void creditsResetParticles(void)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The credits roll their dice once a frame: a new background (1 in 100), a new
+ * particle colour, shape or movement, a name's flicker. At 240 FPS that was 4x
+ * as often as at 60. creditsRoll() makes the roll once per 60th that passed
+ * (g_Vars.diffframe60, its remainder carried), so at 60 FPS it is the one roll
+ * a frame it was, and the same chance per second at any frame rate.
+ */
+static bool creditsRoll(f32 chance)
+{
+	s32 i;
+
+	for (i = 0; i < g_Vars.diffframe60; i++) {
+		if (RANDOMFRAC() < chance) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * The flickers drawn with the slides (a name jumping, a shadow layer
+ * stretching) are rolled per text as it is drawn and last the frame. They are
+ * rolled only on a frame a 60th passed and held through the frames between,
+ * so a flicker lasts a 60th and comes as often as at 60 FPS, where every
+ * frame rolls as before.
+ */
+struct creditsflicker {
+	bool on;
+	f32 transfrac;
+	s32 hdir;
+	s32 vdir;
+};
+
+static struct creditsflicker g_CreditsFlickers[8];
+static u8 g_CreditsBgTextGlitches[8]; // a bit per shadow layer
+static s32 g_CreditsBgTextIndex;
+
+static void creditsClearFlickers(void)
+{
+	s32 i;
+
+	for (i = 0; i < ARRAYCOUNT(g_CreditsFlickers); i++) {
+		g_CreditsFlickers[i].on = false;
+		g_CreditsBgTextGlitches[i] = 0;
+	}
+}
+
+static bool creditsBgTextGlitch(s32 layer)
+{
+	u8 *held = &g_CreditsBgTextGlitches[g_CreditsBgTextIndex & 7];
+
+	if (g_Vars.diffframe60 > 0) {
+		if ((rngRandom() % 256) == 1) {
+			*held |= 1 << layer;
+		} else {
+			*held &= ~(1 << layer);
+		}
+	}
+
+	return (*held >> layer) & 1;
+}
+#endif
+
 void creditsTickParticles(void)
 {
 	s32 i;
@@ -686,7 +751,12 @@ void creditsTickParticles(void)
 			g_CreditsData->particlecolourindex1 = -1;
 		}
 	} else {
-#if VERSION >= VERSION_NTSC_1_0
+#ifndef PLATFORM_N64
+		if (creditsRoll(0.007f) && joyGetButtons(0, R_TRIG) == 0) {
+			g_CreditsData->particlecolourindex1 = rngRandom() % 4;
+			g_CreditsData->particlecolourweight = 0;
+		}
+#elif VERSION >= VERSION_NTSC_1_0
 		if (RANDOMFRAC() < 0.007f && joyGetButtons(0, R_TRIG) == 0) {
 			g_CreditsData->particlecolourindex1 = rngRandom() % 4;
 			g_CreditsData->particlecolourweight = 0;
@@ -699,7 +769,11 @@ void creditsTickParticles(void)
 #endif
 	}
 
-#if VERSION >= VERSION_NTSC_1_0
+#ifndef PLATFORM_N64
+	if (creditsRoll(0.002f) && joyGetButtons(0, R_TRIG) == 0) {
+		g_CreditsData->particlemovetype = rngRandom() % 5;
+	}
+#elif VERSION >= VERSION_NTSC_1_0
 	if (RANDOMFRAC() < 0.002f && joyGetButtons(0, R_TRIG) == 0) {
 		g_CreditsData->particlemovetype = rngRandom() % 5;
 	}
@@ -720,7 +794,11 @@ void creditsTickParticles(void)
 	}
 #endif
 
+#ifndef PLATFORM_N64
+	if (creditsRoll(0.007f)) {
+#else
 	if (RANDOMFRAC() < 0.007f) {
+#endif
 		g_CreditsData->particleconfignum1 = rngRandom() % 2;
 		g_CreditsData->particleconfignum2 = rngRandom() % 2;
 	}
@@ -732,6 +810,12 @@ void creditsTickParticles(void)
 		if ((i & 8) == 0) {
 			amount = -amount;
 		}
+
+#ifndef PLATFORM_N64
+		// a 60th's spin scaled to the frame's 240ths (exactly the old step
+		// at 60 FPS); once a frame, it spun 4x as fast at 240
+		amount *= g_Vars.diffframe240f * 0.25f;
+#endif
 
 		g_CreditsData->particles[i].rotation += amount;
 
@@ -1001,7 +1085,11 @@ Gfx *creditsDrawBackgroundText(Gfx *gdl, s32 x, s32 y, char *text, struct fontch
 		f32 f24 = i * 0.2f + g_CreditsParticleRotationFrac * 10.0f * M_BADTAU + sp98;
 		f32 f26 = i * 0.1f * (spread + 0.5f) + 1.0f;
 
+#ifndef PLATFORM_N64
+		if (creditsBgTextGlitch(i)) {
+#else
 		if ((rngRandom() % 256) == 1) {
+#endif
 			f26 *= 10.0f;
 		}
 
@@ -1354,6 +1442,10 @@ void creditsTickSlide(void)
 			g_CreditsData->unk41a8[i] = rngRandom() % 3 | rngRandom() % 3 << 2 | rngRandom() % 16 << 4;
 		}
 
+#ifndef PLATFORM_N64
+		creditsClearFlickers();
+#endif
+
 		creditsCreatePendingBgLayers(0xffffffff);
 	}
 }
@@ -1574,6 +1666,9 @@ Gfx *creditsDrawSlide(Gfx *gdl)
 				speed = 1.0f;
 			}
 
+#ifndef PLATFORM_N64
+			g_CreditsBgTextIndex = i;
+#endif
 			gdl = creditsDrawBackgroundText(gdl, x[i], y[i] + extray, texts[i], chars[i], fonts[i], opacity, speed, spread);
 		}
 	}
@@ -1659,11 +1754,35 @@ Gfx *creditsDrawSlide(Gfx *gdl)
 				}
 
 				// Apply random flicker
+#ifndef PLATFORM_N64
+				if (settled) {
+					struct creditsflicker *flicker = &g_CreditsFlickers[i & 7];
+
+					if (g_Vars.diffframe60 > 0) {
+						flicker->on = rngRandom() % (g_CreditsData->numthisslide * 16) == 1;
+
+						if (flicker->on) {
+							flicker->transfrac = RANDOMFRAC() * 0.05f;
+							flicker->hdir = rngRandom() % 3;
+							flicker->vdir = rngRandom() % 3;
+						}
+					}
+
+					if (flicker->on) {
+						transfrac = flicker->transfrac;
+						hdir = flicker->hdir;
+						vdir = flicker->vdir;
+					}
+				} else {
+					g_CreditsFlickers[i & 7].on = false;
+				}
+#else
 				if (settled && rngRandom() % (g_CreditsData->numthisslide * 16) == 1) {
 					transfrac = RANDOMFRAC() * 0.05f;
 					hdir = rngRandom() % 3;
 					vdir = rngRandom() % 3;
 				}
+#endif
 
 				extray = 120 - cury / 2;
 				gdl = creditsDrawForegroundText(gdl, x[i], y[i] + extray, texts[i], chars[i], fonts[i],
@@ -1729,7 +1848,11 @@ void creditsTick(void)
 
 	if (g_CreditsData->slidesenabled) {
 		creditsTickSlide();
+#ifndef PLATFORM_N64
+	} else if (creditsRoll(0.01f) && !joyGetButtons(0, R_TRIG)) {
+#else
 	} else if (RANDOMFRAC() < 0.01f && !joyGetButtons(0, R_TRIG)) {
+#endif
 		creditsCreatePendingBgLayers(0xffffffff);
 	}
 
