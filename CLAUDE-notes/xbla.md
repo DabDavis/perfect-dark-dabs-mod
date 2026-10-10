@@ -11,6 +11,8 @@ Added since, and not in CLAUDE.md:
 
 - **A shot at a release room's own picture read a malloc header as its texture** — xbla.md, "A shot at a release room's stand-in": `xblaStageIsStandIn()` (a record's tile from `xblaTexBind()`, or the white tile) is asked before bg.c's read of the s16 8 bytes before a G_SETTIMG's image; such a hit is texture -1 (the default surface) and a translucent one passes, as the game's default ones do; 30 of 30 such hits in seeded matches on 0x45/0x31 read 2065 (0x811, the 2048-byte tile's chunk header) before
 
+- **F3 pass 35 (2026-10-10, fix/f3-1010a-pdlook)** — G5 Building keeps the game's black sky (its guessed dusk cube showed through the laser grid's open shafts: "The skies"); Beau's ponytail is hair ("The heads"); a gun's toggled zero other than a muzzle flash is covered - the Falcon 2's silencer front and part `0x42` in the menus ("The heads", the weapon zeros); the fourth bone byte is the number of influences and a two-influence vertex's remainder is bone1's - the G5 guard, dataDyne sniper and striped guard's spiked hands and feet ("Skinning"); an unpacked archive is searched six deep and the log says when it held `DataFiles/` instead of a package ("Where the player puts it")
+
 - **A pack that repaints a shiny material as matte (Joanna's combat suit)** — xbla.md, "A pack that makes a material matte": `xblaMeshMattes` in xblamesh.c, a row per record + byte-16 percent + pack-name word; 0x12a6 at 15% goes to nothing under PD Ultimate Plus HD (its fabric side panels; the 50% pads keep theirs); read when the frame is drawn, keyed on `texpackGetIndexSerial()`, so F10 follows; the Xbox 360 style's `dimcol` is passed over while a row applies
 
 
@@ -2111,6 +2113,30 @@ s16 a Perfect Dark vertex holds. The posed copy of the vertices goes in a frame
 arena of its own, doubled, because a character is thousands of vertices and the
 game's vtx pool is sized for what an N64 drew.
 
+**The fourth bone byte is the number of influences** (2026-10-10, F3
+20261007-224918: "rigging seems broken on certain limbs ... hands", a dead G5
+guard in Chicago with his fist drawn out into a spike). Counted over every
+skinned mesh: the 154 meshes whose byte is 1 have every vertex on one bone; the
+90 that say 3 store two real weights and leave the third; and in the 87 that
+say 2 the second float is **never a weight** - it is two small bytes read as a
+denormal (`00 00 0c 0d`, 4.7e-42) - and what is left of one belongs to bone1.
+Reading every vertex as three influences gave that remainder to bone2, which
+in 95% of them repeats bone1 and so did nothing; but in three bodies bone2 is
+any bone at all. The G5 guard (mesh 2390), the dataDyne sniper (2377) and the
+dataDyne guard in stripes (2498) have 2279 two-influence vertices naming three
+bones, and walked against the body's own skeleton (each `POSITION` node's
+matrix and its parent's) bone1 is the parent, child or sibling of bone0 in
+every one of them and bone2 in only 742: a hand vertex was 84% hand and 16%
+hips, so a raised arm stretched it back towards the hips. `xblaMeshSkinWeights()`
+gives the remainder to bone1 where the byte says 2 and the three bones are
+three; the only other meshes that changes are the crossbow's two (2513, 2514),
+twelve string vertices now half on each limb tip where half went to the bow's
+mount. A head's 56-72 neck vertices are written `{b, other, b}` with w0 0.5:
+rigid on bone0 as three influences, half on the other bone as two. They are
+left rigid - whether the release bends the neck there is the heads' question
+(grafted heads are posed their own way), not this one's. Tools:
+`tools/texpack/xblamesh.py`'s `skin()` reads the same way.
+
 #### The pose is written in sixteenths
 
 A Perfect Dark vertex holds an s16 and the game's own models are drawn in whole
@@ -2414,6 +2440,20 @@ means. (The Falcon 2's two toggled zeros, mentioned here before as the muzzle
 flash risk, are parts `0x42` and `0x2f`; its flash is one of the 36 marked
 `0xFFFF`. The risk was real, on other guns.)
 
+**A gun's zero is read as "keep" for its muzzle flashes only** (2026-10-10,
+F3 20261005-232941: the inventory's Falcon 2 (silencer) "uses an N64 texture"
+at the front of the silencer). Part `0x2f` is the front half of the Falcon's
+silencer, z 312..440 beside the remodelled back half (part `0x2d`, mesh part
+4, z 142..312), and the release's own inventory - captured in Xenia from
+Defection's pause menu - ends the silencer in its round cap with nothing of
+the N64's in front of it; ours drew the N64's flat ten-sided cap and black
+bore there. The other toggled zero on 18 first person guns is part `0x42`,
+which `bgun0f098030()` hides in the hand, so it only ever showed on the
+inventory page and in the menus, inside or beside the release's gun. So
+`xblaMeshIsGunHiddenPiece()`: a `GUNDL` zero under a numbered toggle that is
+not `MODELPART_GUN_MUZZLEFLASH1-3` is covered. The flashes and the unnumbered
+toggles (the classic guns') keep drawing as before.
+
 **Robin's hair has no part number** (2026-09-10, the same sweep). With the
 53 hat heads clean, one head on the page still had a slab over it:
 `CheadrobinZ` (carousel 41). Its parts table names `0x191` and the sunglasses
@@ -2430,6 +2470,17 @@ load all 76 heads under gdb (`heads.py` in the session: `modeldefLoadToNew()`
 each at a level frame, walk the tree, read the hash entry per list) and diff
 the report across the change - the one line that moves is Robin's near hair
 list, NOENTRY to HAIR, 54 hair lists filed where there were 53.
+
+**Beau's piece was his ponytail, not his chin** (2026-10-10, F3
+20261007-073921, "Beau's N64 ponytail remains in XBLA version"). The 72
+vertices under `Cheadbeau`'s unnumbered toggle sit at z -133..-68 and y
+54..118, where the face (the sunglasses' list, z 84..106) is +z: behind the
+head at the nape, a ponytail hanging off the release's slicked-back hair.
+`xblaMeshIsHairList()` now takes a toggle no part names as hair in a head
+that has a hat part too; across the release's heads only three have a zero
+list under an unnumbered toggle on the near alternative - Robin's (hair
+already), Female Guard 2's (no hat part, so still the glasses rule's) and
+Beau's - so Beau's ponytail is the one list that moves.
 
 **The sunglasses the release left at zero are not drawn in the XBLA look**
 (2026-09-25). Myles's F3 20260923-071340 on the Combat Simulator's Character
@@ -3808,6 +3859,15 @@ Air Force One and Pelagic II the grey storm. Deep Sea, Investigation and the
 Institute's levels have no row. A capture of any of them overrides its row -
 nothing here was seen in the release.
 
+**G5 Building lost its guessed row (2026-10-10, F3 20261005-033926).** Its
+environment row is black with no clouds, no stars and no sun (env.c), so the
+N64 draws black wherever the level has no ceiling - the laser grid's shafts
+are open at the top - and the dusk cube painted Chicago's clouds there,
+"the sky instead of the ceiling". It keeps the game's sky now. Whether the
+release puts a cube over G5 is still unseen (the PDTest profile has only
+Defection open); a capture would settle it, and a guessed row should first be
+checked against env.c's clouds, stars and suns the way this one was not.
+
 The drive, scripted in `.xbla-work/gunturn/arena2.sh` / `arena3.sh`: Combat
 Simulator, Game Settings, Advanced Setup, Arena, then Ready. Two traps: **the
 arena list wraps** (17 entries), so "press up until the top" lands somewhere
@@ -4631,6 +4691,18 @@ unpack it again.
 `xblaImportIsAvailable()` is the question to ask when all you want to know is
 whether there is a package — it never unpacks. `xblaImportGetStfsPath()` blocks
 for the unpack and belongs only on a path that is about to read the package.
+
+**What the archive came apart into is searched six deep** (2026-10-10, F3
+20261009-094749: "xbla: no Xbox 360 package inside .../Perfect Dark XBLA.7z",
+and the HD models never loaded while a texture pack kept the rooms HD). The
+two-deep scan above is for the player's folder; `cache/xbla/` holds only the
+archive's tree, and an archive made from a console's or Xenia's storage keeps
+the package under its content path (`Content/0000000000000000/584109C2/
+000D0000/<content id>`), five deep. When there is still no package, the log
+now says what was there - in particular an archive holding the release
+already taken out of its package (`DataFiles/`, `default.xex`, as an emulator
+stores an installed game), which the game cannot read: it reads the package,
+the one file named after its content id.
 
 ## A shot at a release room's stand-in (2026-10-07)
 

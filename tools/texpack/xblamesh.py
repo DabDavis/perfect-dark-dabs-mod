@@ -36,11 +36,15 @@ A vertex is position (3 floats), UV (2), normal (3, unit length), colour
 (one u32). A skinned one adds two blend weights and a packed
 {bone0, bone1, bone2, count} byte quad. The third weight is 1 - w0 - w1: the
 two stored ones sum to 1.0 on 93% of the release's skinned vertices and to as
-little as 0.5 on the rest. The fourth byte is not a count of influences - it
-runs 1 to 6 against three bones and is the same for every vertex of a draw -
-so all three bones always apply, and a vertex with fewer repeats a bone in
-the bytes it does not need. Stride 36 means unskinned and matrixCount is then
-always 0; stride 48 means skinned and matrixCount is then always non-zero.
+little as 0.5 on the rest. The fourth byte is the number of influences (1 to
+6, the same for every vertex of a draw): where it is 2 the second float is not
+a weight but two small bytes (a denormal, 00 00 0c 0d) and the remainder
+belongs to bone1, which only matters where bone2 names a third bone - the G5
+guard, the dataDyne sniper and guard in stripes, and the crossbow's string
+(port/src/xblamesh.c, xblaMeshSkinWeights()). Otherwise all three apply, and a
+vertex with fewer repeats a bone in the bytes it does not need. Stride 36
+means unskinned and matrixCount is then always 0; stride 48 means skinned and
+matrixCount is then always non-zero.
 
 The material word is a texture record index in Textures.raw in bits 0-12
 (they run 3741 to 5746, which is inside the 2244 records past the game's own
@@ -229,7 +233,10 @@ class Mesh:
             return None
         o = self.vertex_offset + i * self.stride
         w0, w1 = struct.unpack('>2f', self.data[o + 36:o + 44])
-        b0, b1, b2, _count = struct.unpack('>4B', self.data[o + 44:o + 48])
+        b0, b1, b2, count = struct.unpack('>4B', self.data[o + 44:o + 48])
+        if count == 2 and len({b0, b1, b2}) == 3:
+            # two influences: the second float is not a weight
+            return (w0, max(0.0, 1.0 - w0), 0.0), (b0, b1, b2)
         return (w0, w1, max(0.0, 1.0 - w0 - w1)), (b0, b1, b2)
 
     def triangles(self):

@@ -1348,9 +1348,13 @@ static s32 xblaMeshIsHairList(struct modeldef *modeldef, const struct modelnode 
 		const u32 type = node->type & 0xff;
 
 		if (type == MODELNODETYPE_TOGGLE) {
-			// The hair's toggle, or some other toggled piece.
+			// The hair's toggle, or some other toggled piece. A toggle no part
+			// names is hair as well where a head has a hat part: Beau's
+			// (`CheadbeauZ`) ponytail is the one such list in the release's
+			// heads, on for ever beside the release's own slicked-back hair
+			// (F3 20261007-073921: "Beau's N64 ponytail remains").
 			if (hat) {
-				return node == hat;
+				return node == hat || !xblaMeshNodeIsNumbered(modeldef, node);
 			}
 
 			return !xblaMeshNodeIsNumbered(modeldef, node);
@@ -1430,6 +1434,59 @@ static s32 xblaMeshIsGlassesList(struct modeldef *modeldef, const struct modelno
 				return 0;
 			}
 		} else if (node == modeldef->rootnode) {
+			return 0;
+		}
+
+		node = node->parent;
+	}
+
+	return 0;
+}
+
+/**
+ * A first person gun's toggled piece the release left at zero, other than a
+ * muzzle flash: a piece of the gun the release's mesh has already.
+ *
+ * Eighteen guns name one: part 0x42, which the game hides in the hand
+ * (bgun0f098030()) and shows only on the inventory page and in the menus, and
+ * on the Falcon 2 part 0x2f, the front half of the silencer beside the
+ * remodelled back half (part 0x2d, mesh part 4). Drawn as the game's, the
+ * inventory's Falcon 2 (silencer) ended in the N64's flat ten-sided cap and
+ * black bore in front of the release's round one (F3 20261005-232941); the
+ * release's own inventory, in Xenia, shows its round cap and nothing of the
+ * N64's. The muzzle flashes stay: they are the toggled zeros the game turns
+ * on (xblaMeshIsCovered()).
+ */
+static s32 xblaMeshIsGunHiddenPiece(struct modeldef *modeldef, const struct modelnode *node)
+{
+	const s16 *partnums;
+
+	if (!node || (node->type & 0xff) != MODELNODETYPE_GUNDL || modeldef->numparts <= 0) {
+		return 0;
+	}
+
+	partnums = (const s16 *)&modeldef->parts[modeldef->numparts];
+
+	for (s32 depth = 0; node && depth < XBLAMESH_PARENTSCAN; depth++) {
+		const u32 type = node->type & 0xff;
+
+		if (type == MODELNODETYPE_TOGGLE) {
+			for (s32 i = 0; i < modeldef->numparts; i++) {
+				if (modeldef->parts[i] == node) {
+					return partnums[i] != MODELPART_GUN_MUZZLEFLASH1
+						&& partnums[i] != MODELPART_GUN_MUZZLEFLASH2
+						&& partnums[i] != MODELPART_GUN_MUZZLEFLASH3;
+				}
+			}
+
+			return 0;
+		}
+
+		if (type == MODELNODETYPE_DISTANCE && (!node->rodata || node->rodata->distance.near != 0.0f)) {
+			return 0;
+		}
+
+		if (node == modeldef->rootnode) {
 			return 0;
 		}
 
@@ -1696,6 +1753,7 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 				xblaMeshSuppressNode(modeldef, ournode, 0, XBLAMESH_SUPPRESS_HAIR);
 				suppressed++;
 			} else if ((xblaMeshIsCovered(modeldef, ournode) || xblaMeshIsGlassesList(modeldef, ournode)
+						|| xblaMeshIsGunHiddenPiece(modeldef, ournode)
 						|| xblaMeshIsReleaseBootLogo(xblaMeshFileId) || xblaMeshTogglesAreInMesh(xblaMeshFileId))
 					&& numcovered < XBLAMESH_COVERED) {
 				// Held until the walk is over: a model whose tree stops
@@ -2438,6 +2496,52 @@ static s32 xblaMeshReadHeader(struct xblameshhdr *h, const u8 *file, u32 len, u3
 }
 
 /**
+ * A skinned vertex's three weights: two stored, the third what is left of one.
+ *
+ * Except where the fourth byte says two and the three bones are three: then
+ * the second float is not a weight and the rest belongs to bone1, not bone2.
+ * The byte is the number of influences the release's draw blends - every
+ * vertex of the 154 meshes that say 1 is on one bone; in the 87 that say 2
+ * the second float is never a weight at all, it is two small bytes read as a
+ * denormal (00 00 0c 0d - 4.7e-42); in the 90 that say 3 it is the second
+ * weight. Read the usual way, a two-influence vertex gave what is left of
+ * one to bone2, which in 95% of them repeats bone1 and so did no harm - but in
+ * the G5 guard (`CG5_GUARDZ`, mesh 2390), the dataDyne sniper (`CDDSNIPERZ`,
+ * 2377) and the dataDyne guard in stripes (`CSTRIPESZ`, 2498) bone2 is any
+ * bone at all: of their 2279 two-influence vertices that name three bones,
+ * bone1 is the parent, child or sibling of bone0 in every one and bone2 in
+ * only 742. A hand's 16% went to the hips, and a raised arm drew its fist as
+ * a spike pointing back at them (F3 20261007-224918, a dead G5 guard in
+ * Chicago). The crossbow's twelve string vertices (2513, 2514) are the only
+ * others: half on each limb tip now, where the rest went to the bow's mount.
+ *
+ * Only three distinct bones changes anything. A head's neck ring is written
+ * {b, other, b} - the rest back on bone0, the vertex rigid - and is left so:
+ * read as two influences it would be half on the neck, which may well be
+ * what the release draws, but the grafted head's palette is posed its own
+ * way (xbla.md, "The heads") and that is a change for the heads to make.
+ */
+static void xblaMeshSkinWeights(const u8 *v, f32 out[3])
+{
+	const u8 *bn = v + 44;
+
+	out[0] = xblaMeshBEF32(v + 36);
+
+	if (bn[3] == 2 && bn[0] != bn[1] && bn[1] != bn[2] && bn[0] != bn[2]) {
+		out[1] = out[0] < 1.0f ? 1.0f - out[0] : 0.0f;
+		out[2] = 0.0f;
+		return;
+	}
+
+	out[1] = xblaMeshBEF32(v + 40);
+	out[2] = 1.0f - out[0] - out[1];
+
+	if (out[2] < 0.0f) {
+		out[2] = 0.0f;
+	}
+}
+
+/**
  * What one of a mesh's units is worth in the game's.
  *
  * The float at +0x18 is a scale: 100.0 means the mesh is in the model file's
@@ -2865,15 +2969,15 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 		// rest, so the remainder belongs to the third bone and dropping it
 		// pulls those vertices towards the origin.
 		//
-		// The byte that reads like a count is not one. It runs 1 to 6 against
-		// three bones, it is the same value for every vertex of a draw, and
-		// its 2s carry three real influences as often as its 3s do - 4.4% of
-		// them have bone0 and bone1 the same where 95% repeat bone1 in bone2,
-		// which is how a vertex with fewer than three bones is written. So all
-		// three are read, and the repeats and the zero weights are folded
-		// together once by xblaMeshCompactSkin() - which writes the real count
-		// over the fourth byte - rather than being added up again for nothing
-		// every frame the vertex is posed.
+		// The fourth byte is the number of influences the release blends (1 to
+		// 6, the same for every vertex of a draw). Where it says two, the
+		// second float is not a weight and what is left of one belongs to
+		// bone1 - which matters only where bone2 names a third bone
+		// (xblaMeshSkinWeights()); everywhere else all three are read, and the
+		// repeats and the zero weights are folded together once by
+		// xblaMeshCompactSkin() - which writes the real count over the fourth
+		// byte - rather than being added up again for nothing every frame the
+		// vertex is posed.
 		f32 *pos = &b->bindpos[b->numvtx * 3];
 		f32 *wt = &b->weights[b->numvtx * 3];
 		u8 *bn = &b->bones[b->numvtx * 4];
@@ -2883,13 +2987,7 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 		pos[1] = xblaMeshBEF32(v + 4) * b->scale;
 		pos[2] = xblaMeshBEF32(v + 8) * b->scale;
 
-		wt[0] = xblaMeshBEF32(v + 36);
-		wt[1] = xblaMeshBEF32(v + 40);
-		wt[2] = 1.0f - wt[0] - wt[1];
-
-		if (wt[2] < 0.0f) {
-			wt[2] = 0.0f;
-		}
+		xblaMeshSkinWeights(v, wt);
 
 		bn[0] = (u8)(packed >> 24);
 		bn[1] = (u8)(packed >> 16);
@@ -4211,13 +4309,7 @@ static struct objmesh *xblaMeshFileToObj(const u8 *file, u32 len, const char *na
 		if (stride == XBLAMESH_STRIDE_SKIN) {
 			const u32 packed = xblaMeshBE32(v + 44);
 
-			ov.weight[0] = xblaMeshBEF32(v + 36);
-			ov.weight[1] = xblaMeshBEF32(v + 40);
-			ov.weight[2] = 1.0f - ov.weight[0] - ov.weight[1];
-
-			if (ov.weight[2] < 0.0f) {
-				ov.weight[2] = 0.0f;
-			}
+			xblaMeshSkinWeights(v, ov.weight);
 
 			ov.bone[0] = (u8)(packed >> 24);
 			ov.bone[1] = (u8)(packed >> 16);
@@ -5985,9 +6077,7 @@ static void xblaMeshAnalyse(struct xblameshbuilt *m, const struct xblameshbuilde
 
 				v = file + h->vertexoffset + vi * stride;
 				packed = xblaMeshBE32(v + 44);
-				w[0] = xblaMeshBEF32(v + 36);
-				w[1] = xblaMeshBEF32(v + 40);
-				w[2] = 1.0f - w[0] - w[1];
+				xblaMeshSkinWeights(v, w);
 
 				// the vertex's own heaviest bone
 				bone[k] = (u8)(packed >> 24);

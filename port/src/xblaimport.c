@@ -55,6 +55,14 @@
 // unpacked one by hand has that folder sitting in xbla/.
 #define XBLAIMPORT_SCAN_DEPTH 2
 
+// How far into what an archive came apart into: cache/xbla/ holds nothing but
+// the archive's own tree, so it can be looked through further. An archive made
+// from a console's or Xenia's storage keeps the package under the content path
+// it was installed at (Content/0000000000000000/584109C2/000D0000/<content
+// id>), five deep, which the two above never reached: "no Xbox 360 package
+// inside" (F3 20261009-094749).
+#define XBLAIMPORT_UNPACKED_SCAN_DEPTH 6
+
 // Where an archive dropped in xbla/ comes apart: cache/xbla/ beside the
 // executable (or in the save directory), so that xbla/ itself holds nothing
 // but what the player put there. The file is written once the archive has
@@ -542,6 +550,73 @@ static s32 xblaCacheDir(char *dst, u32 dstLen)
 }
 
 /**
+ * Says what an archive held when no package was in it. The commonest wrong
+ * thing is the release already taken out of its package - DataFiles/,
+ * default.xex - as an emulator stores an installed game, which the game cannot
+ * read: it reads the package itself, the one file named after its content id.
+ */
+struct xblaunpacked {
+	s32 datafiles;
+	s32 entries;
+};
+
+static void xblaNoteUnpackedEntry(const char *name, void *arg)
+{
+	struct xblaunpacked *seen = arg;
+
+	seen->entries++;
+
+	if (!strcasecmp(name, "DataFiles") || !strcasecmp(name, "default.xex")) {
+		seen->datafiles = 1;
+	}
+}
+
+static void xblaLogWhatWasUnpacked(const char *dir)
+{
+	char path[FS_MAXPATH + 1];
+	struct xblaunpacked seen = { 0, 0 };
+	char sub[FS_MAXPATH + 1] = "";
+
+	// the top and one folder down, which is where an unpacked release keeps
+	// its DataFiles/ in every archive seen so far
+	fsScanDir(dir, xblaNoteUnpackedEntry, &seen);
+
+	if (!seen.datafiles) {
+		struct xblanames list = { NULL, 0, 0 };
+
+		fsScanDir(dir, xblaCollectName, &list);
+
+		for (s32 i = 0; i < list.count; i++) {
+			snprintf(path, sizeof(path), "%s/%s", dir, list.names[i]);
+
+			if (!seen.datafiles && list.names[i][0] != '.' && xblaPathIsDir(path)) {
+				struct xblaunpacked inner = { 0, 0 };
+
+				fsScanDir(path, xblaNoteUnpackedEntry, &inner);
+
+				if (inner.datafiles) {
+					seen.datafiles = 1;
+					snprintf(sub, sizeof(sub), "%s/", list.names[i]);
+				}
+			}
+
+			free(list.names[i]);
+		}
+
+		free(list.names);
+	}
+
+	if (seen.datafiles) {
+		sysLogPrintf(LOG_ERROR, "xbla: the archive holds the release already taken out of its package "
+				"(%sDataFiles/, default.xex), which cannot be read; the game needs the package itself, "
+				"the one file named like 8292DB976888C5DCD68C695F11B3DFED5F4512E858", sub);
+	} else {
+		sysLogPrintf(LOG_ERROR, "xbla: %d entries at the top of the unpacked archive in %s, none of them a package",
+				seen.entries, dir);
+	}
+}
+
+/**
  * A finished extraction in dir: its marker is there and a package is inside.
  */
 static s32 xblaFindExtractedIn(const char *dir, char *dst, u32 dstLen)
@@ -551,7 +626,7 @@ static s32 xblaFindExtractedIn(const char *dir, char *dst, u32 dstLen)
 	snprintf(marker, sizeof(marker), "%s/" XBLAIMPORT_DONE_FILE, dir);
 
 	return fsFileSize(marker) >= 0 &&
-			xblaScanDir(dir, 0, XBLAIMPORT_SCAN_DEPTH, dst, dstLen);
+			xblaScanDir(dir, 0, XBLAIMPORT_UNPACKED_SCAN_DEPTH, dst, dstLen);
 }
 
 static const char *xblaEnsureUnpackedLocked(s32 mayUnpack)
@@ -629,8 +704,9 @@ static const char *xblaEnsureUnpackedLocked(s32 mayUnpack)
 		return NULL;
 	}
 
-	if (!xblaScanDir(dir, 0, XBLAIMPORT_SCAN_DEPTH, unpackedPath, sizeof(unpackedPath))) {
+	if (!xblaScanDir(dir, 0, XBLAIMPORT_UNPACKED_SCAN_DEPTH, unpackedPath, sizeof(unpackedPath))) {
 		sysLogPrintf(LOG_ERROR, "xbla: no Xbox 360 package inside %s", packagePath);
+		xblaLogWhatWasUnpacked(dir);
 		unpackFailed = 1;
 		return NULL;
 	}
