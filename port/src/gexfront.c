@@ -77,6 +77,7 @@
 #include "gefolder.h"
 #include "xblamesh.h"
 #include "gexfront.h"
+#include "net/net.h"
 #include "geconvert.h"
 #include "config.h"
 #include "platform.h"
@@ -2319,6 +2320,18 @@ static s32 g_FrontCredits;
 // and they were picked on the Cinema page, which they go back to
 static s32 g_FrontCreditsCinema;
 
+/**
+ * The Cinema page's start of a stage (a cinema, or the credits picked there) is
+ * under way: Accept Mission online asks (netCoopAcceptMission()), for what is
+ * watched there is the host's own to watch and not a campaign room's next match.
+ */
+static s32 g_FrontStartingCinema;
+
+s32 gexFrontStartingCinema(void)
+{
+	return g_FrontStartingCinema;
+}
+
 static s32 frontStartCredits(s32 cinema)
 {
 	union handlerdata data;
@@ -2346,7 +2359,9 @@ static s32 frontStartCredits(s32 cinema)
 	sysLogPrintf(LOG_NOTE, "gexfront: %s, GoldenEye's credits on stage 0x%02x",
 			cinema ? "the Cinema page" : "the Cradle is done", stagenum);
 
+	g_FrontStartingCinema = cinema;
 	menuhandlerAcceptMission(MENUOP_SET, NULL, &data);
+	g_FrontStartingCinema = 0;
 
 	return 1;
 }
@@ -2605,7 +2620,9 @@ static void frontStartCinema(s32 mission, s32 what)
 	g_Front.active = 0;
 	frontUnload();
 
+	g_FrontStartingCinema = 1;
 	menuhandlerAcceptMission(MENUOP_SET, NULL, &data);
+	g_FrontStartingCinema = 0;
 }
 
 /**
@@ -3901,6 +3918,11 @@ s32 gexFrontIsInside(void)
  */
 void gexFrontGoBack(void)
 {
+	// online, the match's flags (and on a host the match) go with the stage
+	if (g_NetMode != NETMODE_NONE) {
+		netCoopFolderBack();
+	}
+
 	var80087260 = 3;
 	titleSetNextStage(STAGE_CITRAINING);
 	setNumPlayers(1);

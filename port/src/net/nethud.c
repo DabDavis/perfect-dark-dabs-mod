@@ -19,6 +19,7 @@
 #include "game/chraction.h"
 #include "game/modspectate.h"
 #include "game/playermgr.h"
+#include "game/player.h"
 #include "game/prop.h"
 #include "game/propobj.h"
 #include "game/radar.h"
@@ -754,6 +755,12 @@ static s32 netHudTagPlayerOf(struct prop *prop)
 		return -1;
 	}
 
+	// a body this camera stands in is not drawn (playerGetNetBodyAlphaFrac:
+	// a co-op mission's players start on one spot), nor named
+	if (playerGetNetBodyAlphaFrac(prop) <= 0) {
+		return -1;
+	}
+
 	return pn;
 }
 
@@ -1350,6 +1357,43 @@ static Gfx *netHudRenderTag(Gfx *gdl, s32 alpha)
  * text: the name under the crosshair, the panel and the feed. Nothing on a view this machine does not
  * show (a remote player's pass on the host), nor before GO.
  */
+/**
+ * Before GO: what this machine waits on (netSessionWaitLine: a load, a
+ * download of the stage's folder), centred a third of the way down, over the
+ * stage's first frame - or the menus a download runs under. Once a frame, on
+ * the local player's view.
+ */
+static u32 s_WaitFrame = 0;
+
+static Gfx *netHudRenderWait(Gfx *gdl)
+{
+	char line[NET_MAXTEXT + 128];
+	s32 w;
+	s32 h;
+	s32 x;
+	s32 y;
+
+	if (s_WaitFrame == s_Frame || !netSessionWaitLine(line, sizeof(line))) {
+		return gdl;
+	}
+
+	// a match's stage builds every player's view: this machine's own
+	if (netSessionMatchActive() && !netIsLocalSlot(g_Vars.currentplayernum)) {
+		return gdl;
+	}
+
+	s_WaitFrame = s_Frame;
+	netHudMeasure(line, &w, &h);
+	x = viGetViewLeft() + (viGetViewWidth() - w) / 2;
+	y = viGetViewTop() + viGetViewHeight() / 3;
+
+	gdl = text0f153628(gdl);
+	gdl = netHudText(gdl, x, y, line, COL_NOTICE, 0xff);
+	gdl = text0f153780(gdl);
+
+	return gdl;
+}
+
 void *netHudRender(void *gdlp)
 {
 	Gfx *gdl = gdlp;
@@ -1358,7 +1402,7 @@ void *netHudRender(void *gdlp)
 	s32 tag;
 
 	if (!netSessionHudLive() || !netIsLocalSlot(g_Vars.currentplayernum)) {
-		return gdl;
+		return netHudRenderWait(gdl);
 	}
 
 	tag = netHudTagAlpha();

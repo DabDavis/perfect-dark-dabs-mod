@@ -4245,6 +4245,7 @@ f32 playerGetCutsceneBodyAlphaFrac(struct prop *prop)
 #define BODYFADE_SPAN   60.0f // from gone to whole
 #define BODYFADE_FEET   20.0f // the segment's bottom, above the ground
 #define BODYFADE_CROWN  15.0f // and its top, above the eye
+#define NETBODY_SPAN    15.0f // online, another player's body: from gone (the camera in it) to whole
 
 /**
  * Whether the current player's own third person camera is live in play: asked
@@ -4269,7 +4270,14 @@ static bool playerCamFadeLive(struct player *player)
  * `pos`, as a fraction to draw: gone within Camera Body Fade, whole
  * BODYFADE_SPAN further out, smoothstepped between.
  */
+static f32 playerCamFadeFracNear(struct coord *pos, f32 top, f32 bottom, f32 near, f32 span);
 static f32 playerCamFadeFrac(struct coord *pos, f32 top, f32 bottom)
+{
+	return playerCamFadeFracNear(pos, top, bottom, g_ModOptions.camfade, BODYFADE_SPAN);
+}
+
+/** The same, gone within `near` of the segment and whole `span` further out. */
+static f32 playerCamFadeFracNear(struct coord *pos, f32 top, f32 bottom, f32 near, f32 span)
 {
 	struct coord *cam = &g_Vars.currentplayer->cam_pos;
 	f32 dx;
@@ -4295,15 +4303,15 @@ static f32 playerCamFadeFrac(struct coord *pos, f32 top, f32 bottom)
 
 	dist = sqrtf(dx * dx + dy * dy + dz * dz);
 
-	if (dist <= g_ModOptions.camfade) {
+	if (dist <= near) {
 		return 0;
 	}
 
-	if (dist >= g_ModOptions.camfade + BODYFADE_SPAN) {
+	if (dist >= near + span) {
 		return 1;
 	}
 
-	frac = (dist - g_ModOptions.camfade) / BODYFADE_SPAN;
+	frac = (dist - near) / span;
 
 	return frac * frac * (3 - 2 * frac);
 }
@@ -4356,6 +4364,38 @@ f32 playerGetNearChrAlphaFrac(struct prop *prop)
 	propGetBbox(prop, &radius, &ymax, &ymin);
 
 	return playerCamFadeFrac(&prop->pos, ymax, ymin + BODYFADE_FEET);
+}
+
+/**
+ * Online, another player's body as this machine's camera sees it. Players
+ * pass through each other online and a co-op mission starts them all on one
+ * spot (netCoopStackSpawn), so a camera can stand inside another player's
+ * body, which PD's own co-op (players solid to each other) never let happen:
+ * slivers of it hung in the first-person view (Facility's vent, F3
+ * 20261009-230503 and -230613, on the guest and as much on the host). Gone
+ * while the camera is within the body's own radius of its upright segment,
+ * whole NETBODY_SPAN further out (a buddy face to face stays solid). And
+ * GoldenEye's opening is the one player's: the others are not in it - on a
+ * guest the host's player stood in the swirl's Bond, the two bodies through
+ * each other.
+ */
+f32 playerGetNetBodyAlphaFrac(struct prop *prop)
+{
+	f32 radius;
+	f32 ymax;
+	f32 ymin;
+
+	if (prop->type != PROPTYPE_PLAYER || prop == g_Vars.currentplayer->prop) {
+		return 1;
+	}
+
+	if (gecinemaIntroIsOn()) {
+		return 0;
+	}
+
+	propGetBbox(prop, &radius, &ymax, &ymin);
+
+	return playerCamFadeFracNear(&prop->pos, ymax + BODYFADE_CROWN, ymin + BODYFADE_FEET, radius, NETBODY_SPAN);
 }
 #endif
 
