@@ -1493,6 +1493,9 @@ static Gfx *textSetFontGlyph(Gfx *gdl, struct font *font, struct fontchar *curch
 {
 	s32 index;
 	s32 id;
+#if VERSION >= VERSION_PAL_BETA
+	s32 numchars = 94; // NUMCHARS() reads it, as in fontLoad()
+#endif
 
 	if (!font || !curchar) {
 		return gdl;
@@ -1524,6 +1527,11 @@ static Gfx *textSetFontGlyph(Gfx *gdl, struct font *font, struct fontchar *curch
 #endif
 
 	index = curchar - font->chars;
+
+#if PAL
+	// PAL's small, extra-small and medium fonts have 135 characters (fontLoad())
+	numchars = font == g_FontHandelGothicSm || font == g_FontHandelGothicXs || font == g_FontHandelGothicMd ? 135 : 94;
+#endif
 
 	if (index < 0 || index >= NUMCHARS()) {
 		return gdl;

@@ -2788,7 +2788,6 @@ static u32 codeCount(const struct tablectx *t, const char *fn, u32 stockvalue)
 	v = followImmediate(t->stockcode, t->stockcodelen, t->modcode, t->modcodelen, start, end, stockvalue);
 	return v > 0 ? (u32)v : 0;
 }
-#endif
 
 /* -- a toy MIPS, for the code a mod rewrote rather than renumbered --------- */
 
@@ -5156,6 +5155,7 @@ static void cutRegion(char *text, char *at, char *end)
 	}
 	memmove(start, end, strlen(end) + 1);
 }
+#endif // HAVE_DATASYMS: the code readers and the toy MIPS above find their functions by the NTSC symbols too
 
 /**
  * The mod's inflated data segment, its file names, and a modconfig block

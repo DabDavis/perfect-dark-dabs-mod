@@ -2764,7 +2764,9 @@ void modelTickAnimQuarterSpeed(struct model *model, s32 lvupdate240, bool arg2)
 	}
 }
 
-#if VERSION < VERSION_PAL_BETA
+// PAL and JPN cartridges have no modelTickAnim(); the port's own code
+// (geintro.c) calls it in every version
+#if VERSION < VERSION_PAL_BETA || !defined(PLATFORM_N64)
 /**
  * This is identical to the above function but removes the 0.25f multipliers.
  */

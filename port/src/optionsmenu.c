@@ -1918,7 +1918,7 @@ static MenuItemHandlerResult menuhandlerUseKeyReloads(s32 operation, struct menu
  * is the ROM's and every other one a pack of our own. It is the whole game's,
  * not the player's this page is for, and it applies at once.
  */
-static MenuItemHandlerResult menuhandlerLanguage(s32 operation, struct menuitem *item, union handlerdata *data)
+static MenuItemHandlerResult menuhandlerGameLanguage(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
@@ -2215,7 +2215,7 @@ struct menuitem g_ExtendedGameMenuItems[] = {
 		MENUITEMFLAG_LITERAL_TEXT,
 		(uintptr_t)"Language",
 		0,
-		menuhandlerLanguage,
+		menuhandlerGameLanguage,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
