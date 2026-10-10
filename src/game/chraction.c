@@ -16561,13 +16561,25 @@ s32 chrResolvePadId(struct chrdata *chr, s32 pad_id)
 
 /**
  * The player a chr watching the dead playernum turns to: the other one at two
- * players; past two the living player nearest the chr itself
+ * players; past two the living player nearest the chr itself, or the other
+ * living one nearest the dead player for a chr without a prop (a background
+ * list). With no other player alive past two it stays on the dead one, whose
+ * new life (Mission Respawn) it watches again: the "other" there is an open
+ * seat's player, dead for good, and a background list that does not switch
+ * players had watched that seat for the rest of the mission
+ * (F3 20261009-160132, A51 Escape's hangar never found)
  */
 static s32 chrsPlayerAfterDeath(struct chrdata *chr, s32 playernum, s32 otherplayernum)
 {
-	s32 nearest = PLAYERCOUNT() > 2 ? coopNearestPlayerNum(chr, playernum) : -1;
+	s32 nearest;
 
-	return nearest >= 0 ? nearest : otherplayernum;
+	if (PLAYERCOUNT() <= 2) {
+		return otherplayernum;
+	}
+
+	nearest = coopNearestPlayerNum(chr, playernum);
+
+	return nearest >= 0 ? nearest : coopPlayerAlive(otherplayernum) ? otherplayernum : playernum;
 }
 
 /**

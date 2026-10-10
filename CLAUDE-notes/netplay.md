@@ -733,6 +733,19 @@ progression").
   2026-10-08 put a guard beside a client that had walked 10 m off; before
   the change it kept the host for 600 ticks at alertness 0, after it shot
   that client.
+- **A stage's background lists past two (2026-10-09, F3 20261009-160132).**
+  The 0x1000+ lists run on `g_BgChrs`, chrs with no prop, so nothing is
+  nearest them: `coopToggleP1P2` kept their p1p2 where it was, player 0
+  for ever, and a death handed it to `coopOtherPlayerNum`'s "any other"
+  - in a room played alone a dead open seat, out of play for good. A51
+  Escape's hangar check (0x100a: toggle, `if_chr_in_room(CHR_P1P2, 0xe7)`)
+  then watched seat 1 after the host's Mission Respawn death, and
+  "Locate secret hangar" and its cutscene never came. Now a propless chr's
+  toggle steps to the next living, noticeable player in slot order
+  (`coopNextLivingAfter`), and past two a death with nobody else alive
+  leaves a chr on the dead player (its new life comes back to it) rather
+  than an open seat (`chrsPlayerAfterDeath`). Before, a 4-player room's
+  background lists also only ever looked at the host.
 - **A converted mission's guards (GoldenEye, Goldfinger 64, TND 64).**
   Their lists never call `chr_toggle_p1p2` (GoldenEye had no co-op), so the
   switch above never ran and every guard kept the host (user, in

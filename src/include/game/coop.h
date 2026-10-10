@@ -52,6 +52,9 @@ s32 coopRespawnBuddy(s32 playernum);
 struct prop *coopAlternatePlayerProp(void);
 // the living player nearest chr other than skip, not spectating (-1 none)
 s32 coopNearestPlayerNum(struct chrdata *chr, s32 skip);
+// the next living player after playernum not spectating, in slot order
+// (playernum itself when no other lives)
+s32 coopNextLivingAfter(s32 playernum);
 // the player chr_toggle_p1p2 turns chr to: the other one at two; past that
 // the nearest living player, or from the nearest the next in chr's turn
 s32 coopToggleP1P2(struct chrdata *chr);
