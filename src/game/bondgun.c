@@ -28,6 +28,7 @@
 #include "xblamesh.h"
 #include "gebean.h"
 #include "gegadgets.h"
+#include "modloader.h"
 #include "mod.h"
 #include "romdata.h"
 #endif
@@ -14989,6 +14990,17 @@ bool bgunAmmotypeAllowsUnlimitedAmmo(u32 ammotype)
 			return false;
 		}
 		break;
+	case AMMOTYPE_1D:
+#ifndef PLATFORM_N64
+		// GoldenEye's AMMO_TANK, the tank's shells (getank.c): GoldenEye's
+		// Infinite Ammo fills every ammunition type to its most each frame
+		// (lv.c: set_max_ammo_for_cur_player()), the shells among them, on
+		// foot as in the tank (F3 20261010-172022)
+		if (modloaderStageIsRemake(g_Vars.stagenum)) {
+			break;
+		}
+#endif
+		return false;
 	case AMMOTYPE_PSYCHOSIS:
 	case AMMOTYPE_17:
 	case AMMOTYPE_BUG:
@@ -14996,7 +15008,6 @@ bool bgunAmmotypeAllowsUnlimitedAmmo(u32 ammotype)
 	case AMMOTYPE_PLASTIQUE:
 	case AMMOTYPE_1B:
 	case AMMOTYPE_1C:
-	case AMMOTYPE_1D:
 	case AMMOTYPE_TOKEN:
 	case AMMOTYPE_1F:
 	case AMMOTYPE_ECM_MINE:

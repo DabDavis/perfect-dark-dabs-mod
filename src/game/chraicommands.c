@@ -5494,6 +5494,9 @@ bool aiRevokeControl(void)
 
 		g_PlayersWithControl[g_Vars.currentplayernum] = false;
 		setCurrentPlayerNum(prevplayernum);
+#ifndef PLATFORM_N64
+		gecinemaSetMissionTimerHeld(true);
+#endif
 	}
 
 	g_Vars.aioffset += 4;
@@ -5518,6 +5521,9 @@ bool aiGrantControl(void)
 		countdownTimerSetVisible(COUNTDOWNTIMERREASON_NOCONTROL, true);
 		g_PlayersWithControl[g_Vars.currentplayernum] = true;
 		setCurrentPlayerNum(prevplayernum);
+#ifndef PLATFORM_N64
+		gecinemaSetMissionTimerHeld(false);
+#endif
 	}
 
 	g_Vars.aioffset += 3;
@@ -7390,6 +7396,19 @@ bool aiSayQuip(void)
 	u8 headshotted = 0;
 #endif
 	struct chrdata *loopchr;
+
+#ifndef PLATFORM_N64
+	// GoldenEye's guards have no lines to say: its lists have no quip command,
+	// and a converted level's guard only reaches one through Perfect Dark's
+	// own lists - the psychosis gun's (GAILIST_PSYCHOSISED and the combat it
+	// hands over to) - where he spoke Perfect Dark's guards' lines
+	// (F3 20261010-171555). GoldenEye's and its ROM hacks' levels, arenas and
+	// missions alike; never Perfect Dark's own nor a PD mod's.
+	if (modloaderDirIndexIsConversion(modloaderGetStageModDirIndex(g_Vars.stagenum))) {
+		g_Vars.aioffset += 10;
+		return false;
+	}
+#endif
 
 	// Choose bank
 	if (CHRRACE(g_Vars.chrdata) == RACE_SKEDAR) {
