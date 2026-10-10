@@ -4271,7 +4271,6 @@ static bool playerCamFadeLive(struct player *player)
  * BODYFADE_SPAN further out, smoothstepped between.
  */
 static f32 playerCamFadeFracNear(struct coord *pos, f32 top, f32 bottom, f32 near, f32 span);
-
 static f32 playerCamFadeFrac(struct coord *pos, f32 top, f32 bottom)
 {
 	return playerCamFadeFracNear(pos, top, bottom, g_ModOptions.camfade, BODYFADE_SPAN);
@@ -4376,9 +4375,9 @@ f32 playerGetNearChrAlphaFrac(struct prop *prop)
  * 20261009-230503 and -230613, on the guest and as much on the host). Gone
  * while the camera is within the body's own radius of its upright segment,
  * whole NETBODY_SPAN further out (a buddy face to face stays solid). And
- * GoldenEye's opening is the one
- * player's: the others are not in it - on a guest the host's player stood in
- * the swirl's Bond, the two bodies through each other.
+ * GoldenEye's opening is the one player's: the others are not in it - on a
+ * guest the host's player stood in the swirl's Bond, the two bodies through
+ * each other.
  */
 f32 playerGetNetBodyAlphaFrac(struct prop *prop)
 {
