@@ -1369,6 +1369,17 @@ static void gegunsOwnThrown(s32 i)
 		def->ammos[1] = NULL;
 		def->flags &= ~(WEAPONFLAG_FIRETOACTIVATE | WEAPONFLAG_THROWABLE);
 		def->flags |= WEAPONFLAG_ONEHANDED | WEAPONFLAG_UNDROPPABLE;
+
+		// GoldenEye lowers and raises the trigger whole, as any gun it draws
+		// (gunfire.c's SWITCH_LOWER and SWITCH_RAISE; trigger_stats has no
+		// HIDE_FIRST_PERSON_HAND), which is what Perfect Dark does for a
+		// weapon with no draw or put-away of its own. The Data Uplink's move
+		// joints the detonator's model (gegadgetsRenderHand()) does not have:
+		// it stood still through the host's 28-tick put-away and vanished,
+		// and came up at once (F3 20261005-025034, "equipped and unequipped
+		// instantly")
+		def->equip_animation = NULL;
+		def->unequip_animation = NULL;
 	}
 }
 
