@@ -4682,7 +4682,15 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 	spd8.unk0c = inputs->unk0c;
 	spd8.unk10 = inputs->unk10;
 
+#ifndef PLATFORM_N64
+	// unk54 is where the bright wave crossing the dialog's text is
+	// (textSetWaveBlend). It moved a pixel a frame plus one a 9th 60th, so
+	// 3.6x as fast at 240 FPS: now a pixel a 60th (diffframe60, carried),
+	// which is the one a frame at 60.
+	dialog->unk54 += g_Vars.diffframe60;
+#else
 	dialog->unk54++;
+#endif
 	dialog->unk5c += g_Vars.diffframe60;
 	dialog->unk54 += dialog->unk5c / 9;
 	dialog->unk5c %= 9;
@@ -4812,7 +4820,15 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 			}
 		}
 
+#ifndef PLATFORM_N64
+		// The nudge that keeps a tween from stalling short of its end is a
+		// 60th's step like the tween: on the frames between 60ths at a high
+		// frame rate it moved a pixel a frame on its own (here and in the
+		// slide and resize below). At 60 FPS every frame has its 60th.
+		if ((s32)dialog->statefrac == oldfracint && g_Vars.diffframe60 > 0) {
+#else
 		if ((s32)dialog->statefrac == oldfracint) {
+#endif
 			dialog->statefrac = oldfracint + 1.0f;
 		}
 
@@ -4826,7 +4842,12 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 	if (dialog->state == MENUDIALOGSTATE_PREOPEN) {
 		if (dialog->definition == &g_MpReadyMenuDialog) {
 			if (dialog->statefrac < 0.1f) {
+#ifndef PLATFORM_N64
+				// 0.04 a 60th, by the frame's 240ths (exactly 0.04 at 60)
+				dialog->statefrac += 0.04f * (g_Vars.diffframe240f * 0.25f);
+#else
 				dialog->statefrac += 0.04f;
+#endif
 			} else {
 				dialog->state = MENUDIALOGSTATE_OPENING;
 				dialog->redrawtimer = 0.0f;
@@ -4931,7 +4952,11 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 
 			dialog->x = newx;
 
+#ifndef PLATFORM_N64
+			if (dialog->x != dialog->dstx && dialog->x == oldx && g_Vars.diffframe60 > 0) {
+#else
 			if (dialog->x != dialog->dstx && dialog->x == oldx) {
+#endif
 				if (dialog->x < dialog->dstx) {
 					dialog->x++;
 				} else {
@@ -4955,7 +4980,11 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 
 			dialog->y = newy;
 
+#ifndef PLATFORM_N64
+			if (dialog->y != dialog->dsty && dialog->y == oldy && g_Vars.diffframe60 > 0) {
+#else
 			if (dialog->y != dialog->dsty && dialog->y == oldy) {
+#endif
 				if (dialog->y < dialog->dsty) {
 					dialog->y++;
 				} else {
@@ -4980,7 +5009,11 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 
 		dialog->width = newwidth;
 
+#ifndef PLATFORM_N64
+		if (dialog->width != dialog->dstwidth && dialog->width == oldwidth && g_Vars.diffframe60 > 0) {
+#else
 		if (dialog->width != dialog->dstwidth && dialog->width == oldwidth) {
+#endif
 			if (dialog->width < dialog->dstwidth) {
 				dialog->width++;
 			} else {
@@ -5005,7 +5038,11 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 
 		dialog->height = newheight;
 
+#ifndef PLATFORM_N64
+		if (dialog->height != dialog->dstheight && dialog->height == oldheight && g_Vars.diffframe60 > 0) {
+#else
 		if (dialog->height != dialog->dstheight && dialog->height == oldheight) {
+#endif
 			if (dialog->height < dialog->dstheight) {
 				dialog->height++;
 			} else {
@@ -6143,7 +6180,19 @@ Gfx *menuRender(Gfx *gdl)
 
 		// Everyone 1 in 100 frames on average, calculate a new X/Y for the hudpiece
 		// Note: unintentional 64-bit float comparison done here
+#ifndef PLATFORM_N64
+		// a roll per 60th (diffframe60, carried), not per frame: at 240 FPS
+		// the piece wandered 4x as often. At 60 it is the same one roll.
+		bool movepiece = false;
+
+		for (s32 roll = 0; roll < g_Vars.diffframe60 && !movepiece; roll++) {
+			movepiece = RANDOMFRAC() < 0.01;
+		}
+
+		if (movepiece) {
+#else
 		if (RANDOMFRAC() < 0.01) {
+#endif
 			g_MenuData.hudpiece.newposx = RANDOMFRAC() * 80.0f + -205.5f - 40.0f;
 			g_MenuData.hudpiece.newposy = RANDOMFRAC() * 80.0f + 244.7f - 40.0f;
 		}
