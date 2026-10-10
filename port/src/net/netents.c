@@ -2161,6 +2161,15 @@ s32 netEntsPropIndex(const struct prop *prop)
 	return netPropIndex(prop);
 }
 
+// still the setup object it was at the stage's start (a SETUPOBJ record finds it)
+s32 netEntsIsSetupProp(const struct prop *prop)
+{
+	const s32 idx = netPropIndex(prop);
+
+	return idx >= 0 && idx < s_MaxIds && s_SetupCmdOfProp && s_SetupCmdOfProp[idx] >= 0
+		&& netPropGen(idx) == s_SetupGenOfProp[idx];
+}
+
 u16 netEntsPropGen(s32 idx)
 {
 	return netPropGen(idx);
