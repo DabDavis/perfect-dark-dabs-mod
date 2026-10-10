@@ -14,7 +14,9 @@
 # as build/gate-NAME.try1.log; failing twice it is FAIL. The log ends with a
 # summary: "== summary", then "pass N, flaky N, FAIL N" and one line per
 # gate that was not a plain pass. The replay gate is not rerun: it is
-# deterministic, and a DIFF is a real one.
+# deterministic, and a DIFF is a real one. The script exits 0 when nothing
+# failed (a FLAKY gate passed), 1 when anything did, replay, pdlobbyd and
+# pd-nettest included.
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT" || exit 2
 LOG=${1:-$ROOT/build/netallgates.log}
@@ -61,9 +63,13 @@ for t in $GATES; do
 	fi
 done
 echo "== replay"; SDL_VIDEODRIVER=offscreen tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64 2>&1 | grep -E "^(same|DIFF|fail)"
+[ "${PIPESTATUS[0]}" = 0 ] || { nfail=$((nfail + 1)); notes="$notes\nFAIL   replay: tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64"; }
 python3 tools/pdlobbyd/test_pdlobbyd.py 2>&1 | tail -2
+[ "${PIPESTATUS[0]}" = 0 ] || { nfail=$((nfail + 1)); notes="$notes\nFAIL   pdlobbyd: python3 tools/pdlobbyd/test_pdlobbyd.py"; }
 ./build/pd-nettest 2>&1 | tail -1
+[ "${PIPESTATUS[0]}" = 0 ] || { nfail=$((nfail + 1)); notes="$notes\nFAIL   pd-nettest: build/pd-nettest"; }
 echo "== summary"
-echo "gates: pass $npass, flaky $nflaky, FAIL $nfail (replay, pdlobbyd and pd-nettest above)"
-[ -n "$notes" ] && printf "%b\n" "${notes#\\n}"
+echo "gates: pass $npass, flaky $nflaky, FAIL $nfail (FAIL counts replay, pdlobbyd and pd-nettest too)"
+[ -z "$notes" ] || printf "%b\n" "${notes#\\n}"
 } > "$LOG" 2>&1
+[ "$nfail" = 0 ]

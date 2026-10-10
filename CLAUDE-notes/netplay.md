@@ -205,7 +205,10 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 `tools/ci/netallgates.sh [LOG]` runs them all in turn (~2 h) and reruns a
 gate that fails once: passing the second time it is FLAKY (first run kept as
 `build/gate-NAME.try1.log`), failing twice it is FAIL; the log ends with
-`== summary`. `RERUN=0` turns the rerun off. Before a deploy the set that
+`== summary`. `RERUN=0` turns the rerun off. It exits 0 only when nothing
+failed (a FLAKY gate passed), the replay, pdlobbyd and pd-nettest steps
+counted too; before 2026-10-10 its status was its last line's, 1 on a clean
+run. Before a deploy the set that
 matters is each changed area's own case, `replaytest.sh compare` against the
 deployed build, `pd-nettest` and `netlobbywinetest.sh` (~25 min); the full
 run follows the deploy in the background.
