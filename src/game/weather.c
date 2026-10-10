@@ -448,6 +448,57 @@ u32 g_RainSpeedExtra;
 u32 g_SnowSpeed;
 u32 g_SnowSpeedExtra;
 
+#ifndef PLATFORM_N64
+/**
+ * The wind picks a new direction on a 1-in-100 roll each 60th it is not
+ * already turning. Rolled once a frame, it turned 4x as often at 240 FPS: this
+ * is one roll per 60th that passed (lvupdate60, its remainder carried), so
+ * exactly the one roll a frame at 60 FPS and the same chance per second at any
+ * frame rate.
+ */
+static bool weatherRollWindChange(void)
+{
+	s32 i;
+
+	for (i = 0; i < g_Vars.lvupdate60; i++) {
+		if (RANDOMFRAC() > 0.99f) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * How many particles may switch on or off this frame as the rain or snow fades
+ * to a new intensity. The game allows per60 (2 for rain, 20 for snow) a frame,
+ * so the fade ran 4x as fast at 240 FPS. Now it is an allowance that refills
+ * per60 each 60th (in quarters, by lvupdate240) and is spent by
+ * weatherParticleChangesUsed(): a particle that crosses on a frame with no
+ * allowance left keeps the leftover for the next. At most a frame's 60ths'
+ * worth is held, so at 60 FPS (lvupdate240 4) it is per60, every frame.
+ */
+static s32 g_WeatherChangeAllowance4;
+
+static s32 weatherParticleChangeCap(s32 per60)
+{
+	s32 most = per60 * MAX(4, g_Vars.lvupdate240);
+
+	g_WeatherChangeAllowance4 += per60 * g_Vars.lvupdate240;
+
+	if (g_WeatherChangeAllowance4 > most) {
+		g_WeatherChangeAllowance4 = most;
+	}
+
+	return g_WeatherChangeAllowance4 >> 2;
+}
+
+static void weatherParticleChangesUsed(s32 count)
+{
+	g_WeatherChangeAllowance4 -= ABS(count) * 4;
+}
+#endif
+
 void weatherTickRain(struct weatherdata *weather)
 { \
 	s32 lVar6 = 0;
@@ -457,9 +508,20 @@ void weatherTickRain(struct weatherdata *weather)
 	s32 iVar10;
 	f32 rand;
 	s32 lvupdate;
+#ifndef PLATFORM_N64
+	s32 changecap;
+#endif
 
 	mainOverrideVariable("rainspeedxtra", &g_RainSpeedExtra);
 
+#ifndef PLATFORM_N64
+	// The rain's volume fades (indoors/outdoors, unk90) and its three sound
+	// layers' crossfades (unk58, 100 steps when the intensity changes) count
+	// 60ths. Stepped once per frame they ran 4x as fast at 240 FPS; this
+	// steps once per 60th that passed, carried (exactly once a frame at 60).
+	for (i = 0; i < g_Vars.lvupdate60; i++)
+#endif
+	{
 	if (weather->unk90 > 0) {
 		weather->unk88 += (weather->unk8c - weather->unk88) / weather->unk90;
 	}
@@ -479,6 +541,7 @@ void weatherTickRain(struct weatherdata *weather)
 	if (weather->unk58[2].unk08 > 0) {
 		weather->unk58[2].unk00 += (weather->unk58[2].unk04 - weather->unk58[2].unk00) / weather->unk58[2].unk08;
 		weather->unk58[2].unk08--;
+	}
 	}
 
 	// Rain noise
@@ -559,7 +622,11 @@ void weatherTickRain(struct weatherdata *weather)
 		weather->windspeedx = cosf(weather->windanglerad) * weather->windspeed;
 		weather->windspeedz = sinf(weather->windanglerad) * weather->windspeed;
 		lVar6 = 1;
+#ifdef PLATFORM_N64
 	} else if (RANDOMFRAC() > 0.99f) {
+#else
+	} else if (weatherRollWindChange()) {
+#endif
 		rand = RANDOMFRAC();
 
 		weather->unk0c = (rand + rand) * M_PI;
@@ -571,6 +638,10 @@ void weatherTickRain(struct weatherdata *weather)
 	}
 
 	data = g_WeatherData->particledata[0];
+
+#ifndef PLATFORM_N64
+	changecap = weatherParticleChangeCap(2);
+#endif
 
 	for (i = 0; i != ARRAYCOUNT(data->particles); i++) {
 		struct weatherparticle *particle = &data->particles[i];
@@ -590,7 +661,11 @@ void weatherTickRain(struct weatherdata *weather)
 
 			particle->inc.y = -(RANDOMFRAC() * g_RainSpeedExtra + weather->unkc8);
 
+#ifdef PLATFORM_N64
 			if (ABS(relativetotal) < 2 && weather->unkd0 != weather->unkd4) {
+#else
+			if (ABS(relativetotal) < changecap && weather->unkd0 != weather->unkd4) {
+#endif
 				if (weather->unkd0 < weather->unkd4) {
 					if ((particle->active & 3) == 0) {
 						particle->active = true;
@@ -613,6 +688,10 @@ void weatherTickRain(struct weatherdata *weather)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	weatherParticleChangesUsed(relativetotal);
+#endif
+
 	if (weather->intensity == 0 && weather->unkd0 < 100) {
 		func0f131678(3);
 	}
@@ -630,6 +709,9 @@ void weatherTickSnow(struct weatherdata *weather)
 	s32 lvupdate;
 	s32 i;
 	struct weatherparticledata *data;
+#ifndef PLATFORM_N64
+	s32 changecap;
+#endif
 
 	mainOverrideVariable("snowspeed", &g_SnowSpeed);
 	mainOverrideVariable("snowspeedxtra", &g_SnowSpeedExtra);
@@ -665,7 +747,11 @@ void weatherTickSnow(struct weatherdata *weather)
 		weather->windspeedx = cosf(weather->windanglerad) * weather->windspeed;
 		weather->windspeedz = sinf(weather->windanglerad) * weather->windspeed;
 		lVar7 = 1;
+#ifdef PLATFORM_N64
 	} else if (RANDOMFRAC() > 0.99f) {
+#else
+	} else if (weatherRollWindChange()) {
+#endif
 		rand = RANDOMFRAC();
 
 		weather->unk0c = (rand + rand) * M_PI;
@@ -766,6 +852,10 @@ void weatherTickSnow(struct weatherdata *weather)
 		data->unk3ec8[7] -= M_TAU;
 	}
 
+#ifndef PLATFORM_N64
+	changecap = weatherParticleChangeCap(20);
+#endif
+
 	for (i = 0; i < ARRAYCOUNT(data->particles); i++) {
 		struct weatherparticle *particle = &data->particles[i];
 
@@ -785,7 +875,11 @@ void weatherTickSnow(struct weatherdata *weather)
 			particle->inc.x = weather->windspeedx * particle->unk1c;
 			particle->inc.z = weather->windspeedz * particle->unk1c;
 
+#ifdef PLATFORM_N64
 			if (ABS(relativetotal) < 20 && weather->unkd0 != weather->unkd4) {
+#else
+			if (ABS(relativetotal) < changecap && weather->unkd0 != weather->unkd4) {
+#endif
 				if (weather->unkd0 < weather->unkd4) {
 					if ((particle->active & 3) == 0) {
 						particle->active = true;
@@ -805,6 +899,10 @@ void weatherTickSnow(struct weatherdata *weather)
 			particle->inc.z = weather->windspeedz * particle->unk1c;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	weatherParticleChangesUsed(relativetotal);
+#endif
 }
 
 void weatherConfigureRain(u32 intensity)
@@ -1174,6 +1272,16 @@ Gfx *weatherRenderRain(Gfx *gdl, struct weatherdata *weather, s32 arg2)
 
 		// Update thunder and lightning
 		if (g_Vars.lvupdate240 > 0) {
+#ifndef PLATFORM_N64
+			// The storm counts 60ths: a strike's flashes and thunder are
+			// frames 0-150 of unk94, and a new strike is a per-tick roll. Run
+			// once per frame they played 4x as fast and struck 4x as often at
+			// 240 FPS; this is one step per 60th that passed (exactly one at
+			// 60). A frame with no 60th leaves the sky's flash as it was.
+			s32 tick;
+
+			for (tick = 0; tick < g_Vars.lvupdate60; tick++) {
+#endif
 			g_SkyLightningActive = false;
 
 			if (weather->unk94 < 0) {
@@ -1268,6 +1376,9 @@ Gfx *weatherRenderRain(Gfx *gdl, struct weatherdata *weather, s32 arg2)
 					weather->unk94 = -1;
 				}
 			}
+#ifndef PLATFORM_N64
+			}
+#endif
 		}
 
 		if (wetclip) {
