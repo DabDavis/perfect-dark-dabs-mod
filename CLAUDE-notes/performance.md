@@ -572,9 +572,20 @@ emulated by writing the fields the death code writes, or by an inferior call
 from a top-level stop (`chrMoveToPos(player chr, &lift->pos, rooms, 0, 1)`
 puts Jo on a lift).
 
-Left as they were (seen, not in this pass): escalator steps (escastepTick,
-frame += lvupdate60), hoverprop bob (hov->bob* through applySpeed), autogun
-turning (applyRotation), the projectile's lastwooshframe/bounceframe gates.
+The four seen and left by that pass (fix/hfleft-props, 2026-10-10):
+escalator steps (escastepTick) keep the integer step->frame and are drawn at
+`frame + (lvupdate240rem - 2) / 4` 60ths on a frame that is not whole 60ths
+(steps tick from objTick() with the global time every frame; the remainder
+starts at 2 because lvupdate60 rounds), so the step and its riders (bondwalk
+reads pos - prevpos) move every frame. Hover props and the hoverbike (hovTick)
+bob through applySpeedSmooth/applyRotationSmooth, and their easing toward the
+ground's height and angle takes per-240th constants (fourth root of each
+easing's remainder, a quarter of each clamp). The autogun turns with
+applyRotationSmooth and its barrel's 0.99-per-60th spin-down is per 240th;
+its fire gate (`lvupdate240 <= 4 && lvframe60 & 1` skips) fired on every frame
+of an even 60th - four times the rate at 240 FPS - and now also needs
+lvupdate60 > 0. The projectile's lastwooshframe/bounceframe gates were already
+right: they compare lvframe60, which counts 60ths at any frame rate.
 
 The replay test at 30 FPS (`EXTRA="--fixed-fps 30"`, to show a fix leaves 30
 as it was) can judge six of its eight cases. randmission never reaches its
