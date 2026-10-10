@@ -484,9 +484,15 @@ The shapes, by kind:
   diffframe240/4 and carry the fraction.
 Walk sway catch-up (bondwalk.c `spa8`): the fraction for the frame time, `dist * (1 - 0.9^lvupdate60f)`,
 instead of the loop over lvupdate60; measured by forcing `data->rleanleft` at bwalkApplyMoveData.
-Left: the gun state machine's frame-to-frame transitions (mode 6 -> 7 -> raise each take a frame), so a weapon
-switch at 240 is ~3.5 ticks shorter than at 60 (34.5 vs 38 to the draw); PAL/JPN builds' gun animation
-(animframeincfreal path) still steps.
+The hand's steps "on the next tick" (fix/hfleft-gun): a state that waits a tick (mode 6 -> 7 -> raise, an
+animation seen finished, a switch or an empty clip's reload starting, AUTOSWITCH's handover) took a frame above
+60. Each is gated to a frame of whole 60ths, `BGUN_TICKFRAME()` = `lvupdate60 > 0` (every frame at 60, 30 and on
+a sim tick; none on a 0/0 pass), and hand->count's first-frame 1 absorbs the next 60th (g_BgunCountEarly), so a
+switch from unarmed to the Falcon 2 is 152 / 276 240ths to the draw / idle at 60, 120 and 240 (was 138 / 257 at
+240) and 151 / 275 at 144 (was 143 / 266); the Falcon 2's empty-clip reload 372 at both (was 367-368 at 240).
+Fire cadence was already equal (CMP150 16 240ths a shot, shotgun 300). PAL/JPN gun animation
+(animframeincfreal path): not done - the tree does not build for pal-final (game_1531a0.c `numchars`, modimport.c, optionsmenu.c), so it
+cannot even be compile-checked.
 
 ## Above 60 FPS: weather, credits and menu text (2026-10-10, high-framerate pass)
 
