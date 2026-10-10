@@ -39,6 +39,7 @@ static FILE *dumpFile = NULL; // --audio-dump FILE: every buffer queued, raw, as
 static s32 channels = 2; // what the device is open with
 static s32 surroundOutput = AUDIO_SURROUND_AUTO; // Audio.SurroundOutput
 static s32 surroundLfe = 50; // Audio.SurroundLFE, percent of a gain of 0.5
+static s32 headphoneRoom = 50; // Audio.HeadphoneRoom, percent of a gain of 1.4: the room's reflections in Headphone Surround
 static s32 surroundWanted = 0; // Sound Mode is Surround
 static s32 deviceChannels = 0; // the default device's own, 0 when SDL cannot say
 
@@ -132,7 +133,7 @@ static void audioApplySurround(void)
 			logged = playing;
 		}
 
-		mixerSetSurround(mode, surroundLfe * (0.5f / 100.f));
+		mixerSetSurround(mode, surroundLfe * (0.5f / 100.f), headphoneRoom * (1.4f / 100.f));
 	}
 }
 
@@ -186,6 +187,17 @@ s32 audioGetSurroundLfe(void)
 void audioSetSurroundLfe(s32 percent)
 {
 	surroundLfe = percent < 0 ? 0 : percent > 100 ? 100 : percent;
+	audioApplySurround();
+}
+
+s32 audioGetHeadphoneRoom(void)
+{
+	return headphoneRoom;
+}
+
+void audioSetHeadphoneRoom(s32 percent)
+{
+	headphoneRoom = percent < 0 ? 0 : percent > 100 ? 100 : percent;
 	audioApplySurround();
 }
 
@@ -317,4 +329,5 @@ PD_CONSTRUCTOR static void audioConfigInit(void)
 	configRegisterInt("Audio.QueueLimit", &queueLimit, 0, 1 * 1024 * 1024);
 	configRegisterInt("Audio.SurroundOutput", &surroundOutput, AUDIO_SURROUND_AUTO, AUDIO_SURROUND_HEADPHONES);
 	configRegisterInt("Audio.SurroundLFE", &surroundLfe, 0, 100);
+	configRegisterInt("Audio.HeadphoneRoom", &headphoneRoom, 0, 100);
 }

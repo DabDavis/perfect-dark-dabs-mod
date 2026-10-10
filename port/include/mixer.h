@@ -57,7 +57,7 @@ enum {
 	MIXER_SURROUND_HEADPHONES  // the six heard through a head, two channels
 };
 
-void mixerSetSurround(int mode, float lfegain);
+void mixerSetSurround(int mode, float lfegain, float hproom);
 const int16_t *mixerSurroundTake(const int16_t *chunk); // [MIXER_CHUNK_FRAMES][MIXER_SURR_COUNT], or NULL
 
 #define aDisable(pkt, o, b, c) aDisableImpl(o, b, c)

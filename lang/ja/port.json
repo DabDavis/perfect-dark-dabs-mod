@@ -986,5 +986,6 @@
     "Speakers: not reported": "スピーカー: 不明",
     "Speakers: %d channels": "スピーカー: %dch",
     "Headphone Surround": "ヘッドホンサラウンド",
-    "Now playing headphone surround": "ヘッドホンサラウンドで再生中"
+    "Now playing headphone surround": "ヘッドホンサラウンドで再生中",
+    "Headphone Room": "ヘッドホンのルーム効果"
 }

@@ -93,6 +93,7 @@ _Static_assert(NUM_SAMPLES == MIXER_CHUNK_FRAMES, "audio.c walks the output in m
 static struct {
     int mode; // MIXER_SURROUND_*
     float lfegain;
+    float hproom; // the headphone room's reflections, 0.7 by default (Audio.HeadphoneRoom)
 
     float front[2][NUM_SAMPLES];
     float centre[NUM_SAMPLES];
@@ -132,7 +133,7 @@ static uint32_t surrage;
  * back, which a real ear does with its pinna at frequencies 22 kHz sampling
  * has no room for, so the rear pair also gets what an ear hears from behind:
  * duller treble and a lift around 1 kHz. A small room's first reflections take
- * the sound out of the head.
+ * the sound out of the head; how loud they are is the player's (hproom).
  */
 #define HP_SPEAKERS 5
 #define HP_HIST 32 // the longest delay to an ear is (1 + pi/2) head radii: 15 samples
@@ -140,7 +141,6 @@ static uint32_t surrage;
 #define HP_ER_TAPS 6
 #define HP_GAIN 0.78f // pink noise ahead, to the side and behind within 0.5 dB of Stereo
 #define HP_REAR 0.72f // the sphere puts the rear pair 20 degrees off the ear's axis, 3 dB too loud
-#define HP_ROOM 0.7f
 
 static const float hpazimuth[HP_SPEAKERS] = { -30.f, 30.f, 0.f, -110.f, 110.f }; // FL FR C RL RR, ITU 5.1
 static const int hperdelay[2][HP_ER_TAPS] = {
@@ -289,7 +289,7 @@ static inline void hpRender(const float in[HP_SPEAKERS], float lfe, float *outl,
         }
 
         hp.erlp[e] = r * (1.f - hp.erlpcoef) + hp.erlp[e] * hp.erlpcoef;
-        ear[e] += hp.erlp[e] * HP_ROOM;
+        ear[e] += hp.erlp[e] * surr.hproom;
     }
 
     *outl = (ear[0] + lfe) * HP_GAIN;
@@ -420,7 +420,7 @@ const int16_t *mixerSurroundTake(const int16_t *chunk) {
     return NULL;
 }
 
-void mixerSetSurround(int mode, float lfegain) {
+void mixerSetSurround(int mode, float lfegain, float hproom) {
     if (mode == MIXER_SURROUND_HEADPHONES && surr.mode != MIXER_SURROUND_HEADPHONES) {
         hpInit();
     }
@@ -452,6 +452,7 @@ void mixerSetSurround(int mode, float lfegain) {
 
     surr.mode = mode;
     surr.lfegain = lfegain;
+    surr.hproom = hproom;
 }
 
 void aLoadADPCMImpl(int num_entries_times_16, const int16_t *book_source_addr) {

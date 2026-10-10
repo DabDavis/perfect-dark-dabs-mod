@@ -986,5 +986,6 @@
  "Speakers: not reported": "Altavoces: sin datos",
  "Speakers: %d channels": "Altavoces: %d canales",
  "Headphone Surround": "Surround auriculares",
- "Now playing headphone surround": "Sonando surround auriculares"
+ "Now playing headphone surround": "Sonando surround auriculares",
+ "Headphone Room": "Sala (auriculares)"
 }
