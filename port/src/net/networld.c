@@ -77,6 +77,46 @@ static s32 netWorldGlassGone(struct defaultobj *obj)
 		|| obj->prop->obj != obj;
 }
 
+// Whether any of the object's display lists draws vertices of its own (objDeform's copies)
+static s32 netWorldObjDeformed(struct defaultobj *obj)
+{
+	struct model *model = obj->model;
+	struct modelnode *node;
+	s32 guard = 0;
+
+	if (!obj->prop || obj->prop->obj != obj || !model || !model->definition || !model->rwdatas) {
+		return 0;
+	}
+
+	node = model->definition->rootnode;
+
+	while (node && guard++ < 4096) {
+		if ((node->type & 0xff) == MODELNODETYPE_DL && node->rodata) {
+			struct modelrodata_dl *rodata = &node->rodata->dl;
+			struct modelrwdata_dl *rwdata = (struct modelrwdata_dl *)&model->rwdatas[rodata->rwdataindex];
+
+			if (rwdata->vertices && rwdata->vertices != rodata->vertices) {
+				return 1;
+			}
+		}
+
+		if (node->child) {
+			node = node->child;
+		} else {
+			while (node) {
+				if (node->next) {
+					node = node->next;
+					break;
+				}
+
+				node = node->parent;
+			}
+		}
+	}
+
+	return 0;
+}
+
 void netWorldStageStart(void)
 {
 	u32 *cmd = g_StageSetup.props;
@@ -217,11 +257,20 @@ void netWorldCensus(const char *why)
 	s32 windowed = 0;
 	s32 doorgone = 0;
 	s32 storms = 0;
+	s32 deformed = 0;
 	s32 i;
+	char map[NETWORLD_MAXLIST / 8 + 1];
+	s32 m = 0;
 
 	for (i = 0; i < s_NumGlass; i++) {
 		glass += netWorldGlassGone(s_Glass[i]);
+
+		if (m < (s32)sizeof(map) - 1 && i < 64) {
+			map[m++] = netWorldGlassGone(s_Glass[i]) ? 'x' : (s_Glass[i]->prop ? 'o' : '-');
+		}
 	}
+
+	map[m] = '\0';
 
 	for (i = 0; i < s_NumDoors; i++) {
 		if (netWorldDoorIsWindowed(s_Doors[i])) {
@@ -234,9 +283,14 @@ void netWorldCensus(const char *why)
 		storms += g_Nbombs[i].age240 >= 0;
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: world census %s %s tick %u: glass broken %d/%d, door glass broken %d/%d, deforms %u, storms %d, gas %d (timer %.0f)",
+	for (i = 0; i < s_NumBasic; i++) {
+		deformed += netWorldObjDeformed(s_Basic[i]);
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: world census %s %s tick %u: glass %s", g_NetMode == NETMODE_SERVER ? "host" : "client", why, g_NetTick, map);
+	sysLogPrintf(LOG_NOTE, "net: world census %s %s tick %u: glass broken %d/%d, door glass broken %d/%d, objects deformed %d/%d, deforms %u, storms %d, gas %d (timer %.0f)",
 			g_NetMode == NETMODE_SERVER ? "host" : "client", why, g_NetTick, glass, s_NumGlass, doorgone, windowed,
-			s_Deforms, storms, g_GasReleaseTimer240 > 0, (f64)g_GasReleaseTimer240);
+			deformed, s_NumBasic, s_Deforms, storms, g_GasReleaseTimer240 > 0, (f64)g_GasReleaseTimer240);
 }
 
 // netTickBegin: the host's test wrecks, before the tick runs
