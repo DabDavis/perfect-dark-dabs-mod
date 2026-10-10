@@ -6,7 +6,9 @@
   Surround was in the game all along and did nothing on PC: the N64 encodes a
   sound behind the listener as Dolby Surround with two phase bits the RSP
   microcode reads, and `port/src/mixer.c` threw them away. Now honoured, plus
-  real 5.1 on a six-channel device (`Audio.SurroundOutput`). See "Surround".
+  real 5.1 on a six-channel device (`Audio.SurroundOutput`), and Headphone
+  Surround (that 5.1 mix heard through a modelled head) for stereo headsets.
+  See "Surround" and "Headphone Surround".
 
 ## Surround
 
@@ -100,3 +102,36 @@ parecord --device=surr51.monitor --channels=6 --format=s16le --rate=22020 --raw 
 
 and run the game with `SDL_AUDIODRIVER=pulseaudio`. `pulseaudio -k` with the
 same environment stops it.
+
+## Headphone Surround
+
+`Audio.SurroundOutput=3`: the mixer runs the 5.1 routing above and renders
+the five speakers (ITU angles: front pair at 30 degrees, rear at 110) and the
+subwoofer to two ears (`hpRender()` in mixer.c), on a two-channel device.
+Nothing can tell headphones from speakers on a stereo device, so Auto never
+picks it.
+
+The model is Brown and Duda's structural one (1998), from its equations: a
+head shadow per speaker per ear (one pole, one zero, bilinear prewarped at
+c/a; treble gain alpha 2 facing the ear, 0.1 at 150 degrees) and the sphere's
+delay (0.27 ms across the head for the front pair, 0.59 ms for the rear,
+measured). No measured HRTF is shipped, so there is no data licence to
+carry. A sphere cannot tell front from back, and the pinna cues that do sit
+above what 22 kHz sampling holds, so the rear pair gets a -5 dB shelf at
+2.5 kHz and +2 dB at 1 kHz (behind measures 6 dB duller than ahead). Six
+fixed reflection taps a side (3-21 ms, low passed at 4 kHz, `HP_ROOM`) take
+the sound out of the head.
+
+Calibration (pink noise, the harness in the commit message): the sphere puts
+the rear speakers 20 degrees off the ear's axis, where its near-ear treble
+lift made a voice behind 3 dB louder than one ahead; `HP_REAR` 0.72 trims
+that, and `HP_GAIN` 0.78 puts a voice ahead, hard left and behind within
+0.3 dB of Stereo. White noise reads 3 dB quieter ahead, because the model
+dulls the treble of a source in front: that is the model, not the level.
+The Subwoofer slider is a bass lift here. Cost: about 0.45% of a core over
+Stereo with 24 voices.
+
+Measured in the game (disk driver, the gdb tones above): ahead L/R
+correlation +0.99, front left 6.8 dB louder left, rear right 6.9 dB louder
+right, and the treble share of a tone behind 0.5% against 4.8% ahead.
+

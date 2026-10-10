@@ -19,6 +19,7 @@ void audioEndFrame(void);
 #define AUDIO_SURROUND_AUTO   0 // 5.1 on a device with six channels, else Dolby Surround
 #define AUDIO_SURROUND_51     1 // six channels, SDL folds them down for a smaller device
 #define AUDIO_SURROUND_MATRIX 2 // Dolby Surround on two channels, as the N64 did
+#define AUDIO_SURROUND_HEADPHONES 3 // the 5.1 mix heard through a head, on two channels
 
 void audioSetSurround(s32 on); // sndSetSoundMode()
 s32 audioGetSurroundOutput(void);

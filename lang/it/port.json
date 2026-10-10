@@ -984,5 +984,7 @@
  "Now playing 5.1": "Riproduzione in 5.1",
  "Now playing Dolby Surround": "Riproduzione Dolby Surround",
  "Speakers: not reported": "Altoparlanti: non indicati",
- "Speakers: %d channels": "Altoparlanti: %d canali"
+ "Speakers: %d channels": "Altoparlanti: %d canali",
+ "Headphone Surround": "Surround cuffie",
+ "Now playing headphone surround": "Riproduzione surround cuffie"
 }

@@ -984,5 +984,7 @@
     "Now playing 5.1": "5.1chで再生中",
     "Now playing Dolby Surround": "ドルビーサラウンドで再生中",
     "Speakers: not reported": "スピーカー: 不明",
-    "Speakers: %d channels": "スピーカー: %dch"
+    "Speakers: %d channels": "スピーカー: %dch",
+    "Headphone Surround": "ヘッドホンサラウンド",
+    "Now playing headphone surround": "ヘッドホンサラウンドで再生中"
 }

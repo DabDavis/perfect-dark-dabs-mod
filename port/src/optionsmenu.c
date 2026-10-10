@@ -1724,6 +1724,7 @@ static MenuItemHandlerResult menuhandlerSurroundOutput(s32 operation, struct men
 		"Auto",
 		"5.1 Speakers",
 		"Dolby Surround",
+		"Headphone Surround",
 	};
 
 	switch (operation) {
@@ -1765,7 +1766,13 @@ static const char *menutextSurroundNow(struct menuitem *item)
 		return langTr("Used when Sound Mode is Surround\n");
 	}
 
-	return audioGetChannels() == 6 ? langTr("Now playing 5.1\n") : langTr("Now playing Dolby Surround\n");
+	if (audioGetChannels() == 6) {
+		return langTr("Now playing 5.1\n");
+	}
+
+	return audioGetSurroundOutput() == AUDIO_SURROUND_HEADPHONES
+		? langTr("Now playing headphone surround\n")
+		: langTr("Now playing Dolby Surround\n");
 }
 
 static char g_SurroundDeviceText[80];

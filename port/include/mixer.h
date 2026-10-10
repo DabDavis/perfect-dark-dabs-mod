@@ -51,7 +51,13 @@ enum {
 	MIXER_SURR_COUNT
 };
 
-void mixerSetSurround51(int on, float lfegain);
+enum {
+	MIXER_SURROUND_OFF,        // two channels, and the game's own phase bits: Dolby Surround in Surround mode
+	MIXER_SURROUND_51,         // six channels, the four besides the front pair taken by address
+	MIXER_SURROUND_HEADPHONES  // the six heard through a head, two channels
+};
+
+void mixerSetSurround(int mode, float lfegain);
 const int16_t *mixerSurroundTake(const int16_t *chunk); // [MIXER_CHUNK_FRAMES][MIXER_SURR_COUNT], or NULL
 
 #define aDisable(pkt, o, b, c) aDisableImpl(o, b, c)

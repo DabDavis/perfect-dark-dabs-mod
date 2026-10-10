@@ -984,5 +984,7 @@
  "Now playing 5.1": "Sonando en 5.1",
  "Now playing Dolby Surround": "Sonando en Dolby Surround",
  "Speakers: not reported": "Altavoces: sin datos",
- "Speakers: %d channels": "Altavoces: %d canales"
+ "Speakers: %d channels": "Altavoces: %d canales",
+ "Headphone Surround": "Surround auriculares",
+ "Now playing headphone surround": "Sonando surround auriculares"
 }

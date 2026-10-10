@@ -27,6 +27,9 @@ static FILE *dumpFile = NULL; // --audio-dump FILE: every buffer queued, raw, as
  *   exactly what the N64 sent a Pro Logic receiver (port/src/mixer.c).
  * - 5.1: six channels, the same sounds on the rear speakers themselves, a
  *   centre and a subwoofer.
+ * - Headphone Surround: that 5.1 mix heard through a head (port/src/mixer.c),
+ *   two channels, for a stereo headset. Nothing can tell headphones from
+ *   speakers on a stereo device, so only the player picks it.
  * - Auto: 5.1 when the default device has six channels or more, else Dolby
  *   Surround. A device whose layout SDL cannot report counts as stereo.
  *
@@ -98,6 +101,7 @@ static void audioApplySurround(void)
 			want = 6;
 			break;
 		case AUDIO_SURROUND_MATRIX:
+		case AUDIO_SURROUND_HEADPHONES:
 			want = 2;
 			break;
 		default:
@@ -110,13 +114,26 @@ static void audioApplySurround(void)
 		if (audioOpenDevice(want) != 0 && want != 2) {
 			audioOpenDevice(2);
 		}
-
-		sysLogPrintf(LOG_NOTE, "audio: %s (%d channels out, default device has %d)",
-			channels == 6 ? "surround as 5.1" : surroundWanted ? "surround as Dolby Surround" : "stereo",
-			channels, deviceChannels);
 	}
 
-	mixerSetSurround51(channels == 6, surroundLfe * (0.5f / 100.f));
+	{
+		const s32 mode = channels == 6 ? MIXER_SURROUND_51
+			: surroundWanted && surroundOutput == AUDIO_SURROUND_HEADPHONES ? MIXER_SURROUND_HEADPHONES
+			: MIXER_SURROUND_OFF;
+		const s32 playing = surroundWanted ? mode : -1;
+		static s32 logged = -1; // plain stereo, which the boot does not announce
+
+		if (dev && playing != logged) {
+			sysLogPrintf(LOG_NOTE, "audio: %s (%d channels out, default device has %d)",
+				mode == MIXER_SURROUND_51 ? "surround as 5.1"
+				: mode == MIXER_SURROUND_HEADPHONES ? "surround as headphone surround"
+				: surroundWanted ? "surround as Dolby Surround" : "stereo",
+				channels, deviceChannels);
+			logged = playing;
+		}
+
+		mixerSetSurround(mode, surroundLfe * (0.5f / 100.f));
+	}
 }
 
 s32 audioInit(void)
@@ -298,6 +315,6 @@ PD_CONSTRUCTOR static void audioConfigInit(void)
 {
 	configRegisterInt("Audio.BufferSize", &bufferSize, 0, 1 * 1024 * 1024);
 	configRegisterInt("Audio.QueueLimit", &queueLimit, 0, 1 * 1024 * 1024);
-	configRegisterInt("Audio.SurroundOutput", &surroundOutput, AUDIO_SURROUND_AUTO, AUDIO_SURROUND_MATRIX);
+	configRegisterInt("Audio.SurroundOutput", &surroundOutput, AUDIO_SURROUND_AUTO, AUDIO_SURROUND_HEADPHONES);
 	configRegisterInt("Audio.SurroundLFE", &surroundLfe, 0, 100);
 }
