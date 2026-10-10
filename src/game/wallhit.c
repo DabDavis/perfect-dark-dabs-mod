@@ -366,7 +366,9 @@ bool wallhitRemoveOneInRoom(s32 room)
 					&& (room == -1
 						|| (room == 0 && g_Wallhits[i].objprop != NULL)
 						|| (room && room == g_Wallhits[i].roomnum))) {
-				if (g_WallhitTexes[g_Wallhits[i].texturenum].type == WALLHITTYPE_BLOOD) {
+				// GoldenEye's holes are numbered past this table
+				// (geimpact.c), which a plain read ran off the end of
+				if (wallhitTexType(g_Wallhits[i].texturenum) == WALLHITTYPE_BLOOD) {
 					numblood++;
 
 					if (IS_BLOOD_DROP(g_Wallhits[i].texturenum)) {
