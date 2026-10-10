@@ -31,6 +31,48 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 49 2026-10-10
+GoldenEye: with Guards Alerted on, the extra guards are the level's own soldiers with its own guns, and no longer fight the other guards (thanks chickensalad and Odeyseis)
+GoldenEye with Mission Respawn: after dying and coming back, reaching the exit ends the mission again (thanks ClassicAlfredo)
+GoldenEye: guards shot in the leg no longer freeze kneeling on the floor; they fall the rest of the way (thanks ClassicAlfredo and Odeyseis)
+GoldenEye Runway: Bond no longer stands on the runway while the plane takes off with him in it (thanks Odeyseis)
+GoldenEye Cradle, HD look: Natalya is at the helicopter's controls again in the ending (thanks echoremastered)
+Tomorrow Never Dies 64 Press and GoldenEye's Dam, Statue Park and Egyptian endings: the camera frames Bond's head and shoulders as on the cartridge, not his waist (thanks Odeyseis)
+GoldenEye: the watch detonator lowers out of view and rises back like any other weapon (thanks Mike D)
+GoldenEye: shooting an object that is already destroyed throws debris instead of exploding again, as on the cartridge (thanks dblaney1)
+GoldenEye, HD look: one shot in a security camera's lens destroys it again (thanks echoremastered and Odeyseis)
+GoldenEye Bunker 2: a thrown knife lies flat on the vault room floor instead of spinning (thanks ClassicAlfredo)
+GoldenEye Surface, HD look: the snow banks by the cabins show their snowy rock, as the XBLA release does (thanks Odeyseis)
+GoldenEye, HD look: switching the XBLA look no longer leaves your hand empty for a moment (thanks dick)
+GoldenEye arenas: simulants pick up GoldenEye's own mines, so a killed player drops GoldenEye's mines, and dropped mines and knives look like GoldenEye's (thanks dblaney1)
+GoldenEye arenas: doors the level's own keys open are open in multiplayer, such as Silo's (thanks dick)
+GoldenEye Surface and Surface 2 arenas: the satellite dish is back on its tower (thanks dick)
+GoldenEye Surface 2 arena: the grate over the ventilation shaft stays shut, so you can't fall in and get stuck (thanks dick)
+GoldenEye Streets arena: the parked jeeps stand on their wheels and are solid (thanks dick)
+GoldenEye arenas: your view is at GoldenEye's eye height, so other players no longer look a head too tall (thanks dick)
+GoldenEye multiplayer: free-for-all matches no longer end early on a hidden team score of 20 (thanks dblaney1)
+GoldenEye multiplayer menu: simulants set up in the Combat Simulator show in GoldenEye's Simulants rows and are kept when you start (thanks ElmoBear)
+Goldfinger 64: bullet holes show again on walls, floors and objects (thanks Odeyseis)
+Goldfinger 64: the M1 Garand's single shots go where you aim instead of scattering (thanks brainycabde)
+Goldfinger 64 Cartel: no more grey bars across the room while the bathroom door is open (thanks Mike D)
+Goldfinger 64 Shipyard: with Disable Fog on, guards no longer pop in and out as you turn, anywhere in the level (thanks Odeyseis)
+Goldfinger 64 and Tomorrow Never Dies 64 arenas: matches with simulants start sooner (thanks Shadowspike74)
+Third person: the detonator no longer blows up the remote mine in your hand (thanks Odeyseis)
+XBLA look: G5 guards, dataDyne snipers and the striped dataDyne guards no longer have hands and feet stretched into spikes (thanks GrimShaw245)
+G5 Building, XBLA look: Beau's N64 ponytail no longer hangs off his HD head (thanks GrimShaw245)
+G5 Building, XBLA look: no cloudy sky where the laser-grid area has no ceiling (thanks ClassicAlfredo)
+XBLA look: the Falcon 2's silencer ends in its HD cap, as in the Xbox 360 release (thanks Odeyseis)
+XBLA look: the game looks deeper inside Perfect Dark XBLA.7z for the release's package
+The All in One Mod's Goldfinger map pack is no longer offered as a whole mod, which drew its textures over Perfect Dark's levels; its maps are still arenas (thanks Parabolee)
+Stage Loader: mod maps such as Dark Noon's Valley use the mod's own props and sky, not stretched crates under a blue sky (thanks savantique)
+A mod whose script shows a missing message no longer crashes the game (thanks to those who sent crash reports)
+Online: playing a cinema from GoldenEye's Cinema page while hosting no longer crashes the game when it ends; the cinema is yours while your guests wait (thanks echoremastered)
+Online: guards GoldenEye spawns mid-mission (Surface's and Bunker's reinforcements) appear on guests' screens, and a guard's dropped gun no longer goes missing there
+Online: a player standing on your spot no longer shows as stray slivers in your view, and GoldenEye's opening shows only your own Bond (thanks echoremastered)
+Online: guests are no longer turned away when the host uses a weapon set their game lists differently, such as a GoldenEye set (thanks dick)
+Online: when a match waits for a player still downloading the map, the screen says who and how far the download has got (thanks dick)
+GoldenEye, Goldfinger 64 and Tomorrow Never Dies 64 convert once more on the next start
+
 notes 48 2026-10-10
 Online: joining a room whose host is on its end screen now says you are in for its next match, and the host is told (thanks dab)
 Online: joins, leaves and chat show over the end screen too
