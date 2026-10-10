@@ -425,6 +425,14 @@ void netCoopLeaveMission(void);
 // gexfront.c gexFrontGoBack online: no match's flags (or, on the host, match)
 // outlive a stage that goes back to the folder that way
 void netCoopFolderBack(void);
+// pdmain.c mainEndStage's co-op branch: a Cinema-page cinema's end (no report),
+// 1 when the match was one (protocol 27)
+s32 netCoopCinemaEnded(void);
+// the cinema this machine's match is (GECINEMA_NET_*), 0 a mission or none
+s32 netCoopCinemaKind(void);
+// the host: an AI list's line goes to every player (a converted GoldenEye
+// mission's, a watched cinema's)
+s32 netCoopListTextToAll(void);
 // objectives.c objectiveCheck on a client: the host's status, 1 when known
 s32 netCoopObjectiveStatus(s32 index, s32 *status);
 // lv.c lvTickPlayer, the host: a client's own settings (NETKEY_PLAYER: the

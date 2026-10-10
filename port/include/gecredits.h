@@ -34,4 +34,20 @@ s32 gecreditsHaveRolled(void);
 void gecreditsTick(void);
 Gfx *gecreditsRender(Gfx *gdl);
 
+// Online (netcoop.c, protocol 27): Cuba's camera and roll as the host's list
+// runs them, for a guest's screen, which runs no lists
+struct gecreditsnet {
+	s32 orbit;        // the camera goes round the pad
+	s32 padnum;
+	s32 distance;
+	s32 height;
+	s32 lookheight;
+	f32 speed;        // radians a 60th
+	f32 angle;        // radians
+	s32 state;        // 0 not yet, 1 rolling, 2 over
+	f32 frame;        // how far the roll is
+};
+void gecreditsNetState(struct gecreditsnet *out);
+void gecreditsNetFollow(const struct gecreditsnet *in);
+
 #endif

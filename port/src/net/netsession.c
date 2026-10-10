@@ -4425,6 +4425,12 @@ void netStageStopped(void)
 	}
 }
 
+// the host's MATCH_END for the match running has gone
+s32 netSessionHostEnded(void)
+{
+	return s_Role == NETROLE_HOST && s_MatchActive && s_HostEnded;
+}
+
 s32 netSessionMatchActive(void)
 {
 	return s_MatchActive && s_MatchLoaded && g_StageNum == s_MatchStage;

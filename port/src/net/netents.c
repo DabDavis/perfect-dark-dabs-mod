@@ -1898,11 +1898,13 @@ void netEntsClientApplyLocal(void)
 
 		// not while GoldenEye's opening holds this machine's hands empty
 		// (gecinemaEnter): the host plays no opening for this player, and
-		// its gun stood in the client's opening shots. Nor while the watch
-		// is up here, its gun put away (gewatch.c): the host never sees the
-		// watch, and the hand it gives back is the host's own
+		// its gun stood in the client's opening shots - nor through a
+		// Cinema-page cinema the room watches (protocol 27). Nor while the
+		// watch is up here, its gun put away (gewatch.c): the host never sees
+		// the watch, and the hand it gives back is the host's own
 		if (lp->weaponnum > 0 && lp->weaponnum < NUM_WEAPONS && lp->weaponnum != p->gunctrl.weaponnum
-				&& p->gunctrl.switchtoweaponnum < 0 && !gecinemaIntroIsOn() && !geWatchHoldsPlayer(g_NetLocalSlot)
+				&& p->gunctrl.switchtoweaponnum < 0 && !gecinemaIntroIsOn() && !gecinemaIsOn()
+				&& netCoopCinemaKind() == GECINEMA_NET_NONE && !geWatchHoldsPlayer(g_NetLocalSlot)
 				&& (invHasSingleWeaponIncAllGuns(lp->weaponnum) || lp->weaponnum == WEAPON_UNARMED)) {
 			bgunEquipWeapon(lp->weaponnum);
 			s_LpEquips++;

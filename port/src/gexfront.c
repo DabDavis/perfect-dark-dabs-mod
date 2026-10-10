@@ -2322,10 +2322,12 @@ static s32 g_FrontCreditsCinema;
 
 /**
  * The Cinema page's start of a stage (a cinema, or the credits picked there) is
- * under way: Accept Mission online asks (netCoopAcceptMission()), for what is
- * watched there is the host's own to watch and not a campaign room's next match.
+ * under way, and which (GECINEMA_NET_*): Accept Mission online asks
+ * (netCoopAcceptMission()), for a campaign room watches it with the host.
  */
 static s32 g_FrontStartingCinema;
+// online, Loop All's next level the folder is to start for the room, -1 none
+static s32 g_FrontCinemaChain = -1;
 
 s32 gexFrontStartingCinema(void)
 {
@@ -2359,7 +2361,7 @@ static s32 frontStartCredits(s32 cinema)
 	sysLogPrintf(LOG_NOTE, "gexfront: %s, GoldenEye's credits on stage 0x%02x",
 			cinema ? "the Cinema page" : "the Cradle is done", stagenum);
 
-	g_FrontStartingCinema = cinema;
+	g_FrontStartingCinema = cinema ? GECINEMA_NET_CREDITS : GECINEMA_NET_NONE;
 	menuhandlerAcceptMission(MENUOP_SET, NULL, &data);
 	g_FrontStartingCinema = 0;
 
@@ -2620,7 +2622,7 @@ static void frontStartCinema(s32 mission, s32 what)
 	g_Front.active = 0;
 	frontUnload();
 
-	g_FrontStartingCinema = 1;
+	g_FrontStartingCinema = what == GECINEMA_ENDING ? GECINEMA_NET_ENDING : GECINEMA_NET_OPENING;
 	menuhandlerAcceptMission(MENUOP_SET, NULL, &data);
 	g_FrontStartingCinema = 0;
 }
@@ -3651,6 +3653,20 @@ void gexFrontTick(void)
 		return;
 	}
 
+	// online, Loop All's next level for the room (gexFrontCinemaNext): its
+	// opening starts the moment the folder is back on the Cinema page
+	if (g_FrontCinemaChain >= 0 && g_Front.screen == SCREEN_CINEMAPICK) {
+		const s32 next = g_FrontCinemaChain;
+
+		g_FrontCinemaChain = -1;
+
+		if (g_NetMode == NETMODE_SERVER && next < frontNumMissions()) {
+			g_Front.mission = next;
+			frontStartCinema(next, GECINEMA_OPENING);
+			return;
+		}
+	}
+
 	// the crosshair is the pointer here; the system's own over it is a
 	// second one (F3 20260926-215427)
 	if (inputMouseIsEnabled()) {
@@ -4328,6 +4344,20 @@ s32 gexFrontCreditsAreCinema(void)
 }
 
 /**
+ * Online, the room's credits rolled to their end (netCoopCinemaEnded(): Cuba's
+ * own EndLevel reaches mainEndStage's co-op branch, not the report this does
+ * offline in gexFrontMissionReport()): back to the folder the way they go
+ * there offline, the long cast reel and then the page or the grid.
+ */
+void gexFrontCreditsOver(void)
+{
+	g_FrontCredits = 2;
+	g_FrontReport.valid = 0;
+	g_FrontWantMain = 1;
+	gexFrontGoBack();
+}
+
+/**
  * The Cinema page's credits, left with the button that leaves any of its
  * cinemas: straight back to the page, with no long cast reel after them.
  */
@@ -4385,6 +4415,14 @@ s32 gexFrontCinemaNext(s32 mission)
 		}
 
 		sysLogPrintf(LOG_NOTE, "gecinema: loop all, mission %d to %d", mission, next);
+
+		// online the room watches each level as a match of its own: this one
+		// ends here (back to the folder, every guest to the room) and the
+		// folder starts the next as soon as it is open (gexFrontTick)
+		if (g_NetMode == NETMODE_SERVER && netCoopCinemaKind() != GECINEMA_NET_NONE) {
+			g_FrontCinemaChain = next;
+			return 0;
+		}
 
 		g_Front.mission = next;
 		frontSetCinemaConfig(next, GECINEMA_OPENING);

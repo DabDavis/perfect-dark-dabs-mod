@@ -140,7 +140,13 @@
 //    flags carry NETACC_NEXTMATCH when the host took the player after its
 //    match had ended (its end screen up): in for the next match, which the
 //    client's Game Lobby says instead of "connecting to the host"
-#define NET_PROTOCOL_VERSION 26
+// 27 (a campaign room watches the host's Cinema page, 2026-10-10): RULES'
+//    mission block ends in u8 cinema (0 a mission, 1 the Cinema page's
+//    opening, 2 its ending, 3 GoldenEye's credits), u8 loop and u8 minutes
+//    (its Loop and Time rows); the scenario block's mission body carries the
+//    host's gallery shot and a count of its shot starts, and the credits'
+//    orbit and roll (netcoop.c, bytes 50-73), which a guest plays in step
+#define NET_PROTOCOL_VERSION 27
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -378,6 +384,12 @@
  *                                 ("gf64", "tnd64"): stageindex is then the
  *                                 mission's number in that conversion, which
  *                                 each machine resolves in its own
+ *     u8 cinema                   (protocol 27) the Cinema page's cinema the
+ *                                 room watches: 0 a mission played, 1 an
+ *                                 opening, 2 an ending, 3 GoldenEye's credits
+ *                                 (Cuba); a conversion's set only
+ *     u8 cinemaloop               its Loop row (0 off, 1 level, 2 all)
+ *     u8 cinemaminutes            and its Time row (Loop All's minutes)
  *   content block (protocol 13; netcontent.c):
  *     str(127) mod, u64 modhash   as ACCEPT's (checked again at H3)
  *     str(15) gevariant           the GoldenEye ROM hack whose mode the

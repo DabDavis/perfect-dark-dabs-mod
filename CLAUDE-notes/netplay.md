@@ -1037,6 +1037,39 @@ progression").
   record then found nothing; it is let go of and hidden for that record
   (`netEntsIsSetupProp`). A dropped KF7 then has the model's scale on the
   guest (bdee81af4's fix, F3 20261009-230911).
+- **The Cinema page in a campaign room (protocol 27, 2026-10-10).** The
+  owner: "let's pull guests in also" (pass 35 had made the Cinema page the
+  host's own after its crash). A campaign host's Cinema-page opening, ending
+  or the credits is the room's next co-op match (`netCoopAcceptMission`
+  takes `gexFrontStartingCinema()`'s kind, `netCoopHostStart` keeps it),
+  RULES' mission block naming it (cinema, loop, minutes). A guest arms the
+  same cinema (`gecinemaArm`; the credits are Cuba's stage itself) and plays
+  it locally against the host's mission block: the opening's gallery takes
+  the host's shot (cineshot/cineseq, `gecinemaNetFollow`) instead of its own
+  clock, the ending's cast and list are the host's (puppets, CameraSwitch,
+  fades), the credits' orbit and roll follow (`gecreditsNetFollow`). A guest
+  waits for GO in black and comes in from it (left black, the whole ending
+  stayed black on both guests), reads no presses, and holds on black at its
+  own end; the host's end - `gecinemaFinish` -> `gexFrontGoBack` ->
+  `netCoopFolderBack`'s MATCH_END, or Cuba's own EndLevel through
+  `mainEndStage` (`netCoopCinemaEnded`, `gexFrontCreditsOver`) - ends on no
+  report: the host back on its folder, each guest in the room for the next
+  mission. A late joiner is in step from its first block; a guest who leaves
+  is an open seat; Loop All goes level to level as matches (the folder
+  starts the next level as it reopens: `g_FrontCinemaChain`); a migrated
+  host does not start a watched cinema again. Every screen has one Bond
+  (`playerGetNetBodyAlphaFrac`: an opening's is each machine's own player, an
+  ending's and the credits' the host's), no seat walks or shoots through it,
+  no guest's gun comes back from the local block, no name tags. And a
+  converted mission's list lines (`aiShowHudmsg`, `aiShowHudmsgTopMiddle`:
+  GoldenEye's text_print_top, Cuba's dialogue) go to every player online
+  (`netCoopListTextToAll`) - a guest had seen none of them, in any GoldenEye
+  mission. Harness: two guests through the ending, the gallery (Loop Level,
+  a third joining part way, the second leaving), the credits, Loop All
+  chaining Dam to Facility, and the room's next mission after each. Trap met
+  testing it: this box has game controllers attached, and a headless run
+  without the gates' `SDL_GAMECONTROLLER_IGNORE_DEVICES*` env read a held A
+  on pad 0 - the folder picked the Cinema page's Intro by itself.
 - **Left for later.** Counter-op; GoldenEye's missions (gewatch/gecinema
   read pad 0); AI buddies; the host's cheats are not synced to clients;
   spectators were not tried on a mission; a client's START in a cutscene

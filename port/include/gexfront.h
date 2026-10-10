@@ -84,9 +84,12 @@ s32 gexFrontOpenAtMission(s32 mission);
 s32 gexFrontOpenAfterCredits(void);
 // Whether the credits playing were picked on the Cinema page
 s32 gexFrontCreditsAreCinema(void);
-// The Cinema page is starting its stage (a cinema, or its credits) through
-// Accept Mission: online that is the host's own to watch, not a match
+// The Cinema page is starting its stage through Accept Mission: which of its
+// cinemas (GECINEMA_NET_*, gecinema.h), 0 none - online a campaign room's
+// guests watch it with the host
 s32 gexFrontStartingCinema(void);
+// Online, the room's credits are over: back to the folder as offline
+void gexFrontCreditsOver(void);
 // The Cinema page's credits, left early: back to the page with no cast reel
 void gexFrontLeaveCredits(void);
 void gexFrontTick(void);
