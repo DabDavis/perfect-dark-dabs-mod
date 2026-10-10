@@ -679,11 +679,12 @@ static void netPupHeld(struct netpup *u, struct chrdata *chr, s32 hand, u8 want)
 		// record placing it where it fell. Freed here when the chr's record
 		// came first (the guard's prop before the gun's), that record found
 		// nothing: the gun was gone on a guest, every drop of a guard whose
-		// prop came first. Let go of and hidden until its record says where
-		// it lies (netPupObj takes OBJHFLAG_GONE off), as a drop by the
+		// prop came first. Let go of and not drawn until its record says where
+		// it lies (netPupObj enables it again; OBJHFLAG_GONE would make
+		// that a pickup's regeneration, its sound), as a drop by the
 		// record first is (netPupObjLetGo).
 		netPupObjLetGo(held);
-		held->obj->hidden |= OBJHFLAG_GONE;
+		propDisable(held);
 		s_HeldDrops++;
 		return;
 	}
@@ -2713,7 +2714,7 @@ s32 netClientInMatch(void)
 
 void netPuppetsLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u (setup objects let go first %u), bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, let go %u, taken out %u, put back %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u, built from the tables %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u",
+	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u (setup objects dropped before their record %u), bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, let go %u, taken out %u, put back %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u, built from the tables %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u",
 			why, g_NetTick, s_Poses, s_Interp, s_Extrap, s_Held, s_Behind, s_DelayLast, s_Jit, s_Resyncs,
 			s_FirstRecords, s_Snaps, s_Deaths, s_Created[NETDESC_DYNWEAPON], s_Created[NETDESC_HAT], s_Created[NETDESC_AMMOCRATE], s_Created[NETDESC_SCENOBJ],
 			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_HeldDrops, s_BadAnims, s_DoorMoves, s_DoorSounds, s_Regens, s_Unpaused, s_LetGo, s_TakenOut, s_PutBack, s_Trails, s_PlayerDeaths,
