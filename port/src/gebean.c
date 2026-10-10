@@ -16582,6 +16582,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 					v[k].uv[1] = bv.uv[1];
 					v[k].argb = bv.argb;
 					v[k].blend = draw->blend;
+					v[k].twin = 0;
 					v[k].alphatest = draw->alphatest;
 					v[k].alpharef = draw->alpharef;
 					v[k].plain = plain;
@@ -16630,6 +16631,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 					over[k].uv[1] = (s16)gebeanBE16(p + 18) / bm->uvscale;
 					over[k].argb = v[k].argb | 0xff000000u;
 					over[k].blend = 1;
+					over[k].twin = 1;
 				}
 
 				fn(arg, tex, over);
@@ -16655,6 +16657,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 					over[k].uv[1] = (s16)gebeanBE16(p + 18) / bm->uvscale;
 					over[k].argb = (v[k].argb & 0x00ffffff) | (u32)p[24] << 24;
 					over[k].blend = 1;
+					over[k].twin = 1;
 					seen |= p[24] != 0;
 				}
 

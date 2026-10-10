@@ -320,6 +320,7 @@ struct gebeanlevelvtx {
 	u32 argb;
 	f32 nrm[3]; // the file's own, zero where it has none
 	u8 blend; // its draw is in the release's blended pass (the same on all three)
+	u8 twin;  // an opaque draw's second picture laid over its first, blended here (gebeanLevelTriangles())
 	u8 plain; // its draw has no UV and no picture of its own (gebeanLevelTriangles())
 	u8 alphatest; // its draw's alpha test is on (greater than alpharef, of picture times vertex alpha)
 	u8 alpharef;

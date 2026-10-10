@@ -104,6 +104,7 @@ struct stri {
 	u8 backed;  // one face of a two-faced sheet, drawn culled (markBacked())
 	u8 fights;  // a face with another face back to back over part of it (markFights())
 	u8 blend;   // drawn in the release's blended pass (triFades())
+	u8 twin;    // an opaque draw's second picture blended over its first: the release's opaque pass (decalLater())
 	u8 undersea; // the reflection under a sea, faded and culled (markUnderSea())
 	u8 plain;   // of a draw with no UV and no picture of its own (gebeanlevelvtx)
 	u8 overlap; // a face with another room's space behind it, drawn culled (markOverlaps())
@@ -171,6 +172,7 @@ static s32 farRaised;
 static f32 farOwn;
 static f32 farSet;
 static f32 farLogged; // the own plane last logged as raised
+static f32 farWantLogged; // and the plane it was raised to then
 
 static void fogTableLoad(void);
 
@@ -2258,6 +2260,7 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 
 	t->tex = (s16)tex;
 	t->blend = v[0].blend;
+	t->twin = v[0].twin;
 	t->room = 0;
 	t->decal = 0;
 	t->lift = 0;
@@ -2896,6 +2899,29 @@ static s32 decalCovered(const struct stri *tris, const struct tgrid *g, s32 i)
 }
 
 /**
+ * Whether triangle t (index i) is drawn after u (index o) in the release, for
+ * a pair in one plane where that decides which is seen (decalPick()). The
+ * release draws its blended pass after the opaque one, so a face of a
+ * blended-pass draw is later than any opaque face wherever the two stand in
+ * the stream; within a pass, the stream's order. A twin (an opaque draw's
+ * second picture, blended over its first here) is its opaque draw's.
+ *
+ * Surface's snow banks by the cabins (F3 20261006-024556, "snow where stone
+ * should be"): the snowy rock is a blended-pass draw (206, faded in from the
+ * bank's crest by its vertices) laid on the bank's opaque snow, which comes
+ * after it in the stream (207). By the stream's order the snow was the decal,
+ * pulled towards the camera, and the rock behind it was never drawn; in the
+ * release the rock is painted over the snow.
+ */
+static s32 decalLater(const struct stri *t, s32 i, const struct stri *u, s32 o)
+{
+	const s32 tpass = t->blend && !t->twin;
+	const s32 upass = u->blend && !u->twin;
+
+	return tpass != upass ? tpass > upass : i > o;
+}
+
+/**
  * The face triangle i is drawn as the decal of (markDecals()), or -1. Sets
  * *bystrip when the pick was along a strip (neither's middle on the other).
  * With redo, a face along a strip of a face that is itself a decal is
@@ -3047,7 +3073,7 @@ static s32 decalPick(struct stri *tris, const struct tgrid *g, const u8 *full, s
 		// before it: the release shows the board bare, and ours drew the
 		// papers on it - fighting it, F3 20261001-043410). Of a pair
 		// with an opaque face, or two, the rules below, as before
-		if (t->blend && u->blend && i < o) {
+		if (t->blend && u->blend && !decalLater(t, i, u, o)) {
 			// and wholly under one with no alpha anywhere, it is never seen
 			if (full && full[i] && !texHasAlpha(u->tex) && (u->argb[0] >> 24) == 0xff
 					&& (u->argb[1] >> 24) == 0xff && (u->argb[2] >> 24) == 0xff) {
@@ -3061,12 +3087,12 @@ static s32 decalPick(struct stri *tris, const struct tgrid *g, const u8 *full, s
 		// cut-out picture, else the one Bean draws later, as the release's
 		// depth test (less or equal) has it - the same pick from either
 		// face's pass, so only one of the pair is ever the decal
-		if ((t->blend && u->blend) || (strip ? (alphai != alphau ? alphai > alphau : i > o)
+		if ((t->blend && u->blend) || (strip ? (alphai != alphau ? alphai > alphau : decalLater(t, i, u, o))
 				: full && full[i] != full[o] ? full[i]
 				: alphai != alphau ? alphai > alphau
-				: full && full[i] ? i > o
+				: full && full[i] ? decalLater(t, i, u, o)
 				: ai < au * 0.999f ? 1
-				: ai <= au * 1.001f && i > o)) {
+				: ai <= au * 1.001f && decalLater(t, i, u, o))) {
 			*bystrip = strip;
 
 			return o;
@@ -3596,6 +3622,7 @@ static void forgetBuilt(void)
 	numBackdrop = 0;
 	farRaised = 0;
 	farLogged = -1.0f;
+	farWantLogged = -1.0f;
 	roomData = NULL;
 	roomLen = NULL;
 	roomHidden = NULL;
@@ -5659,7 +5686,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 21
+#define HDCACHE_VERSION 22
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
@@ -7831,9 +7858,14 @@ void gebeanStageTickFar(void)
 			farOwn = zrange.far;
 		}
 
-		// Once, not every tick an environment's transition sets the plane
-		if (farOwn != farLogged) {
+		// Once, not every tick an environment's transition sets the plane:
+		// Facility's gas slides the level's own plane a unit a frame from
+		// 5000 to 1000, and a line for each filled an F3 report's whole log
+		// (F3 20261005-035913). Again when the plane raised to changes (the
+		// look, Disable Fog) or the level's own has moved by a quarter.
+		if (want != farWantLogged || farLogged <= 0.0f || fabsf(farOwn - farLogged) > farLogged * 0.25f) {
 			farLogged = farOwn;
+			farWantLogged = want;
 			sysLogPrintf(LOG_NOTE, "gebeanstage: far plane %.0f -> %.0f for the %s", farOwn, want,
 					xblaStageDrawsEveryRoom() ? "HD level" : "level without its fog");
 		}
