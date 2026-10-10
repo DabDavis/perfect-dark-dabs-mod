@@ -80,6 +80,7 @@ the long form.
 - **HD light shafts, monitor recesses, cut-out rims and magenta placeholders** — ge-bean.md, "HD effects: Archives' shafts, Dam's modem screen, Jungle's vines and magenta fronds" (2026-09-26): a blended Bean level draw faded by its vertices is translucent whatever its picture, as the release draws it (Egyptian's pool included); Bean recess backs coplanar with a GoldenEye screen are pushed behind it only on lone-quad screens of basic-skeleton props with all four corners matched; binary-alpha pictures bleed colour into clear texels and 0..1 prop cut-out cards clamp; flat 16x16 magenta pictures are Rare's missing-art stand-ins, given a neighbouring cut-out's picture (else its colour)
 - **HD decal corners behind their wall, and GoldenEye's overlapping rooms** — ge-bean.md, "Train's plates and Aztec's vent: decal corners and faces over another room's space" (25th F3 pass): a decal kept in its mesh has its corners moved along its face just far enough that their whole-unit rounding is not behind its (rounded) base (`markDecalCorners()`), a shared corner only along the sharer's own plane; Bean faces lying on a GoldenEye face with a closed space of another room within 8-64 units behind are drawn culled (`markOverlaps()`), as GoldenEye relies on culling where its rooms overlap
 - **The N64 look's fog, Frigate's sea and the portal walk against the cartridge** — ge-bean.md, "Fog per vertex, the sea through the palette, GoldenEye's portal walk and the GE Plus timer" (2026-10-01, fid-look): a converted level in the N64 look is fogged per vertex as the RSP does it (`G_FOG_VERTEX_EXT`, set by `envStartFog()`; `gfx_emit_tri3()` clips at the eye plane and the FRUSTRATIO_2 guard band and works the new corners' fog out - not at the near plane, the cartridge draws nearer things); GoldenEye's `texSelect()` loads a picture in the texture's own format, so Frigate's sea is CI8 indices looked up in the TLUT by each 16-bit texel's upper byte; `bgTickPortalsWalkGe()` is GoldenEye's queue walk, which re-enters rooms and raises their draw order (Surface's fence under the trees); the mission timer sits under the bottom-message line and never moves the messages
+- **GoldenEye's mines dropped and held, the detonator's draw, a knife on a degenerate tile, wreckage, the HD camera's lens** — ge-bean.md, "Mines, the detonator, a spinning knife, wreckage and the HD lens" (35th F3 pass, 2026-10-10): a simulant's crate throwables are GoldenEye's (`botactGetWeaponByAmmoType()` asks `ammotypeGeWeaponFor()` with the bot's own inventory); the thrown ones hold and drop as their own props (`gegunsOwnPropModel()`); a held remote mine never detonates; the detonator has no host draw/put-away; `cdGetGeoNormal()` sums the polygon on a converted tile whose first three points are in line; later destroyed levels blow GoldenEye's debris row 16; an HD camera's hit asks the ROM lens (`cctvMeshHitLens()`)
 
 
 > **2026-09-21:** the checkbox and `Mod.XblaGoldenEye` are gone; everything
@@ -14462,3 +14463,65 @@ the grate. Dam roller door (023842/023858, HD): matches the release frame for
 frame (Xenia pair, Dam pad 110 heading 117). Streets' floating props: cars,
 jeeps and sawhorse barricades checked in both looks at a dozen spots, all
 grounded; needs the tester's spot. Coordinates: Dam ours = GE + (-3390, 13219, 8584).
+
+## Mines, the detonator, a spinning knife, wreckage and the HD lens (35th F3 pass, 2026-10-10, fix/f3-1010a-geplay)
+
+- **Perfect Dark's proximity mines out of a GoldenEye arena (F3 20261005-010607/-010659/-010856, Temple).**
+  A player's crate gives GoldenEye's throwable on a converted level (`ammotypeGetWeapon()`), but a
+  simulant's multi-ammo crate went through `botactGetWeaponByAmmoType()`, which read
+  `g_AmmoTypeWeapons` raw: every simulant on the Proximity Mines set carried `WEAPON_PROXIMITYMINE`
+  (0x21), threw Perfect Dark's mines, and dropped 0x21 on death for a player to pick up (probe: each
+  `botinvGiveSingleWeapon` from `botinvGiveProp` was 0x21). It now takes the chr and asks
+  `ammotypeGeWeaponFor(pd, held)` with the simulant's own inventory. Separately, the thrown ones
+  (throwing knife, three mines) were left out of `gegunsOwnPropModel()`, so held in third person and
+  dropped on death they were `MODEL_GE_FIRST + i`, in the N64 look an alias of the host's pickup
+  (Perfect Dark's mine). GoldenEye holds and drops them as their props (`getPropForHeldItem()`,
+  `drop_inventory()`); the conversion's `models` block has 199-201 and 209 on every converted stage.
+- **A held remote mine went off (F3 20261006-021755, the Institute's range, third person).**
+  `weaponTick()`'s remote branch detonates every `REMOTEDETONATED` weapon whose owner bits match, and
+  `weaponCreateForChr()` leaves a held weapon's owner bits 0, i.e. player 1's; the "thrown on
+  yourself" test passes in solo (`mpPlayerGetIndex()` is -1). The third person body's mine blew up
+  in the hand, Perfect Dark's on any stage and GoldenEye's once its held prop is drawn. A weapon in
+  its parent chr's `weapons_held[]` is never detonated now. Probe `remote3p.py`/`remotethrow.py`:
+  held mine quiet, thrown one still goes off.
+- **The detonator popped in and out (F3 20261005-025034).** Its host is the Data Uplink, whose
+  equip/unequip animations move joints `gegadgetsRenderHand()` never reads: 28 ticks of nothing,
+  an instant lower, an instant raise. GoldenEye lowers and raises the trigger whole (`gunfire.c`'s
+  SWITCH_LOWER/RAISE; `trigger_stats` has no HIDE_FIRST_PERSON_HAND), so `gegunsOwnThrown()` drops
+  the host's animations and Perfect Dark's generic 16/23-tick pitch does it, in both looks.
+- **A knife spinning on Bunker 2's vault floor (F3 20261005-223355).** The floor tile under it starts
+  with three collinear points, and `cdGetGeoNormal()` crosses the first two edges only: (0, 0, 0). The
+  knife's bounce reflected off nothing (its speed.y reached -121) and the "lies down on a surface that
+  faces up" rule never saw y > 0.7, so it hopped and spun for good. On a converted stage a zero normal
+  is now Newell's sum over the tile's edges; Perfect Dark's own tiles are untouched. Probe
+  `knife.py`: 375 bounces before, settled flat after two.
+- **Wreckage exploding again (F3 20261005-035700, Aztec).** Past the first destroyed level, every
+  fourth shot Perfect Dark makes `EXPLOSIONTYPE_6` (a small fireball that hurts) when the prop has an
+  explosion; GoldenEye's `objExplode()` makes its row 0x10 (debris and a puff, no damage, no shake)
+  whatever the prop's type, which is Perfect Dark's kept row 16. Converted stages use 16.
+- **HD cameras took four shots (F3 20261006-025257, 20261004-224327, Bunker).** The converter-74
+  lens rule (`g_SkelCctv`, part 1 x100) held in the N64 look, but HD props are shot on the release
+  mesh (`xblaMeshObjShotTest()`), which draws the camera in one group and names the mount's list:
+  no HD shot was ever on the lens. `cctvMeshHitLens()` tests the ROM lens quad (part 1, a big tilted
+  quad covering the camera's front, x -123..122, y 6..202) on the same ray and takes it when it is no
+  deeper than the drawn hit and the glass toggle is still on. GoldenEye's lens is the whole front:
+  a frontal shot anywhere on the face is one shot; the mount still takes two (`cctv.py`, AIM=casing).
+- `wallhitRemoveOneInRoom()` read `g_WallhitTexes[]` by texture number, which GoldenEye's holes
+  (`WALLHITTEX_GE_FIRST` and up) ran past; it asks `wallhitTexType()`.
+- Answers: Facility's start detonator came back in 6d33e7a0a (converter 123), checked on b9a21531f;
+  paintball marks (20261009-040350) stayed on Facility's bathroom tiles, stall doors (moving with the
+  door) and floor for 14 s in the N64 look, under GL and Vulkan alike - needinfo. (Our mark there is
+  Perfect Dark's 15-unit paint splat; GoldenEye's paintball uses its impact row 16, 24 across.)
+- `tools/ci/replaytest.sh`: every case the same but optmatch (0x32, Start Armed Random, Akimbo), from
+  frame 300: the random roll hands the simulants GoldenEye's mines and throwing knife on Perfect
+  Dark's arena, and their held and dropped models are now the lent GoldenEye props (Pgx199-201Z,
+  Pgx209Z in the log) rather than the hosts' aliases, as GoldenEye's other guns on Perfect Dark's
+  stages have been since caccecbcf. GoldenEye's Silver and Gold PP7 are solo
+  cheat items (CHEAT_SILVER_PP7, CHEAT_GOLD_PP7, Extra Weapons; `cheat.c`, one player only) and its
+  Taser a debug item: none is in any multiplayer set.
+- Probes (gdb, `~/wt/f3-1010a-geplay-run/probes/`): `pdcommon.py` (on gdbpd: a `frames()` that
+  deletes only its own breakpoint - gdbpd's deletes them all, Python breakpoints included; Z held
+  through `joy.c:728`; `part_world_live()` reads a model's matrices right after `modelRender()`,
+  since at `videoEndFrame` they are the next frame's garbage). Output printed from a breakpoint's
+  `stop()` while gdb runs a `call ...` with `to_string=True` is swallowed: log to a list and print
+  after the call.
