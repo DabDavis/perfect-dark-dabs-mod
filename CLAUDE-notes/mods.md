@@ -1884,7 +1884,10 @@ set to "none" changes nothing for it) and takes each map's own stage row
 (found by its multiplayer setup's name), sky and model states the same way
 (`borrowArenaFromRow()`, `arenas.src[]` says which mod `modBorrowStageModels()`
 reads). A mod that kept the stock model table swaps nothing; a file it ships
-is its own pinned slot (`romdataRegisterModFile()`, deduplicated). Judged
+is its own pinned slot (`romdataRegisterModFile()`, deduplicated). A net
+client that mounts the host's map mod on request (`modMapsMountIndex()`) runs
+`modBorrowArenasRefresh()` after it, so its copy of the map is the host's
+(netcontenttest's modmap and modmount cases, PD_Kakariko's Playground). Judged
 against the real cartridge: the patched ROM in mupen64plus (Debian's packages
 unpacked with `apt-get download` + `dpkg -x`, Glide64mk2 + rsp-hle under a
 private Xvfb, keys by xdotool: Return Start, Shift_L A; a fresh controller pak
