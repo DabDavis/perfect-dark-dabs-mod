@@ -555,6 +555,83 @@ void eyespyUpdateVertical(void)
 		dist.f[2] * dist.f[2];
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The launch puts the CamSpy 100 units in front of the player and asks only
+ * whether the player can see that spot, down a line with no width. A wall
+ * beside that line, or a little past its end, can then be inside the
+ * CamSpy's body (radius 26), and from there every move it tries collides -
+ * eyespyTryMoveUpwards() tests the same body - so it can neither fly on nor
+ * go up or down. Launched along a wall at the start of G5 Building (15 and 75
+ * degrees from where the player stands), holding forward moved it 0 units
+ * and 242 tries to climb were all refused, and the objectives that need it
+ * somewhere could not be done.
+ *
+ * So when the body does not fit there, the nearest spot it does fit in is
+ * found: back towards the player 10 units at a time, and up to 30 to either
+ * side of the line, each one still in the player's sight as the launch
+ * requires, and tested as eyespyTryMoveUpwards() tests it (the rooms a body
+ * that size reaches into, chr0f021fa8()). A launch with room is exactly as
+ * before; so is one the player cannot see ("Not enough room to launch"), and
+ * one with no such spot goes ahead as it always has.
+ */
+static void eyespyFitLaunchPos(struct coord *playerpos)
+{
+	struct eyespy *eyespy = g_Vars.currentplayer->eyespy;
+	struct prop *prop = eyespy->prop;
+	struct prop *playerprop = g_Vars.currentplayer->prop;
+	struct chrdata *chr = prop->chr;
+	const u32 perimdisabled = chr->hidden & CHRHFLAG_PERIMDISABLED;
+	const s32 types = g_Vars.bondcollisions ? CDTYPE_ALL : CDTYPE_BG;
+	// eyespyTryMoveUpwards()'s floor allowance for a CamSpy at rest on oldground
+	const f32 ymin = 30 - eyespy->height - 0.1f;
+	static const s32 sides[] = { 0, 10, -10, 20, -20, 30, -30 };
+	struct coord testfrompos;
+	s32 dist;
+	s32 i;
+
+	testfrompos.x = playerpos->x;
+	testfrompos.y = eyespy->oldground + eyespy->height;
+	testfrompos.z = playerpos->z;
+
+	playerSetPerimEnabled(playerprop, false);
+	chrSetPerimEnabled(chr, false);
+
+	// The launch the player can't see stays refused as it always was
+	if (!cdExamLos08(&testfrompos, playerprop->rooms, &prop->pos, CDTYPE_ALL,
+				GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT)) {
+		goto done;
+	}
+
+	for (dist = 100; dist >= 40; dist -= 10) {
+		for (i = 0; i < ARRAYCOUNT(sides); i++) {
+			struct coord pos;
+			RoomNum rooms[8];
+
+			pos.x = playerpos->x + eyespy->sintheta * dist + eyespy->costheta * sides[i];
+			pos.y = eyespy->oldground + eyespy->height;
+			pos.z = playerpos->z - eyespy->costheta * dist + eyespy->sintheta * sides[i];
+
+			func0f065e74(&playerprop->pos, playerprop->rooms, &pos, rooms);
+			chr0f021fa8(chr, &pos, rooms);
+
+			if (rooms[0] != -1
+					&& cdTestVolume(&pos, 26, rooms, types, CHECKVERTICAL_YES, 15, ymin) != CDRESULT_COLLISION
+					&& cdExamLos08(&testfrompos, playerprop->rooms, &pos, CDTYPE_ALL,
+						GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT)) {
+				chr->prevpos.x = prop->pos.x = pos.x;
+				chr->prevpos.z = prop->pos.z = pos.z;
+				goto done;
+			}
+		}
+	}
+
+done:
+	chr->hidden = (chr->hidden & ~CHRHFLAG_PERIMDISABLED) | perimdisabled;
+	playerSetPerimEnabled(playerprop, true);
+}
+#endif
+
 bool eyespyTryLaunch(void)
 {
 	struct coord playerpos;
@@ -603,6 +680,10 @@ bool eyespyTryLaunch(void)
 	chr->prevpos.x = g_Vars.currentplayer->eyespy->prop->pos.x = playerpos.f[0] + g_Vars.currentplayer->eyespy->sintheta * 100;
 	chr->prevpos.y = g_Vars.currentplayer->eyespy->prop->pos.y = g_Vars.currentplayer->eyespy->oldground + g_Vars.currentplayer->eyespy->height;
 	chr->prevpos.z = g_Vars.currentplayer->eyespy->prop->pos.z = playerpos.f[2] + g_Vars.currentplayer->eyespy->costheta * -100;
+
+#ifndef PLATFORM_N64
+	eyespyFitLaunchPos(&playerpos);
+#endif
 
 	chr->fallspeed.x = 0;
 	chr->fallspeed.y = 0;

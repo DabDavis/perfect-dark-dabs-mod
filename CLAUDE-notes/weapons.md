@@ -5,6 +5,7 @@
 The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
+- **The CamSpy launched into a wall** — a launch tests only the player's line of sight to the spot, so a wall beside the line put the CamSpy's body (radius 26) into it and every move after collided: it could not fly on or change height (pre-existing, every CamSpy mission). `eyespyFitLaunchPos()` finds the nearest spot the body fits in. See "The CamSpy's launch spot".
 - **Weapon numbers, `flags2`, converting a `weaponnum` comparison** — [weapons.md](CLAUDE-notes/weapons.md): the four checks, and what is deliberately not converted; a launcher branch keyed on the number must test the function's type, or a mod's table crashes it; and **weapons past the stock table** (2026-09-15, GoldenEye's guns 0x5e-0x76): every switch or `==` on a weapon number asks `weaponHost()`, range tests were decided one by one because some guard arrays indexed by the real number, and the check that stock is unchanged is a seeded match compared pixel for pixel
 
 
@@ -458,4 +459,33 @@ Probes (`~/wt/f3-1010a-geplay-run/probes/`): `hackmenu.py` (the choice, the
 block, the rows, both hacks), `hackmatch.py` (Complex: names, models, props,
 pickups, a sim), `hackcheck.py` (Temple, the HD look, a hack's own map with
 the other chosen), `hackthrow.py` (a grenade and a rocket).
+
+## The CamSpy's launch spot (2026-10-10)
+
+Reported as "the CamSpy is at the wrong height and the objective can't be
+done; up/down does nothing", every CamSpy mission. It was not the height code:
+`eyespyTryLaunch()` puts the CamSpy 100 units in front of the player and asks
+only `cdExamLos08()` (a ray with no width) whether the player sees the spot.
+Launched along a wall, the wall is within the CamSpy's body (`cdTestVolume()`,
+radius 26, the same body `eyespyTryMoveUpwards()` and the horizontal moves
+test) at every point of the line, so every move it tries collides, including a
+move of zero: forward moved it 0 units, 242 climbs in a row were refused, and
+the height sat at its minimum. The obstacle pointer is NULL - it is the level.
+
+Reproduce it without input: at G5 Building's start (`--boot-stage 0x1e
+--fixed-step`, frame 300) set `vv_theta` and call `eyespyTryLaunch()` from gdb,
+then `eyespyTryMoveUpwards(0)`: 1 is free, 0 wedged. 15 and 75 degrees wedged
+on e19341b35. A held stick is `break joyGetStickY` with `return (s8)80` in its
+commands (offscreen, no window needed). Run a sweep of angles in fresh
+processes, or reset the CamSpy's chr between launches: one launch's leftovers
+change the next one's line of sight.
+
+`eyespyFitLaunchPos()` (PC only): when the body does not fit at the launch
+spot, it tries back towards the player 10 units at a time and up to 30 to
+either side, each spot tested as the move test does (`chr0f021fa8()` first, so
+the rooms the body reaches into count - leaving it out passed a spot the move
+test then refused) and in the player's sight. A launch with room, and one the
+player cannot see ("Not enough room to launch"), are exactly as before. On the
+G5 case the CamSpy lands 20 units aside and two seconds of stick up take it
+from 30 to its ceiling of 160.
 
