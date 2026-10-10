@@ -10064,15 +10064,22 @@ bool aiShowCutsceneChrs(void)
 		for (i = chrsGetNumSlots() - 1; i >= 0; i--) {
 #ifndef PLATFORM_N64
 			// A GoldenEye remake mission, where this is GoldenEye's HideAllChrs
-			// and the first command of every ending. GoldenEye has no chr for
-			// Bond when it runs - his body is loaded by the CameraSwitch after
-			// it - so the body the ending is about is never hidden. Perfect
-			// Dark's player has a chr at all times, which this hid with the
-			// guards: a hidden chr is not ticked, so the list the ending hands
-			// Bond (SetBondsAiList - Dam's jump, Archives' run) never ran a
-			// command, and nobody was in the shot.
+			// and the first command of nearly every ending. GoldenEye has no
+			// chr for Bond when it runs - his body is loaded by the
+			// CameraSwitch after it - so the body the ending is about is never
+			// hidden. Perfect Dark's player has a chr at all times, which this
+			// hid with the guards: a hidden chr is not ticked, so the list the
+			// ending hands Bond (SetBondsAiList - Dam's jump, Archives' run)
+			// never ran a command, and nobody was in the shot.
+			//
+			// After the CameraSwitch (the player's warp to the ending's camera,
+			// TICKMODE_WARP) Bond's body is one of GoldenEye's chrs, and its
+			// HideAllChrs hides him with the rest: Runway switches the camera
+			// first and hides everyone, and Bond is in the plane taking off,
+			// not standing on the runway where it was (F3 20261006-024303).
 			if (g_ChrSlots[i].prop && g_ChrSlots[i].prop->type == PROPTYPE_PLAYER
-					&& modloaderStageIsMission(g_Vars.stagenum)) {
+					&& modloaderStageIsMission(g_Vars.stagenum)
+					&& g_Vars.tickmode != TICKMODE_WARP) {
 				continue;
 			}
 #endif
