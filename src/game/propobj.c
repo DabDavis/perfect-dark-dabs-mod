@@ -5981,6 +5981,18 @@ void hovUpdateGround(struct defaultobj *obj, struct hov *hov, struct coord *pos,
 	}
 }
 
+#ifndef PLATFORM_N64
+// Above 60 FPS applySpeed/applyRotation move only on frames that complete a
+// 60th, so hover crates, beds and a ridden hoverbike bobbed in 60 Hz steps;
+// the Smooth variants take quarter steps on the other frames and are the
+// originals on a frame of whole 60ths.
+#define HOV_APPLYSPEED applySpeedSmooth
+#define HOV_APPLYROTATION applyRotationSmooth
+#else
+#define HOV_APPLYSPEED applySpeed
+#define HOV_APPLYROTATION applyRotation
+#endif
+
 void hovTick(struct defaultobj *obj, struct hov *hov)
 {
 	struct prop *prop;
@@ -6108,7 +6120,7 @@ void hovTick(struct defaultobj *obj, struct hov *hov)
 		}
 
 		// Update Y bob
-		applySpeed(&hov->bobycur, hov->bobytarget, &hov->bobyspeed, type->bobyaccel, type->bobyaccel, type->bobymaxspeed);
+		HOV_APPLYSPEED(&hov->bobycur, hov->bobytarget, &hov->bobyspeed, type->bobyaccel, type->bobyaccel, type->bobymaxspeed);
 
 		if (hov->bobytarget >= type->bobymid && hov->bobycur >= hov->bobytarget) {
 			hov->bobyspeed = 0.0f;
@@ -6119,7 +6131,7 @@ void hovTick(struct defaultobj *obj, struct hov *hov)
 		}
 
 		// Update pitch bob
-		applyRotation(&hov->bobpitchcur, hov->bobpitchtarget, &hov->bobpitchspeed, type->bobpitchaccel, type->bobpitchaccel, type->bobpitchmaxspeed);
+		HOV_APPLYROTATION(&hov->bobpitchcur, hov->bobpitchtarget, &hov->bobpitchspeed, type->bobpitchaccel, type->bobpitchaccel, type->bobpitchmaxspeed);
 
 		if (hov->bobpitchcur == hov->bobpitchtarget) {
 			if (hov->bobpitchspeed <= 2.0f * type->bobpitchaccel && hov->bobpitchspeed >= 2.0f * -type->bobpitchaccel) {
@@ -6134,7 +6146,7 @@ void hovTick(struct defaultobj *obj, struct hov *hov)
 		}
 
 		// Update roll bob
-		applyRotation(&hov->bobrollcur, hov->bobrolltarget, &hov->bobrollspeed, type->bobrollaccel, type->bobrollaccel, type->bobrollmaxspeed);
+		HOV_APPLYROTATION(&hov->bobrollcur, hov->bobrolltarget, &hov->bobrollspeed, type->bobrollaccel, type->bobrollaccel, type->bobrollmaxspeed);
 
 		if (hov->bobrollcur == hov->bobrolltarget) {
 			if (hov->bobrollspeed <= 2.0f * type->bobrollaccel && hov->bobrollspeed >= 2.0f * -type->bobrollaccel) {
@@ -6148,12 +6160,62 @@ void hovTick(struct defaultobj *obj, struct hov *hov)
 			}
 		}
 
+#ifndef PLATFORM_N64
+		if (g_Vars.lvupdate240 & 3) {
+			// The easing below toward the ground's height and angle ran per
+			// whole 60th, so it too moved in 60 Hz steps (a ridden bike over
+			// uneven ground). Per 240th: the fourth root of each easing's
+			// remainder and a quarter of each per-60th clamp.
+			const f32 pitch240 = PAL ? 1.0f - __builtin_powf(1.0f - 0.0893f, 0.25f) : 1.0f - __builtin_powf(1.0f - 0.075f, 0.25f);
+
+			for (i = 0; i < g_Vars.lvupdate240; i++) {
+				f32 f0;
+				f32 f12;
+				f32 f2;
+
+				hov->groundpitch += (groundangle - hov->groundpitch) * pitch240;
+
+				f0 = ground - hov->y;
+				f12 = (PAL ? 0.102000005f : 0.085f);
+
+				if (hov->y < hov->ground) {
+					f2 = f0 >= 0.0f ? f0 : -f0;
+
+					if (f2 > 10.0f) {
+						f12 *= 1.0f + (f2 - 10.0f) * 0.2f;
+					}
+
+					if (f12 > PALUPF(0.5f)) {
+						f12 = PALUPF(0.5f);
+					}
+
+					f0 *= 1.0f - __builtin_powf(1.0f - f12, 0.25f);
+				} else {
+					f32 clamp = (obj->hidden & OBJHFLAG_MOUNTED) ? 2.5f : 1.25f;
+
+					f0 *= 1.0f - __builtin_powf(1.0f - (PAL ? 0.102000005f : 0.085f), 0.25f);
+
+					if (f0 > clamp) {
+						f0 = clamp;
+					} else if (f0 < -clamp) {
+						f0 = -clamp;
+					}
+				}
+
+				hov->y += f0;
+
+				if (f0 > 0.25f || f0 < -0.25f) {
+					moved = true;
+				}
+			}
+		} else
+#endif
 		for (i = 0; i < g_Vars.lvupdate60; i++) {
 			f32 f0;
 			f32 f12;
 			f32 f2;
 
-			hov->groundpitch += (groundangle - hov->groundpitch) * (PAL ? 0.0893f : 0.075f);
+			hov->groundpitch +=(groundangle - hov->groundpitch) * (PAL ? 0.0893f : 0.075f);
 
 			f0 = ground - hov->y;
 			f12 = (PAL ? 0.102000005f : 0.085f);
@@ -9240,6 +9302,33 @@ void escastepTick(struct prop *prop)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// Above 60 FPS step->frame (whole 60ths) advances on every fourth frame
+	// only, so the steps and whoever rides them moved in 60 Hz jumps. Steps
+	// tick from objTick() every frame with the global time, so the 240ths
+	// carried past the last whole 60th are g_Vars.lvupdate240rem, which starts
+	// at 2 (lvupdate60 rounds to the nearest 60th): the step's continuous
+	// position is frame + (rem - 2) / 4 60ths. A frame of whole 60ths (every
+	// frame at 60 and 30 FPS, an online sim tick) keeps the integer position
+	// above, unchanged.
+	if ((g_Vars.lvupdate240 & 3) != 0) {
+		s32 rem = g_Vars.lvupdate240rem;
+		f32 t = step->frame + (rem - 2) * 0.25f;
+
+		if (t < 0.0f) {
+			t = 0.0f;
+		}
+
+		for (i = 0; keyframes[i + 2].frame != -1 && t >= keyframes[i + 1].frame; i++);
+
+		mult = (t - keyframes[i].frame) / (f32)(keyframes[i + 1].frame - keyframes[i].frame);
+
+		newpos.x = keyframes[i].pos.x + (keyframes[i + 1].pos.x - keyframes[i].pos.x) * mult;
+		newpos.y = keyframes[i].pos.y + (keyframes[i + 1].pos.y - keyframes[i].pos.y) * mult;
+		newpos.z = keyframes[i].pos.z + (keyframes[i + 1].pos.z - keyframes[i].pos.z) * mult;
+	}
+#endif
+
 	if (!resetting) {
 		oldpos.x = prop->pos.x;
 		oldpos.y = prop->pos.y;
@@ -9657,6 +9746,40 @@ static bool autogunTargetsGeGuard(struct autogunobj *autogun, struct chrdata *ch
 }
 #endif
 
+#ifndef PLATFORM_N64
+// Above 60 FPS applyRotation turns only on frames that complete a 60th, so
+// the autogun swung in 60 Hz steps; applyRotationSmooth takes quarter steps on
+// the other frames and is applyRotation on a frame of whole 60ths.
+#define AUTOGUN_APPLYROTATION applyRotationSmooth
+#else
+#define AUTOGUN_APPLYROTATION applyRotation
+#endif
+
+/**
+ * The barrel's spin-down, 0.99 of its speed kept per 60th: per 240th on a frame
+ * that is not whole 60ths (else it slowed in 60 Hz steps), per 60th as before.
+ */
+static void autogunSlowBarrel(struct autogunobj *autogun)
+{
+	s32 i;
+
+#ifndef PLATFORM_N64
+	if (g_Vars.lvupdate240 & 3) {
+		const f32 drag240 = __builtin_powf(0.99f, 0.25f);
+
+		for (i = 0; i < g_Vars.lvupdate240; i++) {
+			autogun->barrelspeed *= drag240;
+		}
+
+		return;
+	}
+#endif
+
+	for (i = 0; i < g_Vars.lvupdate60; i++) {
+		autogun->barrelspeed *= 0.99f;
+	}
+}
+
 void autogunTick(struct prop *prop)
 {
 	struct autogunobj *autogun;
@@ -9711,8 +9834,8 @@ void autogunTick(struct prop *prop)
 			autogun->yzero = RANDOMFRAC() * M_BADTAU;
 		}
 
-		applyRotation(&autogun->yrot, autogun->yzero, &autogun->yspeed, PALUPF(0.00001163367596746f), PALUPF(0.00001163367596746f), PALUPF(0.00069802056532353f));
-		applyRotation(&autogun->xrot, autogun->xzero, &autogun->xspeed, PALUPF(0.0000058168379837298f), PALUPF(0.0000058168379837298f), PALUPF(0.00034901028266177f));
+		AUTOGUN_APPLYROTATION(&autogun->yrot, autogun->yzero, &autogun->yspeed, PALUPF(0.00001163367596746f), PALUPF(0.00001163367596746f), PALUPF(0.00069802056532353f));
+		AUTOGUN_APPLYROTATION(&autogun->xrot, autogun->xzero, &autogun->xspeed, PALUPF(0.0000058168379837298f), PALUPF(0.0000058168379837298f), PALUPF(0.00034901028266177f));
 		return;
 	}
 
@@ -9728,8 +9851,8 @@ void autogunTick(struct prop *prop)
 			autogun->yzero = RANDOMFRAC() * M_BADTAU;
 		}
 
-		applyRotation(&autogun->yrot, autogun->yzero, &autogun->yspeed, PALUPF(0.00001163367596746f), PALUPF(0.00001163367596746f), PALUPF(0.00069802056532353f));
-		applyRotation(&autogun->xrot, autogun->xzero, &autogun->xspeed, PALUPF(0.0000058168379837298f), PALUPF(0.0000058168379837298f), PALUPF(0.00034901028266177f));
+		AUTOGUN_APPLYROTATION(&autogun->yrot, autogun->yzero, &autogun->yspeed, PALUPF(0.00001163367596746f), PALUPF(0.00001163367596746f), PALUPF(0.00069802056532353f));
+		AUTOGUN_APPLYROTATION(&autogun->xrot, autogun->xzero, &autogun->xspeed, PALUPF(0.0000058168379837298f), PALUPF(0.0000058168379837298f), PALUPF(0.00034901028266177f));
 
 		maxspeed = cosf(autogun->yrot);
 
@@ -9750,9 +9873,7 @@ void autogunTick(struct prop *prop)
 				autogun->barrelspeed = maxspeed;
 			}
 		} else if (autogun->barrelspeed > 0.0f) {
-			for (i = 0; i < g_Vars.lvupdate60; i++) {
-				autogun->barrelspeed *= 0.99f;
-			}
+			autogunSlowBarrel(autogun);
 
 			if (autogun->barrelspeed <= 0.0001f) {
 				autogun->barrelspeed = 0.0f;
@@ -10061,8 +10182,8 @@ void autogunTick(struct prop *prop)
 		goalyrot -= M_BADTAU;
 	}
 
-	applyRotation(&autogun->yrot, goalyrot, &autogun->yspeed, PALUPF(0.00087252567755058f), PALUPF(0.00087252567755058f), autogun->maxspeed);
-	applyRotation(&autogun->xrot, goalxrot, &autogun->xspeed, PALUPF(0.00087252567755058f), PALUPF(0.00087252567755058f), autogun->maxspeed);
+	AUTOGUN_APPLYROTATION(&autogun->yrot, goalyrot, &autogun->yspeed, PALUPF(0.00087252567755058f), PALUPF(0.00087252567755058f), autogun->maxspeed);
+	AUTOGUN_APPLYROTATION(&autogun->xrot, goalxrot, &autogun->xspeed, PALUPF(0.00087252567755058f), PALUPF(0.00087252567755058f), autogun->maxspeed);
 
 	f12 = goalyrot - autogun->yrot;
 
@@ -10123,9 +10244,7 @@ void autogunTick(struct prop *prop)
 			autogun->barrelspeed = 0.5983033f;
 		}
 	} else if (autogun->barrelspeed > 0.0f) {
-		for (i = 0; i < g_Vars.lvupdate60; i++) {
-			autogun->barrelspeed *= 0.99f;
-		}
+		autogunSlowBarrel(autogun);
 
 		if (autogun->barrelspeed <= 0.0001f) {
 			autogun->barrelspeed = 0.0f;
@@ -10219,8 +10338,12 @@ void autogunInitMatrices(struct prop *prop, Mtxf *mtx)
 void autogunTickShoot(struct prop *autogunprop)
 {
 #ifndef PLATFORM_N64
-	// HACK: fire every other tick at 60+ fps and every tick at <60 fps
-	if (g_Vars.lvupdate240 <= TICKS(4) && (g_Vars.lvframe60 & 1)) {
+	// HACK: fire every other tick at 60+ fps and every tick at <60 fps.
+	// Above 60 FPS that means once per even 60th: lvframe60 stays even for
+	// several frames there, so without the lvupdate60 test it fired on each
+	// of them (four times the rate at 240 FPS). At 60 FPS lvupdate60 is 1
+	// every frame, so 60 is unchanged.
+	if (g_Vars.lvupdate240 <= TICKS(4) && ((g_Vars.lvframe60 & 1) || g_Vars.lvupdate60 == 0)) {
 		return;
 	}
 #endif
