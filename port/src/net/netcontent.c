@@ -12,6 +12,7 @@
 #include "system.h"
 #include "mod.h"
 #include "modloader.h"
+#include "modborrow.h"
 #include "modmode.h"
 #include "gexplusrom.h"
 #include "gexplus.h"
@@ -205,6 +206,27 @@ void netContentRead(struct netbuf *b, struct netcontentneed *n, s32 withvariant)
 static s32 netContentFetchOverlay(const struct netcontentneed *n);
 static s32 netContentFetchRefused(const char *dir);
 
+// a served folder this game plays from now, or will at its next stage
+static s32 netContentMemDirInUse(s32 mem)
+{
+	char path[FS_MAXPATH + 1];
+	s32 i;
+
+	snprintf(path, sizeof(path), "%s", fsMemDirPath(mem));
+
+	if (strcmp(modModePath(), path) == 0 || strcmp(s_FollowPath, path) == 0) {
+		return 1;
+	}
+
+	for (i = 0; i < fsGetNumModDirs(); i++) {
+		if (strcmp(fsGetModDirAt(i), path) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 // the PD mod this machine plays at its next stage: a swap asked for and
 // still waiting, else the one entered ("" stock)
 static const char *netContentModTarget(void)
@@ -271,8 +293,25 @@ s32 netContentFollow(const struct netcontentneed *n, char *text, s32 textsize)
 		// a copy a host served this process
 		mem = fsMemDirFind(n->mod);
 
-		if (!target[0] && mem >= 0 && netHashDirContents(fsMemDirPath(mem)) == n->modhash) {
-			snprintf(target, sizeof(target), "%s", fsMemDirPath(mem));
+		if (!target[0] && mem >= 0) {
+			const u64 memh = netHashDirContents(fsMemDirPath(mem));
+
+			if (memh == n->modhash) {
+				snprintf(target, sizeof(target), "%s", fsMemDirPath(mem));
+			} else if (!netContentMemDirInUse(mem)) {
+				// served by an earlier host (or this one before it updated
+				// the mod): put out of the way, and the host's copy now
+				// fetched in its place (F3 20261010-061420: the stale copy
+				// was refused for good, and so was the fetch, since a
+				// folder of the name was in memory)
+				sysLogPrintf(LOG_NOTE, "net: content: the %s served earlier hashes %016llx, the host's %016llx; fetching the host's again",
+						n->mod, (unsigned long long)memh, (unsigned long long)n->modhash);
+				netHashDirForget(fsMemDirPath(mem));
+				fsMemDirRetire(mem);
+				mem = -1;
+			} else {
+				h = memh;
+			}
 		}
 
 		if (!target[0]) {
@@ -464,6 +503,36 @@ static s32 netContentGePoolListed(void)
 	}
 
 	return 0;
+}
+
+/**
+ * Client, at STAGE_LOAD: the host's map of a mod mounted here (its own, one
+ * mounted on demand or one the host served) that got no stage number when
+ * the mod was mounted, every number taken by the maps of a large library
+ * ("out of usable stage numbers"): registered on its own now, another mod's
+ * map giving up its number if need be. The stage, or -1.
+ */
+s32 netContentRegisterMap(const char *dirbase, const char *map)
+{
+	char base[NET_MAXMAPDIR + 1];
+	s32 i;
+
+	for (i = fsGetNumOverlayModDirs(); i < fsGetNumModDirs(); i++) {
+		if (strcasecmp(contentBasename(fsGetModDirAt(i), base, sizeof(base)), dirbase) == 0) {
+			const s32 id = modloaderAddDirMap(i, map);
+
+			if (id >= 0) {
+				modBorrowArenasRefresh();
+				netSessionHashInvalidate();
+				sysLogPrintf(LOG_NOTE, "net: content: map %s of %s had no stage number here; registered as 0x%02x for the host's choice",
+						map, dirbase, id);
+			}
+
+			return id;
+		}
+	}
+
+	return -1;
 }
 
 /**
@@ -1468,6 +1537,17 @@ s32 netContentFetching(void)
 	return s_Fetch.active;
 }
 
+s32 netContentFetchLine(char *out, s32 size)
+{
+	if (!s_Fetch.active) {
+		out[0] = '\0';
+		return 0;
+	}
+
+	netContentFetchStatus(out, size);
+	return 1;
+}
+
 const char *netContentFetchStatus(char *out, s32 size)
 {
 	if (!s_Fetch.active) {
@@ -1823,6 +1903,9 @@ s32 netContentFetchEnd(struct netbuf *b)
 	}
 
 	modloaderAddDir(mount);
+	// the mod's maps take its own rows, skies and props, as a mount on
+	// demand does (modMapsMountIndex)
+	modBorrowArenasRefresh();
 	netSessionHashInvalidate();
 	sysLogPrintf(LOG_NOTE, "net: content: %s fetched from the host and mounted for its maps: %u files, %u bytes in %u ms", dir, nfiles, bytes,
 			(u32)((sysGetMicroseconds() - s_Fetch.started) / 1000));

@@ -1851,6 +1851,7 @@ static char *textChatLine(struct menuitem *item)
 static char *textRoomStatus(struct menuitem *item)
 {
 	const struct netlobbyroom *room = netLobbyGetRoom();
+	char fetch[192];
 
 	// the chat line, while it is open (nethud.c: Space or the chat key)
 	if (netHudChatLine(s_Status, sizeof(s_Status), 36)) {
@@ -1879,6 +1880,12 @@ static char *textRoomStatus(struct menuitem *item)
 			// the room opens again when it leaves that, and the next
 			// launch has this player in it
 			snprintf(s_Status, sizeof(s_Status), "%s", "In: the host's match is over; you join its next.\n");
+		} else if (netContentFetchLine(fetch, sizeof(fetch) - 1)) {
+			// in with the host, its map's mod coming from it (through the
+			// lobby's relay a few MB take a minute): not "waiting for the
+			// host" (F3 20261010-040905, "relay did not connect properly")
+			strcat(fetch, "\n");
+			textWrapN(270, fetch, s_Status, sizeof(s_Status), g_CharsHandelGothicXs, g_FontHandelGothicXs);
 		} else if (netLobbyJoinedWait() == 2) {
 			snprintf(s_Status, sizeof(s_Status), "%s", "In: waiting for the host to start the match.\n");
 		} else {

@@ -126,6 +126,7 @@
 #ifndef PLATFORM_N64
 #include "getank.h"
 #include "sitchair.h"
+#include "trace.h"
 #endif
 #endif
 
@@ -7626,6 +7627,12 @@ void playerDieByShooter(u32 shooter, bool force)
 	{
 		u32 prevplayernum = g_MpPlayerNum;
 		g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
+#ifndef PLATFORM_N64
+		// F3's Report a Problem stays up over the player's death: a match
+		// (online above all) plays on under it, and a death threw away the
+		// note being typed (F3 20261010-193632)
+		if (!traceReportIsOpenIn(g_MpPlayerNum))
+#endif
 		func0f0f8120();
 		g_MpPlayerNum = prevplayernum;
 

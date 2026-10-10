@@ -1413,6 +1413,14 @@ void *netHudRender(void *gdlp)
 		return gdl;
 	}
 
+	// the whole view, in the screen's own width: an open pause menu leaves
+	// the scissor its dialog set while its 4:3 centring was on, which clips
+	// the panel and the feed to the middle of a wide screen (F3
+	// 20261010-040255: "AYERS 3/4", "moBear02")
+	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT);
+	gDPSetScissor(gdl++, G_SC_NON_INTERLACE, viGetViewLeft(), viGetViewTop(),
+			viGetViewLeft() + viGetViewWidth(), viGetViewTop() + viGetViewHeight());
+
 	gdl = text0f153628(gdl);
 
 	if (tag) {

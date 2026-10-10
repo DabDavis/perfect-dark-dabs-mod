@@ -2654,3 +2654,38 @@ in their own sections' notes.
   crates by the line; prop placement on Train matches the cartridge (the
   gefidelity world gate), the solo mission just never goes outside.
   randomizer-run.md, "Wider spacing left pieces", has the pad-graph side.
+
+## F3 pass 36 (2026-10-10, no wire change, protocol stays 27)
+
+- **"dabbq", "(ope~)"**: not the wire. `gunfuncs[6]` is a bit per weapon up
+  to WEAPON_COMBATBOOST; bondgun.c's SETFUNCPRI/SETFUNCSEC used the raw
+  weapon number while VALIDWEAPON and FUNCISSEC used `weaponHost()`, so
+  holding B on GoldenEye's Golden Gun (0x6d: byte 13, bit 4) set bit 4 of
+  the *next* player config's `name[4]` (sizeof(mpplayerconfig) is 320,
+  gunfuncs at 311). Offline it hit the next local player the same way. A
+  letter that grows by 0x10 in byte 4 of a name is this.
+- **The players panel clipped by a pause menu**: menuRender leaves the
+  scissor its dialog set with the 4:3 centring on, so `netHudRender` sets a
+  whole-view scissor with the aspect mode off before it draws.
+- **A death closed F3's Report a Problem**: `playerDieByShooter` closes
+  every menu of the player (func0f0f8120); it now leaves them when the
+  report is on top (`traceReportIsOpenIn`).
+- **A served PD mod gone stale**: a `$N/<mod>` served in an earlier session
+  whose bytes are not the host's now (the host re-imported it) is retired
+  (`fsMemDirRetire`, renamed out of reach, its memory kept), its cached hash
+  dropped (`netHashDirForget`, the cache is keyed by path) and fetched again.
+  It had been refused for good: the fetch said no because a folder of the
+  name was in memory.
+- **A map mod with no stage numbers left**: a library past the Stage
+  Loader's 189 numbers registers a mounted (or served) mod's first maps and
+  skips the rest; the host's map among them ended the session NOSTAGE ("drop
+  it in mods/"). `netContentRegisterMap` → `modloaderAddDirMap` registers
+  the one map, another mod's arena giving up its number (the last g_Stages
+  slot moved into the victim's, the arena row renamed; never a mission, the
+  running or chosen stage). `--mod-stage-limit N` fakes the cap
+  (netcontenttest `modreclaim`; `modfetch` is a guest with no mods served
+  PD_Kakariko). The Game Lobby's status line shows the fetch's progress
+  instead of "waiting for the host to start".
+- Room Rules editing the host's own pd.ini settings (Start Armed reaching
+  the solo campaign) is as designed in optionsmenu.c; keeping a room's rules
+  apart is an owner's call.

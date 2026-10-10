@@ -422,15 +422,92 @@ static s32 modloaderRegister(s32 modIndex, const char *fmt, const char *name)
  * The entry is cloned from a stock multiplayer stage so the lighting, alarm and
  * other tuning are sane, then pointed at this mod's files.
  */
+// modloaderAddDirMap(): the one map of the one dir registered (the rest of
+// the dir's maps pass by), taking another mod's stage number when none is free
+static s32 g_ModWantDir = -1;
+static const char *g_ModWantMap;
+static s32 g_ModWantReclaimed;
+
+/**
+ * A stage number and its g_Stages slot (the last in use) given up by another
+ * mod's map for the wanted one, when every number is taken. The victim is the
+ * highest-numbered map of another mod that is no mission and not the stage
+ * running or chosen; the entry in the last slot moves into the victim's, so
+ * the slot the new map is written to is the last again. Returns the number,
+ * the slot ready at g_ModStageNextSlot; 0 when no map can give one up.
+ */
+static s32 modloaderReclaimStageId(s32 modIndex)
+{
+	const s32 last = g_ModStageNextSlot - 1;
+	s32 v;
+
+	if (last < MODSTAGE_FIRST_SLOT || last == g_StageIndex) {
+		return 0;
+	}
+
+	for (v = STAGE_MAX_ID; v > 0; v--) {
+		const s32 vs = g_ModStageDirs[v] ? stageGetIndex(v) : -1;
+
+		if (vs < MODSTAGE_FIRST_SLOT || g_ModStageDirs[v] - 1 == modIndex || g_ModStageMission[v]
+				|| v == g_Vars.stagenum || v == g_MpSetup.stagenum || vs == g_StageIndex) {
+			continue;
+		}
+
+		sysLogPrintf(LOG_NOTE, "modloader: stage 0x%02x (%s) given up for %s: every stage number was taken", v,
+				g_ModStageMapNames[v], g_ModWantMap);
+
+		if (vs != last) {
+			g_Stages[vs] = g_Stages[last];
+		}
+
+		memset(&g_Stages[last], 0, sizeof(g_Stages[last]));
+		g_ModStageNextSlot = last;
+		g_ModStageDirs[v] = 0;
+		g_ModStageMapNames[v][0] = '\0';
+		g_ModStageHasMusic[v] = 0;
+		g_ModStageProps[v] = 0;
+		g_ModStagePropsFrom[v][0] = '\0';
+		memset(&g_ModStageFog[v], 0, sizeof(g_ModStageFog[v]));
+		memset(&g_ModStageFogAlt[v], 0, sizeof(g_ModStageFogAlt[v]));
+		memset(&g_ModStageFogCinema[v], 0, sizeof(g_ModStageFogCinema[v]));
+		memset(&g_ModStageRevision[v], 0, sizeof(g_ModStageRevision[v]));
+		memset(&g_ModStageCe[v], 0, sizeof(g_ModStageCe[v]));
+
+		return v;
+	}
+
+	return 0;
+}
+
 static bool modloaderAddStage(s32 modIndex, const char *mapName, const char *modLabel,
 		s32 bg, s32 tiles, s32 pads, s32 setup, s32 mission)
 {
-	if (g_ModStageNextSlot >= (s32)ARRAYCOUNT(g_Stages)) {
+	s32 reclaimed = 0;
+
+	if (g_ModWantDir >= 0 && (modIndex != g_ModWantDir || mission >= 0 || strcasecmp(mapName, g_ModWantMap) != 0)) {
 		return false;
 	}
 
-	const s32 stageId = modloaderNextStageId();
-	if (!stageId) {
+	s32 stageId = g_ModStageNextSlot < (s32)ARRAYCOUNT(g_Stages) ? modloaderNextStageId() : 0;
+
+	// --mod-stage-limit N (tests): numbers run out after N maps, as a large
+	// library's do after 189 (netcontenttest modreclaim)
+	static s32 limit = -1;
+
+	if (limit < 0) {
+		limit = sysArgGetInt("--mod-stage-limit", 0);
+	}
+
+	if (limit > 0 && g_ModStageNextSlot - MODSTAGE_FIRST_SLOT >= limit) {
+		stageId = 0;
+	}
+
+	if (!stageId && g_ModWantDir >= 0) {
+		stageId = modloaderReclaimStageId(modIndex);
+		reclaimed = stageId != 0;
+	}
+
+	if (!stageId || g_ModStageNextSlot >= (s32)ARRAYCOUNT(g_Stages)) {
 		return false;
 	}
 
@@ -484,10 +561,12 @@ static bool modloaderAddStage(s32 modIndex, const char *mapName, const char *mod
 		}
 		g_ModStageMission[stageId] = (u8)(mission + 1);
 		snprintf(label, sizeof(label), "%.30s", mapName);
-	} else if (!mpRegisterArena(dst->id, label)) {
+	} else if (reclaimed ? !mpRenameArena(dst->id, label) && !mpRegisterArena(dst->id, label) : !mpRegisterArena(dst->id, label)) {
 		dst->id = 0; // hand the slot back
 		return false;
 	}
+
+	g_ModWantReclaimed += reclaimed;
 
 	++g_ModStageNextSlot;
 	g_ModStageDirs[stageId] = modIndex + 1;
@@ -1788,6 +1867,49 @@ s32 modloaderAddDir(s32 i)
 	}
 
 	return scan.registered;
+}
+
+/**
+ * One map of mounted dir i registered now, that its mod's other maps had no
+ * stage number for (a library past the Stage Loader's 189 numbers): a net
+ * client following the host to it (netsession.c). Takes another mod's map's
+ * number if none is free (F3 20261010-040946: the host's Playground among the
+ * five of seven left out, the session refused). Returns the stage, or -1.
+ */
+s32 modloaderAddDirMap(s32 i, const char *map)
+{
+	const s32 registered = g_ModStagesRegistered;
+	const s32 found = g_ModStagesFound;
+	const s32 mods = g_ModStageMods;
+	s32 got;
+	s32 id;
+
+	for (id = 0; id <= STAGE_MAX_ID; id++) {
+		if (g_ModStageDirs[id] == i + 1 && !g_ModStageMission[id] && strcasecmp(g_ModStageMapNames[id], map) == 0) {
+			return id;
+		}
+	}
+
+	g_ModWantDir = i;
+	g_ModWantMap = map;
+	g_ModWantReclaimed = 0;
+	got = modloaderAddDir(i);
+	g_ModWantDir = -1;
+	g_ModWantMap = NULL;
+
+	g_ModStagesRegistered = registered + got;
+	g_ModStagesFound = found;
+	g_ModStageMods = mods;
+
+	for (id = 0; got && id <= STAGE_MAX_ID; id++) {
+		if (g_ModStageDirs[id] == i + 1 && !g_ModStageMission[id] && strcasecmp(g_ModStageMapNames[id], map) == 0) {
+			sysLogPrintf(LOG_NOTE, "modloader: %s registered on request as stage 0x%02x%s", map, id,
+					g_ModWantReclaimed ? ", a number another map gave up" : "");
+			return id;
+		}
+	}
+
+	return -1;
 }
 
 void modloaderInit(void)

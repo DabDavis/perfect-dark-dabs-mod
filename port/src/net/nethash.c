@@ -401,6 +401,28 @@ u64 netHashDirContentsUncached(const char *path)
 	return path && path[0] ? netHashDirCompute(fsFullPath(path), &numfiles) : 0;
 }
 
+/** netHashDirContents's cached hash of a folder forgotten (a served folder replaced under its path) */
+void netHashDirForget(const char *path)
+{
+	char full[FS_MAXPATH + 1];
+	s32 i;
+
+	if (!path || !path[0]) {
+		return;
+	}
+
+	snprintf(full, sizeof(full), "%s", fsFullPath(path));
+	SDL_AtomicLock(&s_NetDirCacheLock);
+
+	for (i = 0; i < NETHASH_DIRCACHE; i++) {
+		if (strcmp(s_NetDirCache[i].path, full) == 0) {
+			s_NetDirCache[i].path[0] = '\0';
+		}
+	}
+
+	SDL_AtomicUnlock(&s_NetDirCacheLock);
+}
+
 u64 netHashDirContents(const char *path)
 {
 	struct { s32 numfiles; } w;

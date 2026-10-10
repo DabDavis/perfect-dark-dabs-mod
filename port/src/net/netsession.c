@@ -2725,6 +2725,12 @@ static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize, char *
 			id = netFindMapStage(dir, map);
 		}
 
+		// mounted, but the map had no stage number of its own: a library
+		// past the Stage Loader's numbers (F3 20261010-040946)
+		if (id < 0) {
+			id = netContentRegisterMap(dir, map);
+		}
+
 		if (id < 0) {
 			netContentNoStageText(1, dir, map, 0, nostage, nostagesize);
 			snprintf(fetchdir, NET_MAXMAPDIR + 1, "%s", dir);
