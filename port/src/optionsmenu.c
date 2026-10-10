@@ -3587,7 +3587,9 @@ static MenuItemHandlerResult menuhandlerModDecalClip(s32 operation, struct menui
  * Glass See-Through: how much of its clear look a tinted window or a door's
  * window keeps however far off it is, in steps of 5% (modGetGlassSeeThrough()).
  * Off is the game's fade to an opaque pane with the rooms behind it undrawn.
- * Live: each pane's opacity is worked out again every tick.
+ * Live: each pane's opacity is worked out again every tick. GoldenEye's
+ * windows in the XBLA look are the release's, clear at any distance whatever
+ * this says (gebeanGlassClear()).
  */
 #define GLASS_SEETHROUGH_STEP 5
 

@@ -8677,6 +8677,16 @@ void doorUpdatePortalIfWindowed(struct prop *doorprop, s32 playercount)
 	if (doorobj->doorflags & DOORFLAG_WINDOWED) {
 		doorobj->fadealpha = glassCalculateOpacity(&doorprop->pos, doorobj->xludist, doorobj->opadist, 0);
 
+#ifndef PLATFORM_N64
+		// A GoldenEye door's window in the XBLA look is the release's pane,
+		// as see-through at any distance as its windows (glassUpdatePortal()):
+		// Facility's glass doors stood as dark slabs past 600 units where the
+		// release shows the corridor through them
+		if (gebeanGlassClear()) {
+			doorobj->fadealpha = 0;
+		}
+#endif
+
 		if (doorobj->fadealpha != 255 || doorobj->frac > 0) {
 			canhide = false;
 		}
@@ -11894,6 +11904,19 @@ void glassUpdatePortal(struct prop *prop, s32 playercount, bool *arg2)
 #endif
 	} else {
 		glass->opacity = glassCalculateOpacity(&prop->pos, glass->xludist, glass->opadist, glass->unk64);
+
+#ifndef PLATFORM_N64
+		// GoldenEye's windows in the XBLA look are the release's pane, which
+		// the release draws see-through at any distance where GoldenEye's
+		// thickens to an opaque reflective sheet past opadist (Control's
+		// control room glass, opaque from 10 units): held at its clear look
+		// up close, which also leaves the portal behind it open, so what is
+		// beyond is drawn as it is seen (gebeanGlassClear()). Glass
+		// See-Through's cap is under this one and changes nothing here.
+		if (gebeanGlassClear()) {
+			glass->opacity = glass->unk64 * 255;
+		}
+#endif
 	}
 
 	if (glass->portalnum >= 0 && playercount == 1) {

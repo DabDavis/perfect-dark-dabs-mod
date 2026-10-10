@@ -79,6 +79,7 @@ the long form.
 - **GE Plus in third person, and a converted pane's tail** — ge-bean.md, "Third person is broken sometimes" (converter 49): the solo converter carried no tail for tinted glass, so every pane was opaque at any distance and shut **portal 0** of its level every frame (Aztec's start doorway: nothing drawn from a camera beyond it), and the opening swirl's fade-out of Bond's body stays on the chr, so third person after a fully watched opening drew him at alpha 0; third-person.md, "The player's own tracers": the hand beams are drawn by `propsRenderBeams()` in third person and start at the body's gun
 - **HD light shafts, monitor recesses, cut-out rims and magenta placeholders** — ge-bean.md, "HD effects: Archives' shafts, Dam's modem screen, Jungle's vines and magenta fronds" (2026-09-26): a blended Bean level draw faded by its vertices is translucent whatever its picture, as the release draws it (Egyptian's pool included); Bean recess backs coplanar with a GoldenEye screen are pushed behind it only on lone-quad screens of basic-skeleton props with all four corners matched; binary-alpha pictures bleed colour into clear texels and 0..1 prop cut-out cards clamp; flat 16x16 magenta pictures are Rare's missing-art stand-ins, given a neighbouring cut-out's picture (else its colour)
 - **HD decal corners behind their wall, and GoldenEye's overlapping rooms** — ge-bean.md, "Train's plates and Aztec's vent: decal corners and faces over another room's space" (25th F3 pass): a decal kept in its mesh has its corners moved along its face just far enough that their whole-unit rounding is not behind its (rounded) base (`markDecalCorners()`), a shared corner only along the sharer's own plane; Bean faces lying on a GoldenEye face with a closed space of another room within 8-64 units behind are drawn culled (`markOverlaps()`), as GoldenEye relies on culling where its rooms overlap
+- **GoldenEye's windows in the XBLA look** — ge-bean.md, "GoldenEye's windows as the release draws them" (2026-10-10, the owner's call): tinted panes and windowed doors on GE Plus's stages are held at their clear look in the XBLA look (`gebeanGlassClear()` in `glassUpdatePortal()`/`doorUpdatePortalIfWindowed()`), as the release draws them, so the portal behind stays open; Glass See-Through has nothing left to do there and works as before elsewhere
 - **Which of two HD faces in one plane is seen, and the gun at F6** — ge-bean.md, "Surface's snowy rock behind its own snow, the gun gone at F6, the far plane's flood; five answers" (35th F3 pass, HDCACHE 22): the release draws its blended pass after the opaque one whatever the stream order, so `decalPick()` breaks a tie by pass first (`decalLater()`; a `blendpic`/`decalpic` twin is its opaque draw's) - Surface's snowy rock had been hidden behind the bank's snow; a GoldenEye gun reloaded by F6 loads at once (`bgunLoadGunNow()`); `--savedir NAME` is under `data/`, and `PD_HDPICK` writes its build to the disk cache
 - **The N64 look's fog, Frigate's sea and the portal walk against the cartridge** — ge-bean.md, "Fog per vertex, the sea through the palette, GoldenEye's portal walk and the GE Plus timer" (2026-10-01, fid-look): a converted level in the N64 look is fogged per vertex as the RSP does it (`G_FOG_VERTEX_EXT`, set by `envStartFog()`; `gfx_emit_tri3()` clips at the eye plane and the FRUSTRATIO_2 guard band and works the new corners' fog out - not at the near plane, the cartridge draws nearer things); GoldenEye's `texSelect()` loads a picture in the texture's own format, so Frigate's sea is CI8 indices looked up in the TLUT by each 16-bit texel's upper byte; `bgTickPortalsWalkGe()` is GoldenEye's queue walk, which re-enters rooms and raises their draw order (Surface's fence under the trees); the mission timer sits under the bottom-message line and never moves the messages
 - **GoldenEye arenas made from a solo setup** — ge-bean.md, "Arenas from a level's solo setup: keys, the dish, the vent hatch, Streets' jeeps; GoldenEye's MP eye and team score" (35th F3 pass, 2026-10-10): the thirteen arenas GoldenEye has no MP setup for carry the level's own objects (`objects()`, `fromsolo`): a door the level's own keys open is unlocked, a door no key opens stays shut; a never-aiming autogun (Surface's dish) and a lock on a fall-away door (Surface 2's vent hatch) are carried; vehicles carried as plain objects take the vehicle box and GoldenEye's first-tick height at run time (`gexPlusVehicleArenaPlace()`); the arena eye is GoldenEye's `headpos.y * pov + 7`; GoldenEye mode ignores the team score in a free-for-all; the folder's Simulants rows read the setup's own roster
@@ -14245,6 +14246,8 @@ measured from, partly-opaque ones the N64's blend. Meshes with more than panes
 (gas plant clear door, truck, jeep) keep the flat grey. N64 look unchanged
 (pixel-identical). Bean itself draws Control's panes see-through (its level is
 one mesh, no portal shuts behind them) - offered to the owner, not done.
+**Superseded 2026-10-10 (the owner's call): the HD look's panes are the release's,
+see-through at any distance** - "GoldenEye's windows as the release draws them".
 
 **Egyptian's door "is that door correct?" (20261003-102624).** `cryptdoor1a`
 (the grey hieroglyph slab) over `cryptdoor1b`, a 200x100 block. On the
@@ -14815,3 +14818,43 @@ as squares after F6 (060612, DumpTextures on): F6 back and forth with dumps
 on and a 64-entry texture cache keeps every glyph whole. Aztec's ending
 (033052): the gold band round the shuttle's body is GoldenEye's own - the
 N64 look draws it too, reflections on or off change nothing.
+
+## GoldenEye's windows as the release draws them (2026-10-10, feat/ge-hd-glass-release)
+
+The owner's call (reversing pass 31's): in the XBLA look GoldenEye's windows are
+the release's - lighter and see-through at any distance - not the cartridge's
+glass thickening to an opaque reflective sheet past its opadist.
+
+**What the release does, in Xenia (CE, Bean's eye placed on our camera through
+`xscn/multi_xyz.py`/`multi_pad.py` in `~/wt/f3-1010a-gehd-run`).** Control's
+control-room panes (xludist 0, opadist 10: opaque from ten units on the
+cartridge) show the room through a faint blue tint from across the floor;
+Facility's lab windows and its glass doors (door 0x2a0, opadist 600) show the
+tanks and the corridor beyond at 800 units; Dam's guard-hut window and Surface's
+cabin windows the same (Caverns' pairs did not line up). Bunker's door windows (xlu 0, opa
+0: never clear on the cartridge) already looked the same in both. Triptychs
+Bean | before | after: `out/ctl_tri.png`, `tri_facility.png`,
+`fac_doors_zoom.png`, `tri_dam.png`, `tri_caverns.png`, `tri_surface2v.png`,
+`bunker_doorwin.png`. Which levels have them (the missions): tinted panes
+(`Pgx104Z`, OBJTYPE_TINTEDGLASS, every one with a clear look of 0) on Dam 5,
+Facility 20, Caverns 22, Surface 52, Surface 2 52, Control 30, Aztec 3
+(opadist 5000); windowed doors on Facility 4, Surface 10, Surface 2 16,
+Train 6, Bunker 14 and Bunker 2 30 (OBJTYPE_GLASS panes do not fade at all).
+
+**What changed.** `gebeanGlassClear()` (gebean.c: the XBLA meshes on, one of
+GE Plus's own stages, the release present; the stage's part kept per stage)
+holds a tinted pane at its clear look in `glassUpdatePortal()` and a windowed
+door's fade at 0 in `doorUpdatePortalIfWindowed()`. So the HD pane is drawn at
+its own alpha (the mode 9 fade in its second cycle is 0, the N64 pane
+`tintStockNode` and the flat grey `XBLAMESH_TINT_*` are never asked for), and
+the portal behind stays open, so the props and guards beyond are drawn as the
+release shows them. The N64 look (any stage) and Perfect Dark's own levels are
+as they were. **Glass See-Through** (Mods: Display) caps the fade inside
+`glassCalculateOpacity()`, before this: on a GoldenEye stage in the XBLA look
+the pane is already at its clear look, so the setting changes nothing there;
+in the N64 look and on Perfect Dark's levels it works as before. The two
+never fight. Side effect, single player only (`playercount == 1` is the only
+time a pane touches its portal): a portal behind a far pane is open in the XBLA
+look where the N64 look shuts it, so chrs beyond count as seen (they move with
+collision, `chraction.c`'s off-screen test) - as with Glass See-Through. Not
+part of the built level: no HDCACHE bump.
