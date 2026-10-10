@@ -1233,7 +1233,21 @@ nothing is ever sent from one machine to another but names and hashes.
   quantization): GoldenEye's converted panes are sheared into place, which
   no rotation and scale can carry; a turned one takes the record's rotation
   with each column's own scale (`netRotScales`; one scale for all three, as
-  before, blew a stretched object up). The client's own gun stood in its
+  before, blew a stretched object up). **A matrix of nought (2026-10-09
+  F3s 20261009-212235, -212401):** an object the guest never posed itself
+  has a realrot of noughts - Defection's two dataDyne banners (model 0xa7,
+  posed only by the host AI's aiSetObjAnim through objTickPlayer) and a
+  shield a guard held (a held object's realrot is nought; model 0xf4 once
+  let go, `netPupObjLetGo`). `netRotSameOnWire` took the nought matrix for
+  the axes (a nought column made unit), and `netRotScales` gave nought
+  columns a scale of 1, so from the next record on the object was its
+  model's 1/scale times too big: the banner filled the roof's view with flat
+  blue (ElmoBear's "blue walls", and the earlier "giant blue thing" on stock
+  Defection, which was this, not the banner as it is), the dropped shield
+  sat as a huge white thing in the office. Now a matrix with a nought column
+  (`netRotDegenerate`) is never "the same on the wire", and a nought column
+  takes the model's own scale. Client-only, every stage, mod or not; no
+  wire change. The client's own gun stood in its
   opening's shots: the local block re-equipped it from the host, which
   plays no opening for that player; not while `gecinemaIntroIsOn()`.
 - **A client's doors that clip to their box (the same day).** Dam's tower
