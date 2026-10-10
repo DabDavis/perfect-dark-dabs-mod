@@ -975,5 +975,16 @@
  "there is no report to send": "es gibt keinen Bericht zum Senden",
  "this build has no network support": "dieser Build hat keine Netzwerkunterstützung",
  "wrong name or pin - Create Account if it is new": "Name oder PIN falsch - neu? Konto erstellen",
- "your PIN or security answers, readable.": "Ihre PIN oder Sicherheitsantworten, lesbar.\n"
+ "your PIN or security answers, readable.": "Ihre PIN oder Sicherheitsantworten, lesbar.\n",
+ "Surround Output": "Surround-Ausgabe",
+ "5.1 Speakers": "5.1-Lautsprecher",
+ "Dolby Surround": "Dolby Surround",
+ "Subwoofer": "Subwoofer",
+ "Used when Sound Mode is Surround": "Gilt im Tonmodus Surround",
+ "Now playing 5.1": "Wiedergabe in 5.1",
+ "Now playing Dolby Surround": "Wiedergabe in Dolby Surround",
+ "Speakers: not reported": "Lautsprecher: nicht gemeldet",
+ "Speakers: %d channels": "Lautsprecher: %d Kanäle",
+ "Headphone Surround": "Kopfhörer-Surround",
+ "Now playing headphone surround": "Wiedergabe als Kopfhörer-Surround"
 }

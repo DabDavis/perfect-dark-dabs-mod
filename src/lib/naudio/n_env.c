@@ -69,6 +69,12 @@ Acmd *n_alEnvmixerPull(N_PVoice *filter, s32 sampleOffset, Acmd *p)
 
 				n_alLoadParam(e, AL_FILTER_SET_WAVETABLE, param->wave);
 
+#ifndef PLATFORM_N64
+				// A new sound: nothing the last one on this voice left in the
+				// state carries over (port/src/mixer.c's front-to-rear fade in 5.1)
+				bzero(e->em_state, sizeof(ENVMIX_STATE));
+#endif
+
 				e->em_motion = AL_PLAYING;
 				e->em_first  = 1;
 				e->em_delta  = 0;
@@ -213,6 +219,9 @@ Acmd *n_alEnvmixerPull(N_PVoice *filter, s32 sampleOffset, Acmd *p)
 				}
 
 				n_alLoadParam(e, AL_FILTER_SET_WAVETABLE, p->wave);
+#ifndef PLATFORM_N64
+				bzero(e->em_state, sizeof(ENVMIX_STATE));
+#endif
 				e->em_motion = AL_PLAYING;
 			}
 			break;

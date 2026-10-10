@@ -55,6 +55,7 @@
 #include "game/hudmsg.h"
 #include "langpack.h"
 #include "simbrain.h"
+#include "audio.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -1712,6 +1713,81 @@ static MenuItemHandlerResult menuhandlerDisableMpDeathMusic(s32 operation, struc
 	return 0;
 }
 
+/**
+ * Surround: the game's own Sound Mode picks it, these say what it comes out as
+ * (port/src/audio.c). The two labels say what is playing now and what the
+ * default device reports, which is all Auto goes on.
+ */
+static MenuItemHandlerResult menuhandlerSurroundOutput(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = {
+		"Auto",
+		"5.1 Speakers",
+		"Dolby Surround",
+		"Headphone Surround",
+	};
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		audioSetSurroundOutput(data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = audioGetSurroundOutput();
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerSurroundLfe(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = audioGetSurroundLfe();
+		break;
+	case MENUOP_SET:
+		audioSetSurroundLfe(data->slider.value);
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d%%", data->slider.value);
+		break;
+	}
+
+	return 0;
+}
+
+static const char *menutextSurroundNow(struct menuitem *item)
+{
+	if (!audioGetSurroundWanted()) {
+		return langTr("Used when Sound Mode is Surround\n");
+	}
+
+	if (audioGetChannels() == 6) {
+		return langTr("Now playing 5.1\n");
+	}
+
+	return audioGetSurroundOutput() == AUDIO_SURROUND_HEADPHONES
+		? langTr("Now playing headphone surround\n")
+		: langTr("Now playing Dolby Surround\n");
+}
+
+static char g_SurroundDeviceText[80];
+
+static const char *menutextSurroundDevice(struct menuitem *item)
+{
+	if (audioGetDeviceChannels() <= 0) {
+		return langTr("Speakers: not reported\n");
+	}
+
+	snprintf(g_SurroundDeviceText, sizeof(g_SurroundDeviceText), langTr("Speakers: %d channels\n"), audioGetDeviceChannels());
+
+	return g_SurroundDeviceText;
+}
+
 struct menuitem g_ExtendedAudioMenuItems[] = {
 	{
 		MENUITEMTYPE_CHECKBOX,
@@ -1720,6 +1796,54 @@ struct menuitem g_ExtendedAudioMenuItems[] = {
 		(uintptr_t)"Disable MP Death Music",
 		0,
 		menuhandlerDisableMpDeathMusic,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		L_OPTIONS_230, // "Sound Mode"
+		0,
+		menuhandlerSoundMode,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Surround Output",
+		0,
+		menuhandlerSurroundOutput,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Subwoofer",
+		100,
+		menuhandlerSurroundLfe,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)menutextSurroundNow,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)menutextSurroundDevice,
+		0,
+		NULL,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

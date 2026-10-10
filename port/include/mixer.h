@@ -36,6 +36,30 @@ void aPoleFilterImpl(uint8_t flags, int16_t gain, uint32_t t, uint32_t addr);
 void aDisableImpl(uint16_t outp, uint32_t b, uint32_t c);
 void aPlayMP3Impl(const void *mp3file, u32 mp3size, void *out, int reset);
 
+// 5.1 output. A chunk is what n_alSavePull() mixes at a time; its front pair
+// goes to the game's stereo buffer as always, the rest is taken by the
+// address that chunk's stereo was saved to.
+#define MIXER_CHUNK_FRAMES 184
+
+enum {
+	MIXER_SURR_C,
+	MIXER_SURR_LFE,
+	MIXER_SURR_RL,
+	MIXER_SURR_RR,
+	MIXER_SURR_STEREO_L, // the whole chunk as Stereo would mix it: the recorder's
+	MIXER_SURR_STEREO_R,
+	MIXER_SURR_COUNT
+};
+
+enum {
+	MIXER_SURROUND_OFF,        // two channels, and the game's own phase bits: Dolby Surround in Surround mode
+	MIXER_SURROUND_51,         // six channels, the four besides the front pair taken by address
+	MIXER_SURROUND_HEADPHONES  // the six heard through a head, two channels
+};
+
+void mixerSetSurround(int mode, float lfegain);
+const int16_t *mixerSurroundTake(const int16_t *chunk); // [MIXER_CHUNK_FRAMES][MIXER_SURR_COUNT], or NULL
+
 #define aDisable(pkt, o, b, c) aDisableImpl(o, b, c)
 #define aClearBuffer(pkt, d, c) aClearBufferImpl(d, c)
 #define aLoadBuffer(pkt, c, d, s) aLoadBufferImpl((void *)(s), d, c)
