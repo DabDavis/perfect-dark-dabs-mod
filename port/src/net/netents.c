@@ -1996,25 +1996,36 @@ void netEntsClientApplyLocal(void)
 		// the watch, and the hand it gives back is the host's own. Both hands
 		// (protocol 28): a left hand that held another gun here than on the
 		// host stayed that way all match
-		if (lp->weaponnum > 0 && lp->weaponnum < NUM_WEAPONS
-				&& (lp->weaponnum != p->gunctrl.weaponnum || lp->weaponleft != netLpLeftWeapon(p))
-				&& p->gunctrl.switchtoweaponnum < 0 && !gecinemaIntroIsOn() && !gecinemaIsOn()
-				&& netCoopCinemaKind() == GECINEMA_NET_NONE && !geWatchHoldsPlayer(g_NetLocalSlot)
-				&& (invHasSingleWeaponIncAllGuns(lp->weaponnum) || lp->weaponnum == WEAPON_UNARMED)
-				&& (lp->weaponleft <= 0
-					|| (lp->weaponleft < NUM_WEAPONS && (invHasSingleWeaponIncAllGuns(lp->weaponleft)
-							|| invHasDoubleWeaponIncAllGuns(lp->weaponnum, lp->weaponleft))))) {
-			if (netLpSayChange()) {
-				sysLogPrintf(LOG_NOTE, "net: local block (tick %u): hands 0x%02x/0x%02x here, the host's 0x%02x/0x%02x",
-						g_NetTick, p->gunctrl.weaponnum, netLpLeftWeapon(p), lp->weaponnum, lp->weaponleft);
+		{
+			const s32 myleft = netLpLeftWeapon(p);
+			// a left-hand gun this machine cannot hold (none in its
+			// inventory yet) is left to the next stretch; the right hand's
+			// is still put in, as before protocol 28
+			const s32 leftok = lp->weaponleft <= 0
+				|| (lp->weaponleft < NUM_WEAPONS && (invHasSingleWeaponIncAllGuns(lp->weaponleft)
+						|| invHasDoubleWeaponIncAllGuns(lp->weaponnum, lp->weaponleft)));
+
+			if (lp->weaponnum > 0 && lp->weaponnum < NUM_WEAPONS
+					&& (lp->weaponnum != p->gunctrl.weaponnum || (lp->weaponleft != myleft && leftok))
+					&& p->gunctrl.switchtoweaponnum < 0 && !gecinemaIntroIsOn() && !gecinemaIsOn()
+					&& netCoopCinemaKind() == GECINEMA_NET_NONE && !geWatchHoldsPlayer(g_NetLocalSlot)
+					&& (invHasSingleWeaponIncAllGuns(lp->weaponnum) || lp->weaponnum == WEAPON_UNARMED)) {
+				if (netLpSayChange()) {
+					sysLogPrintf(LOG_NOTE, "net: local block (tick %u): hands 0x%02x/0x%02x here, the host's 0x%02x/0x%02x",
+							g_NetTick, p->gunctrl.weaponnum, myleft, lp->weaponnum, lp->weaponleft);
+				}
+
+				// both hands as the host has them: the right's gun alone
+				// (bgunEquipWeapon) let Akimbo's switch carry the old gun
+				// into the left, a pair the host's player never held
+				if (leftok) {
+					bgunEquipHands(lp->weaponnum, lp->weaponleft > 0 ? lp->weaponleft : WEAPON_NONE);
+				} else {
+					bgunEquipWeapon(lp->weaponnum);
+				}
+
+				s_LpEquips++;
 			}
-
-			// both hands as the host has them: the right's gun alone
-			// (bgunEquipWeapon) let Akimbo's switch carry the old gun into
-			// the left, a pair the host's player never held
-			bgunEquipHands(lp->weaponnum, lp->weaponleft > 0 ? lp->weaponleft : WEAPON_NONE);
-
-			s_LpEquips++;
 		}
 
 		// once per stable stretch
