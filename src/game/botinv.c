@@ -382,7 +382,7 @@ bool botinvGiveProp(struct chrdata *chr, struct prop *prop)
 
 		for (i = 0; i < 19; i++) {
 			if (multi->slots[i].quantity > 0) {
-				s32 weaponnum = botactGetWeaponByAmmoType(i + 1);
+				s32 weaponnum = botactGetWeaponByAmmoType(chr, i + 1);
 
 				if (weaponnum > 0) {
 					botinvGiveSingleWeapon(chr, weaponnum);

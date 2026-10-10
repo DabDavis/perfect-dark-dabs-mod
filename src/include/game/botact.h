@@ -15,7 +15,7 @@ void botactGiveAmmoByType(struct aibot *aibot, u32 ammotype, s32 quantity);
 bool botactShootFarsight(struct chrdata *chr, s32 arg1, struct coord *arg2, struct coord *arg3);
 bool botactIsWeaponThrowable(s32 weaponnum, bool is_secondary);
 u32 botactGetProjectileThrowInterval(u32 weapon);
-s32 botactGetWeaponByAmmoType(s32 ammotype);
+s32 botactGetWeaponByAmmoType(struct chrdata *chr, s32 ammotype);
 void botactThrow(struct chrdata *chr);
 s32 botactGetShootInterval60(s32 weaponnum, s32 funcnum);
 bool botactFindRocketRoute(struct chrdata *chr, struct coord *frompos, struct coord *topos, RoomNum *fromrooms, RoomNum *torooms, struct projectile *projectile);

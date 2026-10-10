@@ -253,6 +253,9 @@ void weaponPlayPickupSound(s32 weaponnum);
 void ammotypeGetPickupMessage(char *dst, s32 ammotype, s32 qty);
 void currentPlayerQueuePickupAmmoHudmsg(s32 ammotype, s32 pickupqty);
 s32 ammotypeGetWeapon(s32 ammotype);
+#ifndef PLATFORM_N64
+s32 ammotypeGeWeaponFor(s32 weapon, bool pdheld);
+#endif
 void ammoHandlePickup(s32 ammotype, s32 quantity, bool withsound, bool withhudmsg);
 s32 ammocrateGetPickupAmmoQty(struct ammocrateobj *crate);
 s32 weaponGetPickupAmmoQty(struct weaponobj *weapon);

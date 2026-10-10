@@ -18717,9 +18717,10 @@ s16 g_AmmoTypeWeapons[AMMOTYPE_ECM_MINE + 1] = {
  * add_ammo_to_inventory() gives ITEM_GRENADE (F3 20260926-222337, Runway: a
  * crate's grenades put Perfect Dark's grenade and its HUD in Bond's hand with
  * "Include Perfect Dark Guns" off). The Perfect Dark one stays the answer when
- * it is already held - the two share the pool - and for anything a mod set.
+ * it is already held (`pdheld`) - the two share the pool - and for anything a
+ * mod set. A simulant asks with its own inventory (botactGetWeaponByAmmoType()).
  */
-static s32 ammotypeGeWeapon(s32 weapon)
+s32 ammotypeGeWeaponFor(s32 weapon, bool pdheld)
 {
 	s32 ge;
 
@@ -18736,7 +18737,12 @@ static s32 ammotypeGeWeapon(s32 weapon)
 	default: return weapon;
 	}
 
-	return invHasSingleWeaponExcAllGuns(weapon) ? weapon : ge;
+	return pdheld ? weapon : ge;
+}
+
+static s32 ammotypeGeWeapon(s32 weapon)
+{
+	return ammotypeGeWeaponFor(weapon, invHasSingleWeaponExcAllGuns(weapon));
 }
 #endif
 

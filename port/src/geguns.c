@@ -2162,8 +2162,13 @@ s32 gegunsChrProp(s32 index)
  * opening swirl (the silenced D5K the same). The guards on the same level have
  * held GoldenEye's own props all along, from the converted setup.
  *
- * The thrown ones are left out: GoldenEye draws nothing of them in the hand,
- * and what they are thrown as is gegunsThrownModel()'s.
+ * The thrown ones are here too. GoldenEye draws nothing of them in first
+ * person (what they are thrown as is gegunsThrownModel()'s), but a player
+ * holds them in third person and drops them on dying as their own props
+ * (player.c's getPropForHeldItem(), propobj.c's drop_inventory(): the
+ * throwing knife PROP_CHRTHROWKNIFE, each mine its PROP_CHR*MINE). Left out,
+ * they were the host's pickup: in the N64 look a killed player's GoldenEye
+ * proximity mines lay on the floor as Perfect Dark's (F3 20261005-010607).
  */
 s32 gegunsOwnPropModel(s32 weaponnum)
 {
@@ -2171,14 +2176,6 @@ s32 gegunsOwnPropModel(s32 weaponnum)
 	s32 prop;
 
 	if (!gegunsOwnModelInUse(weaponnum) || !GE_GUN_INDEX(index)) {
-		return -1;
-	}
-
-	switch (weaponnum) {
-	case WEAPON_GE_THROWINGKNIFE:
-	case WEAPON_GE_TIMEDMINE:
-	case WEAPON_GE_PROXIMITYMINE:
-	case WEAPON_GE_REMOTEMINE:
 		return -1;
 	}
 

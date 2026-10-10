@@ -8,6 +8,7 @@
 #include "game/game_0b0fd0.h"
 #include "game/playermgr.h"
 #include "game/botact.h"
+#include "game/botinv.h"
 #include "game/pad.h"
 #include "game/padhalllv.h"
 #include "game/propobj.h"
@@ -317,7 +318,7 @@ u32 botactGetProjectileThrowInterval(u32 weapon)
 	return TICKS(60);
 }
 
-s32 botactGetWeaponByAmmoType(s32 ammotype)
+s32 botactGetWeaponByAmmoType(struct chrdata *chr, s32 ammotype)
 {
 	// the same table ammoHandlePickup reads, which a mod's ammotypeweapon
 	// block edits; the ROM's own list here named the same six weapons
@@ -328,6 +329,20 @@ s32 botactGetWeaponByAmmoType(s32 ammotype)
 	case AMMOTYPE_REMOTE_MINE:
 	case AMMOTYPE_PROXY_MINE:
 	case AMMOTYPE_TIMED_MINE:
+#ifndef PLATFORM_N64
+		// On GoldenEye's own levels a crate's throwables are GoldenEye's, as
+		// ammoHandlePickup() gives them to a player (ammotypeGetWeapon()),
+		// and Perfect Dark's only to a simulant already carrying them. A
+		// simulant took Perfect Dark's proximity mine out of a GoldenEye
+		// Proximity Mines crate, threw it, and dropped it when killed, and
+		// whoever picked that up had Perfect Dark's mines (F3
+		// 20261005-010607, Temple)
+		if (g_AmmoTypeWeapons[ammotype] > 0) {
+			const s32 pd = g_AmmoTypeWeapons[ammotype];
+
+			return ammotypeGeWeaponFor(pd, chr && botinvGetItemType(chr, pd) != 0);
+		}
+#endif
 		return g_AmmoTypeWeapons[ammotype];
 	}
 
