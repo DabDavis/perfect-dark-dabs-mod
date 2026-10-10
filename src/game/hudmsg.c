@@ -1472,6 +1472,14 @@ void hudmsgsTick(void)
 		case HUDMSGSTATE_QUEUED:
 #if VERSION >= VERSION_NTSC_1_0
 			if (msg->flags & HUDMSGFLAG_DELAY) {
+#ifndef PLATFORM_N64
+				// An objective's message waits 4 frames, 4 60ths at 60 FPS;
+				// counted per frame it was a quarter of that at 240. Off the
+				// 60 FPS path it counts 60ths.
+				if (g_Vars.lvupdate240 != g_Vars.lvupdate60 * 4) {
+					msg->timer += g_Vars.lvupdate60;
+				} else
+#endif
 				msg->timer++;
 
 				if (msg->timer > 3) {
@@ -1644,6 +1652,29 @@ void hudmsgsRemoveForDeadPlayer(s32 playernum)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * A message's slide, fade and flash are drawn from its state's timer, which
+ * hudmsgsTick() advances by whole 60ths, so above 60 FPS they moved on one
+ * frame in four. Off the 60 FPS path the draw reads the timer plus the time
+ * since that 60th (lvupdate240rem, the 240ths carried past it), as the gun's
+ * arm dip does (bgunArmTicks()); the state machine still counts 60ths. On a
+ * frame of whole 60ths (60 and 30 FPS, an online sim tick or present pass)
+ * it is the timer itself.
+ */
+static f32 hudmsgDrawTimer(struct hudmessage *msg)
+{
+	if (g_Vars.lvupdate240 != g_Vars.lvupdate60 * 4) {
+		return msg->timer + g_Vars.lvupdate240rem * 0.25f;
+	}
+
+	return msg->timer;
+}
+#define HUDMSG_DRAWTIMER(msg) hudmsgDrawTimer(msg)
+#else
+#define HUDMSG_DRAWTIMER(msg) (msg)->timer
+#endif
+
 Gfx *hudmsgsRender(Gfx *gdl)
 {
 	struct hudmessage *msg;
@@ -1698,7 +1729,7 @@ Gfx *hudmsgsRender(Gfx *gdl)
 
 		if (msg->flash) {
 			s32 alpha;
-			sin = sinf((msg->timer * M_PI) / 60.0f);
+			sin = sinf((HUDMSG_DRAWTIMER(msg) * M_PI) / 60.0f);
 
 			if (sin < 0.0f) {
 				sin = -sin;
@@ -1794,7 +1825,7 @@ Gfx *hudmsgsRender(Gfx *gdl)
 					spc0 = 30.0f;
 				}
 
-				spc0 = msg->timer / spc0;
+				spc0 = HUDMSG_DRAWTIMER(msg) / spc0;
 
 				if (spc0 > 1.0f) {
 					spc0 = 1.0f;
@@ -1804,7 +1835,7 @@ Gfx *hudmsgsRender(Gfx *gdl)
 					spc0 = 0.0f;
 				}
 
-				tmp = msg->timer * PALUPF(7.0f);
+				tmp = HUDMSG_DRAWTIMER(msg) * PALUPF(7.0f);
 
 				textSetDiagonalBlend(x, y, tmp, DIAGMODE_FADEIN);
 
@@ -1878,7 +1909,7 @@ Gfx *hudmsgsRender(Gfx *gdl)
 					bordercolour = (bordercolour & 0xffffff00) + (alpha & 0xff);
 				}
 
-				tmp = (spa8 - msg->timer) * PALUPF(7.0f);
+				tmp = (spa8 - HUDMSG_DRAWTIMER(msg)) * PALUPF(7.0f);
 
 				textSetDiagonalBlend(x + msg->width, y + msg->height, tmp, DIAGMODE_FADEOUT);
 
@@ -1886,7 +1917,7 @@ Gfx *hudmsgsRender(Gfx *gdl)
 					spa8 = 30.0f;
 				}
 
-				spa8 = msg->timer / spa8;
+				spa8 = HUDMSG_DRAWTIMER(msg) / spa8;
 
 				if (spa8 > 1.0f) {
 					spa8 = 1.0f;
