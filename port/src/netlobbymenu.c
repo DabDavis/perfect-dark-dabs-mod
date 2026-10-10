@@ -1874,6 +1874,13 @@ static char *textRoomStatus(struct menuitem *item)
 			snprintf(s_Status, sizeof(s_Status), "%s", "Campaign: start missions from your menus.\n");
 		} else if (netLobbyCampaignState() == 2) {
 			snprintf(s_Status, sizeof(s_Status), "%s", "Campaign: you join the host's next mission.\n");
+		} else if (netLobbyJoinedWait() == 1) {
+			// in with the host, whose match had ended (its end screen up):
+			// the room opens again when it leaves that, and the next
+			// launch has this player in it
+			snprintf(s_Status, sizeof(s_Status), "%s", "In: the host's match is over; you join its next.\n");
+		} else if (netLobbyJoinedWait() == 2) {
+			snprintf(s_Status, sizeof(s_Status), "%s", "In: waiting for the host to start the match.\n");
 		} else {
 			snprintf(s_Status, sizeof(s_Status), "%s", netLobbyIsHost() ? "Launched: waiting for the players to connect...\n" : "Launched: connecting to the host...\n");
 		}

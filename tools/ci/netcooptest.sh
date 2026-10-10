@@ -77,17 +77,22 @@
 #           guest lacks (F3 20261009-070735): the guest leaves NOMOD, its
 #           Game Lobby's status line says why (not "connecting to the
 #           host"), and it does not connect to the same launch again.
+#   campleave  a campaign room's host leaves it and joins another host's
+#           launched co-op room whose host sits on its end screen (F3
+#           20261009-191306): accepted for the next match (protocol 26), its
+#           Game Lobby says so (not "connecting to the host"), the host is
+#           told, and the room's next launch has it in the mission.
 #
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom}
+CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -863,7 +868,7 @@ case_endjoin() {
 	grep -q "the host's match is over: in for the next" "$H" && pass "$name: the host took the returning joiner at its end screen, for the next mission" \
 		|| fail "$name: the host did not take the joiner at its end screen"
 	grep -q "net: the host refused \[started\]" "$J2" && fail "$name: the returning joiner was refused STARTED $(grep -c 'refused \[started\]' "$J2") times"
-	grep -q "net: accepted by \"endhost\" into slot [0-9]*$" "$J2" && pass "$name: the returning joiner was accepted, not in progress" \
+	grep -q "net: accepted by \"endhost\" into slot [0-9]* (the host's match is over: in for its next)$" "$J2" && pass "$name: the returning joiner was accepted for the next mission, not in progress" \
 		|| fail "$name: $(grep -o 'net: accepted by.*' "$J2" | head -1)"
 	[ "$(grep -c 'net: co-op: starting dataDyne Defection' "$H")" -ge 2 ] && pass "$name: Defection started again" || fail "$name: Defection did not start again"
 	grep -q "net: co-op client: the first mission block" "$J2" && pass "$name: the returning joiner is in the next mission" \
@@ -944,6 +949,126 @@ case_nomodroom() {
 	ls "$OUT"/save-nomodroom-join/screenshots/*.png >/dev/null 2>&1 && echo "     shot: $(ls "$OUT"/save-nomodroom-join/screenshots/*.png | tail -1)"
 }
 
+# ---------------------------------------------------------------- campleave
+# A campaign room's host who leaves it for another host's launched co-op
+# room, whose host sits on its end screen (F3 20261009-191306: dab ended a
+# Tomorrow Never Dies 64 campaign room he hosted, left it, joined dick's
+# launched Defection room, was accepted into slot 1 - not in progress: the
+# host's match was over - and read "Launched: connecting to the host..."
+# with no word of the wait). Room B: a co-op Defection room launched by its
+# host alone, its mission played and aborted, the end screen kept up. Game
+# A hosts a Perfect Dark campaign room alone, plays Defection from its
+# menus and aborts it, leaves the room and joins room B: accepted for the
+# next match (protocol 26's NETACC_NEXTMATCH), its Game Lobby saying so,
+# B's player told; B out of its end screen, the room open again, A READY,
+# B's next launch has A in Defection.
+cat > "$OUT/campleave.gdb" <<'GDB'
+break netLobbyTick
+continue
+delete
+GDB
+
+campleave_gdb() {
+	local p=$1; shift
+	timeout 40 gdb -p "$p" -batch -x "$OUT/campleave.gdb" "$@" 2>/dev/null | grep "^STAGE" | tee -a "$OUT/stage.log" | sed 's/^/     /'
+}
+
+case_campleave() {
+	local name=campleave pb=$((PORT + 10)) pa=$((PORT + 11)) L=$OUT/campleave-pdlobbyd.log B=$OUT/campleave-b.log A=$OUT/campleave-a.log
+	echo "== $name"
+	python3 -u "$ROOT/tools/pdlobbyd/pdlobbyd.py" --host 127.0.0.1 --port 0 --udp-host 127.0.0.1 --udp-port 0 --auth open --relay-ports 0 \
+		> "$L" 2>&1 &
+	local lobby=$!
+	if ! waitfor "$L" "pdlobbyd listening on" 20; then
+		fail "$name: pdlobbyd did not start"; kill $lobby 2>/dev/null; return
+	fi
+	local lport; lport=$(sed -n 's/.*listening on 127.0.0.1:\([0-9]*\).*/\1/p' "$L" | head -1)
+	game campleave-b 500 "[Mod]\nGhostUser=roomhost\nGhostPin=1234\n[Net]\nLobbyServer=http://127.0.0.1:$lport\nPort=$pb\nJoinInProgress=0\n" \
+		--net-lobby-script host --net-lobby-room "Coop B" --net-lobby-coop 0 --net-lobby-solo --net-lobby-end-frame 999999 \
+		--net-lobby-keep-endscreen --net-lobby-matches 2 --net-test-sims 0 --skip-cutscenes --rng-seed 7 &
+	local hb=$!
+	game campleave-a 500 "[Mod]\nGhostUser=camper\nGhostPin=1234\n[Net]\nLobbyServer=http://127.0.0.1:$lport\nPort=$pa\n" \
+		--net-lobby-script host --net-lobby-room "Camp A" --net-lobby-campaign pd --net-lobby-solo --net-test-sims 0 --skip-cutscenes --rng-seed 7 &
+	local ha=$!
+	local ap bp roomb="" st="" drawn=""
+	if ! waitfor "$A" "net: co-op: the Perfect Dark campaign begins" 90; then
+		fail "$name: no campaign on A"
+	else
+		ap=$(gamepid campleave-a)
+		sleep 3
+		campleave_gdb "$ap" -ex 'python import gdb; print("STAGE campleave: A starts Defection: %d" % int(gdb.parse_and_eval("netCoopHostStart(\"\", 0, 0, 1, 0)")))'
+		waitfor "$A" "net: match 1: every machine has loaded; GO" 120 || echo "     no GO for Defection on A"
+		sleep 3
+		campleave_gdb "$ap" -ex "set var g_Vars.players[0]->aborted = 1" -ex "call (void)mainEndStage()" -ex 'python print("STAGE campleave: A aborted its mission")'
+		waitfor "$A" "campaign: back to the" 60 || echo "     A is not back in its menus"
+		waitfor "$A" "lobby: the mission is over" 30
+		# room B's mission ended, its end screen left up
+		waitfor "$B" "net: match 1: every machine has loaded; GO" 60 || echo "     no GO for room B's mission"
+		bp=$(gamepid campleave-b)
+		campleave_gdb "$bp" -ex "set var g_Vars.players[0]->aborted = 1" -ex "call (void)mainEndStage()" -ex 'python print("STAGE campleave: B aborted its mission")'
+		waitfor "$B" "net: match 1 ended" 60 || echo "     B's match did not end"
+		sleep 2
+		roomb=$(curl -s "http://127.0.0.1:$lport/rooms" | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d.get("rooms",d); print([x["id"] for x in r if x.get("name")=="Coop B"][0])' 2>/dev/null)
+		ap=$(gamepid campleave-a)
+		campleave_gdb "$ap" -ex "set var 'netlobby.c'::s_Script = 0" -ex "call (void)netLobbyLeave()" -ex 'python print("STAGE campleave: A left its room")'
+		waitfor "$A" "net: lobby: the room's session is closed" 30 || echo "     A's session did not close"
+		sleep 2
+		ap=$(gamepid campleave-a)
+		campleave_gdb "$ap" -ex "call (void)netLobbyRefresh()"
+		sleep 3
+		ap=$(gamepid campleave-a)
+		campleave_gdb "$ap" -ex "call (void)netLobbyJoin(\"$roomb\", \"\")" -ex "python print(\"STAGE campleave: A joins room B ($roomb)\")"
+		waitfor "$A" "net: accepted by" 60 || echo "     A was not accepted by B"
+		sleep 3
+		ap=$(gamepid campleave-a)
+		[ -n "$ap" ] && st=$(timeout 40 gdb -p "$ap" -batch -x "$OUT/campleave.gdb" -ex "call (void)netLobbyMenuPushRoom()" \
+			-ex 'python import gdb; print("STAGE campleave: A launch state %d, status line: %s" % (int(gdb.parse_and_eval("netLobbyLaunchState()")), " ".join(gdb.parse_and_eval("textRoomStatus((struct menuitem *)0)").string().split())))' \
+			2>/dev/null | grep "^STAGE")
+		echo "$st" | tee -a "$OUT/stage.log" | sed 's/^/     /'
+		# B's feed drawn over its end screen (a full-screen menu: lvRender's
+		# var8009dfc0 path, which had drawn no feed), the notice its newest line
+		bp=$(gamepid campleave-b)
+		[ -n "$bp" ] && drawn=$(timeout 20 gdb -p "$bp" -batch -ex "break netHudRenderFeed" -ex "continue" -ex "delete" -ex "call (void)screenshotRequest()" \
+			-ex 'python import gdb; print("STAGE campleave: B feed drawn, full-screen menu %d, menu root %d, newest line: %s" % (int(gdb.parse_and_eval("var8009dfc0")), int(gdb.parse_and_eval("g_MenuData.root")), gdb.parse_and_eval("netHudFeedAt(\x27nethud.c\x27::s_FeedLen - 1)->text").string()))' \
+			2>/dev/null | grep "^STAGE")
+		echo "${drawn:-     (the feed of B was not drawn)}" | tee -a "$OUT/stage.log" | sed 's/^/     /'
+		sleep 2
+		# B out of its end screen: the room opens again; A READY; B launches
+		bp=$(gamepid campleave-b)
+		campleave_gdb "$bp" -ex "call (void)netCoopLeaveMission()" -ex "call (void)menuStop()" -ex 'python print("STAGE campleave: B left its end screen")'
+		waitfor "$B" "reopening room" 60 || echo "     B did not reopen its room"
+		sleep 3
+		ap=$(gamepid campleave-a)
+		campleave_gdb "$ap" -ex "call (void)netLobbySetReady(1)" -ex 'python print("STAGE campleave: A READY")'
+		sleep 3
+		# (B's script waits on an End Game of its own; its player launches)
+		bp=$(gamepid campleave-b)
+		campleave_gdb "$bp" -ex "call (void)netLobbyLaunch(0)" -ex 'python print("STAGE campleave: B launches the room again")'
+		waitfor "$A" "net: co-op client: the first mission block" 120 || echo "     A is not in B's next mission"
+		sleep 2
+	fi
+	ap=$(gamepid campleave-a); [ -n "$ap" ] && kill -TERM "$ap"
+	wait $ha; local ax=$?; [ "$ax" = 143 ] && ax=0
+	bp=$(gamepid campleave-b); [ -n "$bp" ] && kill -TERM "$bp"
+	wait $hb; local bx=$?; [ "$bx" = 143 ] && bx=0
+	kill $lobby 2>/dev/null; wait $lobby 2>/dev/null
+	crashed "$A" && fail "$name: A crashed" || { [ "$ax" = 0 ] && pass "$name: A ran to the end" || fail "$name: A exit $ax"; }
+	crashed "$B" && fail "$name: B crashed" || { [ "$bx" = 0 ] && pass "$name: B ran to the end" || fail "$name: B exit $bx"; }
+	grep -q "net: co-op: the Perfect Dark campaign is over" "$A" && pass "$name: A's campaign ended as it left" || fail "$name: A's campaign did not end"
+	grep -q "net: accepted by \"roomhost\" into slot [0-9]* (the host's match is over: in for its next)" "$A" \
+		&& pass "$name: A accepted at B's end screen, for the next match" || fail "$name: $(grep -o 'net: accepted by.*' "$A" | head -1)"
+	echo "$st" | grep -q "status line: In: the host's match is over; you join its next" && pass "$name: A's Game Lobby says it waits for the next match" \
+		|| fail "$name: A's Game Lobby status: ${st:-none}"
+	echo "$st" | grep -qi "connecting to the host" && fail "$name: A's Game Lobby still says it is connecting"
+	grep -q "camper is in for the next match" "$B" && pass "$name: B's player was told" || fail "$name: no notice on B"
+	echo "$drawn" | grep -q "full-screen menu 1, .*newest line: camper is in for the next match" \
+		&& pass "$name: B's notice drawn over its end screen" || fail "$name: B's notice not drawn over its end screen: ${drawn:-the feed never drew}"
+	grep -q "net: notice: camper is in for the next match" "$A" && fail "$name: the notice went to A too"
+	grep -o "screenshot: .*png" "$B" | tail -1 | sed 's/^/     B /'
+	grep -q "lobby: the match is over; reopening room" "$B" && pass "$name: B's room open again after its end screen" || fail "$name: B's room was not reopened"
+	grep -q "net: co-op client: the first mission block" "$A" && pass "$name: A is in B's next mission" || fail "$name: A never got into B's next mission"
+}
+
 {
 for c in $CASES; do
 	case $c in
@@ -958,6 +1083,7 @@ for c in $CASES; do
 		endjoin) case_endjoin ;;
 		letgo) case_letgo ;;
 		nomodroom) case_nomodroom ;;
+		campleave) case_campleave ;;
 		*) fail "unknown case $c" ;;
 	esac
 done

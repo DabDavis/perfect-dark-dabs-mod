@@ -1475,6 +1475,12 @@ Gfx *lvRender(Gfx *gdl)
 				if (g_Vars.currentplayer->menuisactive) {
 					gdl = menuRender(gdl);
 				}
+
+#ifndef PLATFORM_N64
+				// netplay: the feed over a full-screen menu too (an end screen:
+				// "NAME is in for the next match", F3 20261009-191306)
+				if (g_NetMode != NETMODE_NONE) gdl = netHudRender(gdl);
+#endif
 			} else {
 				if (var80075d60 == 2) {
 					gdl = playerUpdateShootRot(gdl);

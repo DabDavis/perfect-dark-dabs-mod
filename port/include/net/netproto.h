@@ -136,7 +136,11 @@
 //    next stage change (modmode.c) - a guest without it fetches it rather
 //    than leaving with NOMOD/RESTART; the "mod" hash (ACCEPT, RULES, LOADED)
 //    is over that same list, read through fs.c
-#define NET_PROTOCOL_VERSION 25
+// 26 (a joiner waiting on the host's end screen, F3 20261009-191306): ACCEPT's
+//    flags carry NETACC_NEXTMATCH when the host took the player after its
+//    match had ended (its end screen up): in for the next match, which the
+//    client's Game Lobby says instead of "connecting to the host"
+#define NET_PROTOCOL_VERSION 26
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -287,6 +291,9 @@
  *                             once. NETACC_RESUMED: the seat is the one
  *                             this account held when it dropped (its score
  *                             kept). NETACC_SPECTATOR: a spectator.
+ *                             NETACC_NEXTMATCH (protocol 26): the host's
+ *                             match is over (MATCH_END gone, its end screen
+ *                             up): the player is in for the next match.
  *   content block             (protocol 13) what the client is to play with:
  *     str(127) mod            the host's overlay mod dir basename, "" none
  *     u64      modhash        its contents hash (nethash.c, the "mod"
@@ -858,6 +865,7 @@
 #define NETACC_INPROGRESS  0x01 // ACCEPT's flags
 #define NETACC_RESUMED     0x02
 #define NETACC_SPECTATOR   0x04
+#define NETACC_NEXTMATCH   0x08 // protocol 26
 #define NETSLOT_SPECTATOR  0xff // ACCEPT's slot, STAGE_LOAD's yourplayer
 #define NET_MAXSPECS       2    // spectators a host takes
 
