@@ -2667,6 +2667,15 @@ void bwalk0f0c69b8(void)
 			lvupdate240 = g_Vars.lvupdate60;
 		}
 
+#ifndef PLATFORM_N64
+		if (g_Vars.lvupdate240 != g_Vars.lvupdate60 * 4) {
+			// The sway's catch-up allowance went a tenth of the way to the
+			// target per whole 60th (lvupdate60), so above 60 FPS it came all
+			// at once on every fourth frame and the lean moved in 60 Hz jerks.
+			// Off 60 FPS: the same fraction for the frame's time, smoothly.
+			spa8 = dist * (1.0f - __builtin_powf(1.0f - PALUPF(0.1f), lvupdate60f / PALUPF(1.0f)));
+		} else
+#endif
 		for (i = 0; i < lvupdate240; i++) {
 			spa8 += (dist - spa8) * PALUPF(0.1f);
 		}
