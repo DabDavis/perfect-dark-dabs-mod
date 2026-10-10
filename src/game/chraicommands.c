@@ -58,6 +58,7 @@
 #include "game/coop.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
+#include "game/modrespawn.h"
 #include "gesfx.h"
 #include "getank.h"
 #include "gecinema.h"
@@ -604,6 +605,19 @@ bool aiIfChrDeathAnimationFinished(void)
 		if (chr->prop->type == PROPTYPE_PLAYER) {
 			u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 			pass = g_Vars.players[playernum]->isdead;
+
+#ifndef PLATFORM_N64
+			// A converted mission's IFBondIsDead. GoldenEye has no next life,
+			// so its lists take Bond's death for the end: nearly every
+			// mission's exit list - Facility's ai_47, which ends the level when
+			// Bond reaches the exit - goes to GAILIST_DEAD_AI on it, for good.
+			// With Mission Respawn a death that is followed by a new life left
+			// the mission with no ending to reach (F3 20261005-040004), so
+			// Bond is dead to them only when he stays dead.
+			if (pass && modloaderStageIsMission(g_Vars.stagenum) && modRespawnPlayerComesBack(playernum)) {
+				pass = false;
+			}
+#endif
 		} else {
 			pass = (chr->actiontype == ACT_DEAD);
 		}
@@ -10050,15 +10064,22 @@ bool aiShowCutsceneChrs(void)
 		for (i = chrsGetNumSlots() - 1; i >= 0; i--) {
 #ifndef PLATFORM_N64
 			// A GoldenEye remake mission, where this is GoldenEye's HideAllChrs
-			// and the first command of every ending. GoldenEye has no chr for
-			// Bond when it runs - his body is loaded by the CameraSwitch after
-			// it - so the body the ending is about is never hidden. Perfect
-			// Dark's player has a chr at all times, which this hid with the
-			// guards: a hidden chr is not ticked, so the list the ending hands
-			// Bond (SetBondsAiList - Dam's jump, Archives' run) never ran a
-			// command, and nobody was in the shot.
+			// and the first command of nearly every ending. GoldenEye has no
+			// chr for Bond when it runs - his body is loaded by the
+			// CameraSwitch after it - so the body the ending is about is never
+			// hidden. Perfect Dark's player has a chr at all times, which this
+			// hid with the guards: a hidden chr is not ticked, so the list the
+			// ending hands Bond (SetBondsAiList - Dam's jump, Archives' run)
+			// never ran a command, and nobody was in the shot.
+			//
+			// After the CameraSwitch (the player's warp to the ending's camera,
+			// TICKMODE_WARP) Bond's body is one of GoldenEye's chrs, and its
+			// HideAllChrs hides him with the rest: Runway switches the camera
+			// first and hides everyone, and Bond is in the plane taking off,
+			// not standing on the runway where it was (F3 20261006-024303).
 			if (g_ChrSlots[i].prop && g_ChrSlots[i].prop->type == PROPTYPE_PLAYER
-					&& modloaderStageIsMission(g_Vars.stagenum)) {
+					&& modloaderStageIsMission(g_Vars.stagenum)
+					&& g_Vars.tickmode != TICKMODE_WARP) {
 				continue;
 			}
 #endif

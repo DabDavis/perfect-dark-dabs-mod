@@ -125,6 +125,20 @@ bool modRespawnIsRespawning(void)
 }
 
 /**
+ * Whether playernum, dead, is coming back: the death being played out ends in
+ * a new life (modRespawnCanRespawn(), asked before the fade has counted it), or
+ * the new life has been asked for and is not set up yet.
+ */
+bool modRespawnPlayerComesBack(s32 playernum)
+{
+	if (playernum < 0 || playernum >= MAX_PLAYERS) {
+		return false;
+	}
+
+	return g_ModRespawning[playernum] || modRespawnCanRespawn();
+}
+
+/**
  * The gun that hand held at the death, or the mission's default if it is no
  * longer in the inventory.
  */

@@ -14564,3 +14564,90 @@ quads (y 410.3-497.4) on the sea edge x = 670.4 from z -2836 to -2403 and
 `-DGECONVERT_MAIN`, dumping every room vertex in a box); the XBLA release
 railed it in. The slap was every local player's (2eaa68a51 already, per-player
 slap clocks). ares was unreachable (10.8.0.3 down) for this pass.
+
+## 35th F3 pass, agent gemission (2026-10-10, fix/f3-1010a-gemission)
+
+**Guards Alerted! on a converted mission (F3 20261004-183458, -185009, Depot).**
+`modalarm.c` made every reinforcement on a stage without a uniform of its own a
+dataDyne shock trooper (`BODY_DDSHOCK`) with Perfect Dark's side arms, on
+`TEAM_ENEMY` with `CHRFLAG0_AIVSAI`: on a GoldenEye level a Perfect Dark body
+posed by GoldenEye's animations, and an enemy of the level's guards - the
+setup's are on team 0 and a GoldenEye script's spawns stay on `chrInit()`'s
+`TEAM_01`, which AIVSAI's enemy scan (`aiDetectEnemy()`) lists. On a converted
+mission (`modloaderStageIsMission()`, not a match, not a Randomizer run) a
+reinforcement is now GoldenEye's own: a clone of one of the level's guards
+(`g_ModAlarmTemplates`, sampled from the armed, living, non-civilian, non-ally
+guards with a pool head when the first one is due - named characters whose
+body carries a head or whose record names one are left out), with
+`bodyChooseHead()` (GoldenEye's four heads for the level), his guns (pair kept)
+and hat, his team, squadron and voice, no AIVSAI (unless a co-op mission has AI
+buddies, as `aiDuplicateChr()` does) and GoldenEye's global
+`GAILIST_STANDARD_CLONE` (0x80c: run to Bond, then stand guard). Guard Weapons:
+Random rolls the stage's own rows (`mpWeaponRowSuitsStage()`). Probe
+`~/wt/f3-1010a-gemission-run/probes/alarm.py` (Depot, invincible Bond, chr dump at
+900/1800/2700, every chr-on-chr hit counted at `chrDamage`): base body 94 team 2
+with Falcons and CMPs; fixed body 152, heads 505-509, team 0, the Depot guards'
+D5K. Facility, Statue Park, Jungle and Control spawn their own uniforms; Cradle's
+waypoints are all past the alarm's 45 m, as before.
+
+**The Cradle helicopter flew the ending empty in HD (F3 20261004-225823).** fb965ef62
+draws GoldenEye's pilot inside the release's helicopter by marking the
+triangles the release's N64-look copy (`files/original/prop/helicopter/`) does
+not cover - and the archive unpack (`gebeanWantEntry()`) never took
+`original/prop/`, so from an archive (every player's install; our dev machine
+has the release as a folder) the log said "original/prop/helicopter/default.bin
+is missing" and no triangle was kept. It is taken now (`.extracted15`, so an old
+cache unpacks again).
+
+**Mission Respawn left GoldenEye missions with no ending (F3 20261005-035913,
+-040004, Facility).** Nearly every mission's exit list asks `IFBondIsDead`
+(converted to `aiIfChrDeathAnimationFinished()` on `CHR_P1P2`) and on it goes
+to `GAILIST_DEAD_AI` for good (Facility's ai_47: Bond in pad 309's or 135's room
+ends the level). A Mission Respawn death tripped it and the exit never fired
+after the new life. On a converted mission a player who is coming back
+(`modRespawnPlayerComesBack()`: the death ends in a new life, or the new life
+is being set up) is not dead to the lists. Probe `probes/respawn.py`
+(`playerDie(1)` at 300, new life at ~650, Bond put in pad 309's room): base
+stage flags stay 0; fixed sets 0x8000 and the level ends.
+
+**Bond on Runway's runway in the plane's ending (F3 20261006-024303).**
+`aiShowCutsceneChrs()` never hid the player on a converted mission, since
+GoldenEye's HideAllChrs comes before the CameraSwitch that makes Bond's ending
+body - except on Runway, which switches the camera first: there GoldenEye's
+HideAllChrs hides Bond's body with the rest, and ours left him standing where
+the plane had been. The player is hidden too once the CameraSwitch has run
+(`TICKMODE_WARP`). Depot's later HideAllChrs (after its CameraSwitch) is the only
+other one. `probes/shots2.py` with Bond moved to the tester's spot shows him on
+the runway in base, gone in the fix; all twenty `--cinema-ending` pictures at
+frame 250 are identical base/fix (`endsweep.sh`).
+
+**Answers.** The guard frozen sitting up in a doorway (20261006-023057, Facility,
+Perfect Dark death animations on) is GoldenEye's own stagger-back-to-the-wall
+death: one in twenty from the front with a wall, door, object or chr within 150
+behind (GoldenEye's `chrlvPathingCollisionRelated7F0264B0()` tests doors and
+objects too), anim 25 (Perfect Dark's 0x19 is the same), whole animation, ending
+seated against what is behind him - here the open door leaf.
+
+Aztec's mainframe keyboard "from inside" (20261005-152652, v3.14.0) is
+5f7a7035b's: on b9a21531f the tester's own line of sight to it, 150 and 90 away,
+finds the keyboard and the press slides both mainframes open (frac 0 -> 0.896);
+from the report's spot itself (205 away) nothing is in reach, as it should be.
+
+**Goldfinger 64 Shipyard's climb (20261009-231607, -231724), left for the
+cartridge.** The tester faces a ridge in room 14 at (12600, -2609): tiles 639/640
+are a face 8 across in plan and 328 high (-425 to -97), linked to the floor
+(no climb wall, the face is not flat in plan) and over it to a slope down into
+room 13 (573/574). GoldenEye's move (bondview2.c, `stanTestLocusEdgeAboveY()`)
+blocks only an edge with both ends over Bond's collision y + 175 - here
+-258 + 175 = -83, and the ridge's top edge is at -97 - so by its code Bond
+walks up the face and over. Ours stops him 50 short: `geStanFloorAhead()` calls
+the face sheer (`stanTileSheer()`: under 16 across, three times as tall) and
+bondwalk never lifts onto a sheer tile (c7cbe699d, made for Facility's vent lip,
+10 across and 257 up from the toilet seat). The oracle host was down the whole
+pass; what the cartridge does here, and at the vent lip, decides whether the
+sheer rule should take GoldenEye's 175 instead. Probes `probes/walkfwd.py`
+(forward speed forced at `bwalkUpdateSpeedForwards`), `probes/tiles.py`,
+`probes/slope.py`; the cartridge scenario is written
+(`probes/climb_ares.py` in that run dir: copy it under tools/gefidelity and run
+`GF_GAME=gf twin.py ge <it> --oracle ares --mission shipyard --env
+GF_OURS=12600.9,-425,-2609.0 --env GF_OURPAD0=-379.108,-415.000,4395.079`).
