@@ -72,5 +72,21 @@ void coopRetarget(struct chrdata *chr);
 // holds or used a gadget on) asked with two co-op players or more: any
 // player's answer counts, as GoldenEye had one Bond and every player is him
 bool coopAnyPlayerIsBond(s32 chrref);
+// Past two players CHR_COOP is one player (g_Vars.coop), and Perfect Dark's
+// lists answer "the co-op player activated it" for any of them
+// (OBJHFLAG_ACTIVATED_BY_COOP). Which one did: noted when the flag is set,
+// taken by the list that consumes it, and that list's CHR_COOP is that player
+// until it consumes another (Defection's PC: the downloader's uplink)
+void coopNoteActivation(struct defaultobj *obj, s32 playernum);
+void coopTakeActivation(struct chrdata *ref, struct defaultobj *obj);
+s32 coopActorFor(struct chrdata *ref);
+void coopActorsReset(void);
+// a converted mission's background list asking where Bond is (its target,
+// none: CHR_P1P2, the host's player) with two players or more: any living
+// player answers (IFBondInRoomWithPad, IFBondDistanceToPad*)
+bool coopBgListAsksAnyPlayer(struct chrdata *chr);
+// give_object_to_chr(weapon, CHR_COOP) past two players: the same gun, with
+// the ammo the co-op player got, for every other co-op player
+void coopGiveWeaponToOthers(struct defaultobj *obj, s32 givenplayernum);
 
 #endif

@@ -279,7 +279,7 @@ s32 objectiveCheck(s32 index)
 							prevplayernum = g_Vars.currentplayernum;
 
 							for (i = 0; i < PLAYERCOUNT(); i++) {
-								if (g_Vars.players[i] == g_Vars.bond || g_Vars.players[i] == g_Vars.coop) {
+								if (g_Vars.players[i] == g_Vars.bond || coopIsCoopPlayer(g_Vars.players[i])) {
 									setCurrentPlayerNum(i);
 
 									if (invHasProp(obj->prop)) {
@@ -306,7 +306,7 @@ s32 objectiveCheck(s32 index)
 							s32 prevplayernum = g_Vars.currentplayernum;
 
 							for (i = 0; i < PLAYERCOUNT(); i++) {
-								if (g_Vars.players[i] == g_Vars.bond || g_Vars.players[i] == g_Vars.coop) {
+								if (g_Vars.players[i] == g_Vars.bond || coopIsCoopPlayer(g_Vars.players[i])) {
 									setCurrentPlayerNum(i);
 
 									if (invHasProp(obj->prop)) {

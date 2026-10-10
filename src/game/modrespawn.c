@@ -5,6 +5,7 @@
 #include "game/inv.h"
 #include "game/modoptions.h"
 #include "game/modrespawn.h"
+#include "game/coop.h"
 #include "game/music.h"
 #include "game/player.h"
 #include "net/net.h"
@@ -56,6 +57,8 @@ void modRespawnReset(void)
 	// online co-op plays by these rules too, its lives the team's (netcoop.c)
 	netCoopStageReset();
 #endif
+
+	coopActorsReset();
 }
 
 /**

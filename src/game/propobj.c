@@ -18393,6 +18393,7 @@ bool propobjInteract(struct prop *prop)
 	} else {
 		if (coopIsCoopPlayer(g_Vars.currentplayer)) {
 			obj->hidden |= OBJHFLAG_ACTIVATED_BY_COOP;
+			coopNoteActivation(obj, g_Vars.currentplayernum);
 		} else if (g_Vars.currentplayernum == g_Vars.bondplayernum) {
 			obj->hidden |= OBJHFLAG_ACTIVATED_BY_BOND;
 		}
@@ -23277,6 +23278,7 @@ void doorsActivate(struct prop *doorprop, bool allowliftclose)
 
 	if (coopIsCoopPlayer(g_Vars.currentplayer)) {
 		door->base.hidden |= OBJHFLAG_ACTIVATED_BY_COOP;
+		coopNoteActivation(&door->base, g_Vars.currentplayernum);
 	} else if (g_Vars.currentplayernum == g_Vars.bondplayernum) {
 		door->base.hidden |= OBJHFLAG_ACTIVATED_BY_BOND;
 	}
@@ -23378,6 +23380,7 @@ bool propdoorInteract(struct prop *doorprop)
 
 		if (coopIsCoopPlayer(g_Vars.currentplayer)) {
 			door->base.hidden |= OBJHFLAG_ACTIVATED_BY_COOP;
+		coopNoteActivation(&door->base, g_Vars.currentplayernum);
 		} else if (g_Vars.currentplayernum == g_Vars.bondplayernum) {
 			door->base.hidden |= OBJHFLAG_ACTIVATED_BY_BOND;
 		}

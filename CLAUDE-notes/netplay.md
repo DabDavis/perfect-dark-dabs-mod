@@ -1095,6 +1095,23 @@ progression").
   screen for ever. `netStageStart` puts it back to 4. Gates:
   `netcooptest.sh gebunker` (new) and `campleave` (A's level frame in B's
   mission).
+- **"Only host can complete objectives online" (the owner, F3 pass 36).**
+  Past the three Bond-only questions above: a converted mission's
+  background lists ask where Bond is through their target (none: p1p2, the
+  host's player) - IFBondInRoomWithPad (005c) and IFBondDistanceToPad*
+  (0059/005a) now take any living player (`coopBgListAsksAnyPlayer`), so a
+  guest at Bunker's exit ends it. Perfect Dark's own missions past two
+  players: the collect/throw objectives asked bond and `g_Vars.coop` alone
+  (now every co-op player, `coopIsCoopPlayer`); `give_object_to_chr(...,
+  CHR_COOP)` gave the one copy to player 1 (now every co-op player gets that
+  gun with player 1's ammo, `coopGiveWeaponToOthers`: Defection's uplink and
+  ECM mines); and a list that answers "activated by the co-op player"
+  (OBJHFLAG_ACTIVATED_BY_COOP, any of them) then spoke to `CHR_COOP`,
+  player 1 - which coop player set the flag is noted
+  (`coopNoteActivation`), taken by the list that consumes it, and that
+  list's CHR_COOP resolves to it (`coopActorFor`, `chrResolveId`). All of
+  it is the stock answer at two players. Gate: `netcooptest.sh pdguest`
+  (player 2's uplink, necklace and PC on Perfect Agent Defection).
 - **Left for later.** Counter-op; GoldenEye's missions (gewatch/gecinema
   read pad 0); AI buddies; the host's cheats are not synced to clients;
   spectators were not tried on a mission; a client's START in a cutscene

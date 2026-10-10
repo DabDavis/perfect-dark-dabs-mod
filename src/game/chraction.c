@@ -16759,6 +16759,17 @@ s32 chrResolveId(struct chrdata *ref, s32 id)
 			}
 			break;
 		case CHR_COOP:
+			// past two players: the co-op player that list last saw
+			// activate something (coop.c), else the game's own
+			if (coopActorFor(ref) >= 0) {
+				struct player *actor = g_Vars.players[coopActorFor(ref)];
+
+				if (actor->prop->chr) {
+					id = actor->prop->chr->chrnum;
+					break;
+				}
+			}
+
 			if (g_Vars.coop && g_Vars.coop->prop && g_Vars.coop->prop->chr) {
 				id = g_Vars.coop->prop->chr->chrnum;
 			}
