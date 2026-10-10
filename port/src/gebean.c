@@ -40,6 +40,7 @@
 #include "x360.h"
 #include "xblatex.h"
 #include "xblamesh.h"
+#include "modloader.h"
 #include "gebean.h"
 #include "handtint.h"
 #include "geguns.h"
@@ -1664,6 +1665,21 @@ static s32 gebeanSwitchReloads(s32 weaponnum)
  * they are drawn in. The meshes themselves need nothing: each one is built
  * once per look and kept, and what draws is decided at the draw.
  */
+s32 gebeanGlassClear(void)
+{
+	static s32 stage = -1;
+	static s32 gestage;
+	const s32 now = mainGetStageNum();
+
+	// every tinted pane asks every tick: the stage's answer is kept
+	if (now != stage) {
+		stage = now;
+		gestage = STAGE_IS_LEVEL(now) && modloaderStageIsGexPlus(now) && gebeanIsAvailable();
+	}
+
+	return gestage && xblaMeshGetEnabled();
+}
+
 void gebeanMeshesSwitched(void)
 {
 	gebeanGunsRefresh();

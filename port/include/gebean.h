@@ -218,6 +218,15 @@ u16 gebeanPoolLoadCheck(struct modeldef *modeldef, u16 fileid);
  */
 void gebeanMeshesSwitched(void);
 
+/**
+ * Whether GoldenEye's tinted panes are the XBLA release's at the moment: the
+ * XBLA look on one of GE Plus's own stages, where a window is the release's
+ * pane and the release draws it see-through at any distance
+ * (glassUpdatePortal()). See ge-bean.md, "GoldenEye's windows as the release
+ * draws them".
+ */
+s32 gebeanGlassClear(void);
+
 /** The Combat Simulator name of a pool body's g_HeadsAndBodies row, or NULL. */
 const char *gebeanPoolBodyName(s32 bodynum);
 
