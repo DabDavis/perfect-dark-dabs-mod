@@ -67,6 +67,7 @@
 #include "net/net.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
+#include "gexplusveh.h"
 #endif
 #endif
 
@@ -2486,6 +2487,13 @@ void setupCreateProps(s32 stagenum)
 				case OBJTYPE_SAFE:
 					if (withobjs && (obj->flags2 & diffflag) == 0) {
 						setupCreateObject(obj, index);
+#ifndef PLATFORM_N64
+						// a GoldenEye truck carried onto a converted arena as a
+						// plain object, stood on its wheels (gexplusveh.c)
+						if (obj->type == OBJTYPE_BASIC) {
+							gexPlusVehicleArenaPlace(obj);
+						}
+#endif
 					}
 					break;
 				case OBJTYPE_MULTIAMMOCRATE:

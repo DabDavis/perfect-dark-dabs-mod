@@ -353,7 +353,7 @@ static bool vehTruckWallsClear(struct truckobj *truck, struct coord *from, struc
  * ground put the truck's *origin* on the road and its wheels fifty units under
  * it. False when no room holds the place.
  */
-static bool vehTruckGround(struct truckobj *truck, struct coord *pos, RoomNum *rooms)
+static bool vehModelGround(struct model *model, struct coord *pos, RoomNum *rooms)
 {
 	RoomNum inrooms[21];
 	RoomNum aboverooms[21];
@@ -369,13 +369,91 @@ static bool vehTruckGround(struct truckobj *truck, struct coord *pos, RoomNum *r
 	ground = cdFindGroundInfoAtCyl(pos, 30, inrooms, NULL, NULL, NULL, NULL, NULL, NULL);
 
 	if (ground > -1000000.0f) {
-		pos->y = ground + vehTruckClearance(truck->base.model);
+		pos->y = ground + vehTruckClearance(model);
 	}
 
 	inrooms[7] = -1;
 	roomsCopy(inrooms, rooms);
 
 	return true;
+}
+
+static bool vehTruckGround(struct truckobj *truck, struct coord *pos, RoomNum *rooms)
+{
+	return vehModelGround(truck->base.model, pos, rooms);
+}
+
+/**
+ * GoldenEye's vehicles on a converted arena. An arena's setup is written from
+ * the level's own (geconvert.c's objects()), and it carries a truck's and an
+ * aircraft's record as a plain object (g_Carry: types 39 and 40 as 3), which
+ * nothing ticks. So the two things a vehicle's type does for it at the start
+ * of a mission were never done there: its collision and its fall came from
+ * the first box in its model, which on Streets' jeep is the front left wheel's
+ * (gexPlusVehicleBboxNode()), and GoldenEye's first tick never stood a truck on
+ * its wheels (vehTruckTick()). Streets' jeeps sat 47 units into the road with
+ * a wheel's box for a body (F3 20261007-053156).
+ *
+ * The models are GoldenEye's PROP numbers (bondconstants.h) that its vehicle
+ * records use: the trucks are Dam's PROP_MILTRUCK and Streets' PROP_JEEP; the
+ * aircraft PROP_HELICOPTER, PROP_TIGER, PROP_MILCOPTER and Runway's
+ * PROP_PLANE. The tank keeps its own model's box, as it does on a mission.
+ */
+#define GEVEH_PROP_MILTRUCK   279
+#define GEVEH_PROP_JEEP       280
+#define GEVEH_PROP_HELICOPTER 282
+#define GEVEH_PROP_TIGER      283
+#define GEVEH_PROP_MILCOPTER  284
+#define GEVEH_PROP_PLANE      291
+
+static s32 vehArenaProp(struct defaultobj *obj)
+{
+	s32 prop;
+
+	if (!obj || !obj->model || obj->type != OBJTYPE_BASIC
+			|| !modloaderStageIsRemake(g_Vars.stagenum) || modloaderStageIsMission(g_Vars.stagenum)) {
+		return -1;
+	}
+
+	prop = obj->modelnum - MODEL_REMAKE_FIRST;
+
+	switch (prop) {
+	case GEVEH_PROP_MILTRUCK:
+	case GEVEH_PROP_JEEP:
+	case GEVEH_PROP_HELICOPTER:
+	case GEVEH_PROP_TIGER:
+	case GEVEH_PROP_MILCOPTER:
+	case GEVEH_PROP_PLANE:
+		return prop;
+	}
+
+	return -1;
+}
+
+void gexPlusVehicleArenaPlace(struct defaultobj *obj)
+{
+	const s32 prop = vehArenaProp(obj);
+	struct coord pos;
+	RoomNum rooms[8];
+
+	if (!obj || !obj->prop) {
+		return;
+	}
+
+	// a truck's: GoldenEye's first tick (PROPFLAG_INMOTION, the bit its
+	// record carries) stands it on its wheels where it was placed
+	if ((prop != GEVEH_PROP_MILTRUCK && prop != GEVEH_PROP_JEEP) || !(obj->flags & OBJFLAG_CHOPPER_INIT)) {
+		return;
+	}
+
+	obj->flags &= ~OBJFLAG_CHOPPER_INIT;
+	pos = obj->prop->pos;
+
+	if (vehTruckClearance(obj->model) > 0.0f && vehModelGround(obj->model, &pos, rooms)) {
+		obj->prop->pos.y = pos.y;
+		vehTruckRooms(obj->prop, rooms);
+		func0f069c1c(obj);
+	}
 }
 
 /**
@@ -791,8 +869,14 @@ struct modelnode *gexPlusVehicleBboxNode(struct defaultobj *obj)
 	struct modelnode *first;
 	struct modelnode *node;
 
-	if (!obj || !obj->model || (obj->type != OBJTYPE_TRUCK && obj->type != OBJTYPE_HELI)
-			|| !modloaderStageIsMission(g_Vars.stagenum)) {
+	if (!obj || !obj->model) {
+		return NULL;
+	}
+
+	// a converted mission's truck and aircraft, and the same carried as a
+	// plain object on a converted arena (vehArenaProp())
+	if (!((obj->type == OBJTYPE_TRUCK || obj->type == OBJTYPE_HELI) && modloaderStageIsMission(g_Vars.stagenum))
+			&& vehArenaProp(obj) < 0) {
 		return NULL;
 	}
 

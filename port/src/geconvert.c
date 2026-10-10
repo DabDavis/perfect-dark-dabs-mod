@@ -4731,17 +4731,84 @@ static buf hoverbike(uint32_t padnum)
 	return rec;
 }
 
+/**
+ * A level's autogun that never aims (its flags2 0x80000000, Perfect Dark's
+ * OBJFLAG2_AUTOGUN_MALFUNCTIONING1, which looks about at random and never
+ * fires): Surface's and Surface 2's satellite dish, PROP_SEVDISH set up as an
+ * autogun on its tower so that it turns. An arena made from the level's solo
+ * setup carries it, so the dish is there in a match as it is on the mission
+ * (F3 20261007-052311, "doesn't render radar in multi"); an autogun that
+ * aims is left out, since it would fire on the players.
+ */
+static int autogunNeverAims(const struct record *r)
+{
+	return r->type == 13 && r->len >= 0xac && (be32(r->b, 12) & 0x80000000u);
+}
+
+/**
+ * The keys a level's own setup holds (its key records' flags, 0x80, ORed): a
+ * door those open is one GoldenEye lets the player through once the key is
+ * found, and an arena made from that setup has no keys at all.
+ */
+static uint32_t setupKeyFlags(const records *recs)
+{
+	uint32_t keys = 0;
+
+	for (size_t i = 0; i < recs->n; ++i) {
+		if (recs->v[i].type == 4 && recs->v[i].len >= 0x84) {
+			keys |= be32(recs->v[i].b, 0x80);
+		}
+	}
+
+	return keys;
+}
+
+static int objCarried(const records *recs, int64_t j, int fromsolo)
+{
+	const uint32_t t = j >= 0 && j < (int64_t)recs->n ? recs->v[j].type : 0;
+
+	return t && (g_Carry[t][1] || t == 21 || (fromsolo && autogunNeverAims(&recs->v[j])));
+}
+
+/**
+ * A level's lock on a fall-away door (GoldenEye's PROPDEF_LOCK_DOOR, Perfect
+ * Dark's padlocked door, the same four words): the door is held shut until its
+ * lock is destroyed, and a fall-away door that is free of locks falls away at
+ * once (propobj.c, "Open fall-away doors if padlock free"). An arena made from
+ * the level's solo setup dropped the links, so Surface 2's vent hatch - shut
+ * on GoldenEye's mission by a lock that cannot be destroyed - fell away as
+ * the match began and left a shaft into a room with no way out (F3
+ * 20261007-052927). Carried where the door is a fall-away one and both ends
+ * are carried; a lock on any other door is left out, as the arenas always
+ * had them, and GoldenEye's own arena setups have none.
+ */
+static int lockOnFallawayCarried(const records *recs, size_t i, int fromsolo)
+{
+	const struct record *r = &recs->v[i];
+	int64_t door, lock;
+
+	if (!fromsolo || r->type != 38 || r->len < 12) {
+		return 0;
+	}
+
+	door = (int64_t)i + bes32(r->b, 4);
+	lock = (int64_t)i + bes32(r->b, 8);
+
+	return objCarried(recs, door, fromsolo) && objCarried(recs, lock, fromsolo) && recs->v[door].type == 1
+		&& recs->v[door].len >= 0x9c && (be32(recs->v[door].b, 0x98) & 0xffff) == 8;
+}
+
 static void objects(const buf *f, size_t numpads, int32_t firstindex, int32_t bodyarmour, const s32s *bikepads,
-		buf *out, uint8_t *models)
+		buf *out, uint8_t *models, int fromsolo)
 {
 	records recs = setupRecords(f);
 	int32_t *newindex = gcAlloc((recs.n + 1) * sizeof(*newindex));
 	int32_t kept = 0;
+	const uint32_t keys = fromsolo ? setupKeyFlags(&recs) : 0;
 
 	for (size_t i = 0; i < recs.n; ++i) {
-		const uint32_t t = recs.v[i].type;
 		newindex[i] = -1;
-		if (g_Carry[t][1] || t == 21) {
+		if (objCarried(&recs, (int64_t)i, fromsolo) || lockOnFallawayCarried(&recs, i, fromsolo)) {
 			newindex[i] = firstindex + kept++;
 		}
 	}
@@ -4754,6 +4821,23 @@ static void objects(const buf *f, size_t numpads, int32_t firstindex, int32_t bo
 		buf rec;
 
 		if (newindex[i] < 0) {
+			continue;
+		}
+
+		if (t == 38) {
+			// lockOnFallawayCarried(): the two ends as the arena numbers them
+			const int64_t door = (int64_t)i + bes32(r->b, 4);
+			const int64_t lock = (int64_t)i + bes32(r->b, 8);
+
+			rec.v = NULL;
+			rec.n = 0;
+			rec.cap = 0;
+			bufZeros(&rec, 16);
+			memcpy(rec.v, r->b, 3);
+			rec.v[3] = 0x26;
+			set32(rec.v, 4, (uint32_t)(newindex[door] - newindex[i]));
+			set32(rec.v, 8, (uint32_t)(newindex[lock] - newindex[i]));
+			bufPut(out, rec.v, rec.n);
 			continue;
 		}
 
@@ -4795,6 +4879,35 @@ static void objects(const buf *f, size_t numpads, int32_t firstindex, int32_t bo
 					? newindex[sib] - newindex[i] : 0));
 			rec.v[0xc6] = r->b[0xa7];
 			rec.v[0xcc] = 0xff;
+
+			// An arena made from a level's solo setup has none of its keys, so
+			// a door the level's own keys open is open to everyone, as Rare
+			// opened the doors of the levels it made arenas of (its Facility
+			// keeps one shut). Silo's six key card doors said "This door is
+			// locked" (F3 20261007-052016); a door no key of the level opens
+			// (Frigate's, Control's, Runway's back doors) stays shut, as
+			// GoldenEye keeps it. The key flags are GoldenEye's 0x9c, Perfect
+			// Dark's 0x74.
+			if (fromsolo) {
+				const uint32_t kf = be32(rec.v, 0x74);
+
+				if (kf && (kf & keys) == kf) {
+					set32(rec.v, 0x74, 0);
+				}
+			}
+		} else if (t == 13) {
+			// a never-aiming autogun (autogunNeverAims()), as the mission has
+			// it: Perfect Dark's autogunobj is GoldenEye's AutogunRecord 0x24
+			// further on, the pad it faces an s16 (writeSoloProps()'s tails)
+			static const uint32_t tails[][2] = { { 0x88, 0x64 }, { 0x8c, 0x68 }, { 0xa4, 0x80 }, { 0xa8, 0x84 } };
+			const int32_t target = bes32(r->b, 0x80);
+
+			rec = objBase(r, 0x0d, 43, padnum, flags);
+			for (size_t k = 0; k < sizeof(tails) / sizeof(tails[0]); ++k) {
+				memcpy(rec.v + tails[k][1], r->b + tails[k][0], 4);
+			}
+			set16(rec.v, 0x5c, target < 0 ? 0xffff
+					: (uint32_t)(target >= 10000 ? target + (int32_t)numpads - 10000 : target));
 		} else if (t == 47) {
 			rec = objBase(r, g_Carry[t][0], g_Carry[t][1], padnum, flags);
 			for (int k = 0; k < 4; ++k) {
@@ -5585,7 +5698,7 @@ static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const
 		}
 	}
 
-	objects(gedata, setup->pads.n, (int32_t)items.n, 0x182, bikepads, &props, models);
+	objects(gedata, setup->pads.n, (int32_t)items.n, 0x182, bikepads, &props, models, mp == NULL);
 	bufU32(&props, 0x34);
 
 	introat = 0x20;
