@@ -96,14 +96,19 @@ log ring is only 200 lines, so anything that logs on every call empties it:
 
 ```sh
 scp 'sdg@10.8.0.1:~/pdghosts/crashes/*' <scratch>/crashes/
-gh release download v3.5.0 -p pd.x86_64-windows.exe -p pd.x86_64-linux -D <scratch>/bins
+gh release download v3.5.0 -p 'pd.x86_64-windows.exe*' -p 'pd.x86_64-linux*' -D <scratch>/bins
 ```
 
 The `version:` line names the commit; `git tag --contains` names the release.
 Windows lines are `[base]+offset`, so `0x140000000 + offset` through
 `x86_64-w64-mingw32-addr2line -f -C -i -e`; Linux lines are `(+offset)` and go
-to plain `addr2line` as they are (the release's Linux binary keeps its DWARF
-too). Group by the first frame's offset before reading any one of them - the
+to plain `addr2line` as they are. From 2026-10-10 the release binaries are
+stripped and their DWARF is the `.debug` asset beside each
+(`pd.x86_64-windows.exe.debug`, `pd.x86_64-linux.debug`): `-e` the `.debug`,
+which symbolises exactly as the whole binary did (checked on 254 addresses and
+a real SIGSEGV report). Older releases carry it inside the binary. Nothing in
+the game reads its own DWARF: the reports, F3 traces included, are the same
+from a stripped build. Group by the first frame's offset before reading any one of them - the
 first triage (2026-09-14) was two offsets for 14 of 26 real crashes:
 `shotCalculateHits` reading `g_Textures` unbounded for the spark colour, and
 the spawn chooser dividing by a zero pad count. Read the log ring bottom up for

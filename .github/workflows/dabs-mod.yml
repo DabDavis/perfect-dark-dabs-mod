@@ -96,6 +96,17 @@ jobs:
           # that a DLL was copied.
           objdump -p bin/pd.x86_64.exe | grep -qi 'DLL Name: WINHTTP' \
             || { echo "::error::built without WinHTTP - ghost server support is missing"; exit 1; }
+          # The DWARF is two thirds of the exe and nothing in the game reads
+          # it: dbghelp cannot read mingw's DWARF, so a crash report already
+          # says [base]+offset, and turning that into a line is addr2line's
+          # job on our side. So it ships beside the release as
+          # pd.x86_64-windows.exe.debug, not inside what Check for Updates
+          # downloads (66 MB, about 16 without). addr2line -e on the .debug
+          # gives the same function and line as on the whole exe; the exe
+          # keeps its symbol table.
+          mkdir -p debug
+          objcopy --only-keep-debug bin/pd.x86_64.exe debug/pd.x86_64.exe.debug
+          objcopy --strip-debug --add-gnu-debuglink=debug/pd.x86_64.exe.debug bin/pd.x86_64.exe
           cp README.md LICENSE bin/
           touch bin/data/put_your_rom_here.txt
           mkdir -p bin/added-content
@@ -105,6 +116,12 @@ jobs:
         with:
           name: pd-dabs-mod-x86_64-windows
           path: bin/
+          retention-days: 0
+      - name: Upload debug info
+        uses: actions/upload-artifact@v4
+        with:
+          name: pd-dabs-mod-x86_64-windows-debug
+          path: debug/
           retention-days: 0
 
   build-x86_64-linux:
@@ -151,6 +168,13 @@ jobs:
           # rather than failing when libcurl is absent, so the packaging step
           # is what refuses to ship a release that lost them.
           ldd bin/pd.x86_64 | grep -q libcurl || { echo "::error::built without libcurl"; exit 1; }
+          # See the Windows job: the DWARF goes beside the release as
+          # pd.x86_64-linux.debug (53 MB, about 20 without). The binary keeps
+          # .symtab, and a crash report's +offsets symbolise against the .debug
+          # exactly as against the whole binary.
+          mkdir -p debug
+          objcopy --only-keep-debug bin/pd.x86_64 debug/pd.x86_64.debug
+          objcopy --strip-debug --add-gnu-debuglink=debug/pd.x86_64.debug bin/pd.x86_64
           cp README.md LICENSE bin/
           touch bin/data/put_your_rom_here.txt
           mkdir -p bin/added-content
@@ -160,6 +184,12 @@ jobs:
         with:
           name: pd-dabs-mod-x86_64-linux
           path: bin/
+          retention-days: 0
+      - name: Upload debug info
+        uses: actions/upload-artifact@v4
+        with:
+          name: pd-dabs-mod-x86_64-linux-debug
+          path: debug/
           retention-days: 0
 
   build-osx:
@@ -245,6 +275,12 @@ jobs:
           cp ci-artifacts/pd-dabs-mod-x86_64-linux/pd.x86_64         ci-release/pd.x86_64-linux
           cp ci-artifacts/pd-dabs-mod-x86_64-osx/pd.x86_64           ci-release/pd.x86_64-osx
           cp ci-artifacts/pd-dabs-mod-arm64-osx/pd.arm64             ci-release/pd.arm64-osx
+
+          # The debug info the Windows and Linux builds were stripped of, for
+          # symbolising a crash report from this build. Release assets only:
+          # update.txt below names the binaries, so no game ever downloads them.
+          cp ci-artifacts/pd-dabs-mod-x86_64-windows-debug/pd.x86_64.exe.debug ci-release/pd.x86_64-windows.exe.debug
+          cp ci-artifacts/pd-dabs-mod-x86_64-linux-debug/pd.x86_64.debug       ci-release/pd.x86_64-linux.debug
 
           # The patch notes, beside the manifest. Check for Updates fetches
           # them after update.txt to show what the release brings; a release
