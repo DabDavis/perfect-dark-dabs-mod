@@ -118,6 +118,7 @@ bool func0f06d37c(struct defaultobj *obj, struct coord *arg1, struct coord *arg2
 void applySpeed(f32 *distdone, f32 maxdist, f32 *speed, f32 accel, f32 decel, f32 maxspeed);
 #ifndef PLATFORM_N64
 void applySpeedSmooth(f32 *distdone, f32 maxdist, f32 *speed, f32 accel, f32 decel, f32 maxspeed);
+void applyRotationSmooth(f32 *angle, f32 maxrot, f32 *speed, f32 accel, f32 decel, f32 maxspeed);
 #endif
 void applyRotation(f32 *angle, f32 maxrot, f32 *speed, f32 accel, f32 decel, f32 maxspeed);
 void projectileFall(struct defaultobj *obj, f32 mtx[3][3]);

@@ -4215,6 +4215,40 @@ void applyRotation(f32 *angle, f32 maxrot, f32 *speed, f32 accel, f32 decel, f32
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * applyRotation through applySpeedSmooth: unchanged on a frame of whole 60ths,
+ * quarter steps on any other.
+ */
+void applyRotationSmooth(f32 *angle, f32 maxrot, f32 *speed, f32 accel, f32 decel, f32 maxspeed)
+{
+	f32 tmp;
+
+	if ((g_Vars.lvupdate240 & 3) == 0) {
+		applyRotation(angle, maxrot, speed, accel, decel, maxspeed);
+		return;
+	}
+
+	tmp = maxrot - *angle;
+
+	if (tmp < -M_PI) {
+		maxrot += M_BADTAU;
+	} else if (tmp >= M_PI) {
+		maxrot -= M_BADTAU;
+	}
+
+	applySpeedSmooth(angle, maxrot, speed, accel, decel, maxspeed);
+
+	if (*angle < 0) {
+		*angle += M_BADTAU;
+	}
+
+	if (*angle >= M_BADTAU) {
+		*angle -= M_BADTAU;
+	}
+}
+#endif
+
 #define NEXT(i) ((i + 1) % 3)
 #define PREV(i) ((i + 2) % 3)
 
@@ -10856,6 +10890,12 @@ void chopperFireRocket(struct chopperobj *chopper, bool side)
 	}
 }
 
+#ifndef PLATFORM_N64
+#define CHOPPER_APPLYSPEED applySpeedSmooth
+#else
+#define CHOPPER_APPLYSPEED applySpeed
+#endif
+
 void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 {
 	struct defaultobj *obj = chopperprop->obj;
@@ -10940,6 +10980,12 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 		speedmult = 0.125f;
 
 		if (chopper->barrelrotspeed > 0.0f) {
+#ifndef PLATFORM_N64
+			if (g_Vars.lvupdate240 & 3) {
+				// once a frame was four times the spin-down at 240 FPS
+				chopper->barrelrotspeed -= 0.017453292f * g_Vars.lvupdate60f;
+			} else
+#endif
 			chopper->barrelrotspeed -= 0.017453292f;
 		} else {
 			chopper->barrelrotspeed = 0.0f;
@@ -10949,25 +10995,25 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 	chopper->barrelrot += chopper->barrelrotspeed * LVUPDATE60FREAL();
 
 #if PAL
-	applySpeed(&gunroty, angleh, &gunturnyspeed60, 0.0027920822612941f * speedmult, 0.0055841645225883f * speedmult, 0.16752494871616f * speedmult);
+	CHOPPER_APPLYSPEED(&gunroty, angleh, &gunturnyspeed60, 0.0027920822612941f * speedmult, 0.0055841645225883f * speedmult, 0.16752494871616f * speedmult);
 
 	if (gunroty == angleh && gunturnyspeed60 <= 0.0055841645225883f * speedmult && -0.0055841645225883f * speedmult <= gunturnyspeed60) {
 		gunturnyspeed60 = 0.0f;
 	}
 
-	applySpeed(&gunrotx, anglev, &gunturnxspeed60, 0.0027920822612941f * speedmult, 0.0055841645225883f * speedmult, 0.16752494871616f * speedmult);
+	CHOPPER_APPLYSPEED(&gunrotx, anglev, &gunturnxspeed60, 0.0027920822612941f * speedmult, 0.0055841645225883f * speedmult, 0.16752494871616f * speedmult);
 
 	if (gunrotx == anglev && gunturnxspeed60 <= 0.0055841645225883f * speedmult && -0.0055841645225883f * speedmult <= gunturnxspeed60) {
 		gunturnxspeed60 = 0.0f;
 	}
 #else
-	applySpeed(&gunroty, angleh, &gunturnyspeed60, 0.0023267353f * speedmult, 0.0046534706f * speedmult, 0.1396041f * speedmult);
+	CHOPPER_APPLYSPEED(&gunroty, angleh, &gunturnyspeed60, 0.0023267353f * speedmult, 0.0046534706f * speedmult, 0.1396041f * speedmult);
 
 	if (gunroty == angleh && gunturnyspeed60 <= 0.0046534706f * speedmult && -0.0046534706f * speedmult <= gunturnyspeed60) {
 		gunturnyspeed60 = 0.0f;
 	}
 
-	applySpeed(&gunrotx, anglev, &gunturnxspeed60, 0.0023267353f * speedmult, 0.0046534706f * speedmult, 0.1396041f * speedmult);
+	CHOPPER_APPLYSPEED(&gunrotx, anglev, &gunturnxspeed60, 0.0023267353f * speedmult, 0.0046534706f * speedmult, 0.1396041f * speedmult);
 
 	if (gunrotx == anglev && gunturnxspeed60 <= 0.0046534706f * speedmult && -0.0046534706f * speedmult <= gunturnxspeed60) {
 		gunturnxspeed60 = 0.0f;
@@ -11011,6 +11057,12 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 	chopper->fireslotthing->unk00++;
 }
 
+#ifndef PLATFORM_N64
+#define CHOPPER_APPLYROTATION applyRotationSmooth
+#else
+#define CHOPPER_APPLYROTATION applyRotation
+#endif
+
 void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, struct coord *dir, bool firing)
 {
 	struct defaultobj *obj = prop->obj;
@@ -11052,7 +11104,18 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 		chopper->power += 0.030833334f * g_Vars.lvupdate60freal;
 	}
 
-	chopper->bob += 0.052359f;
+#ifndef PLATFORM_N64
+	// The bob and the bank below were stepped once a frame, so a
+	// frame of a fraction of a 60th (above 60 FPS) ran them that much too
+	// often. Such a frame scales them by its time; a frame of whole 60ths
+	// takes the original arithmetic.
+	if (g_Vars.lvupdate240 & 3) {
+		chopper->bob += 0.052359f * g_Vars.lvupdate60f;
+	} else
+#endif
+	{
+		chopper->bob += 0.052359f;
+	}
 
 	if (chopper->bob > M_BADTAU) {
 		chopper->bob = 0.0f;
@@ -11102,32 +11165,44 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 	}
 
 #if PAL
-	applyRotation(&curroty, goalroty, &turnyspeed, 0.00026175772654824f, 0.00052351545309648f, 0.015705462545156f);
+	CHOPPER_APPLYROTATION(&curroty, goalroty, &turnyspeed, 0.00026175772654824f, 0.00052351545309648f, 0.015705462545156f);
 
 	if (curroty == goalroty && turnyspeed <= 0.00052351545309648f && turnyspeed >= -0.00052351545309648f) {
 		turnyspeed = 0.0f;
 	}
 
-	applyRotation(&currotx, goalrotx, &turnxspeed, 0.00026175772654824, 0.00052351545309648f, 0.015705462545156f);
+	CHOPPER_APPLYROTATION(&currotx, goalrotx, &turnxspeed, 0.00026175772654824, 0.00052351545309648f, 0.015705462545156f);
 
 	if (currotx == goalrotx && turnxspeed <= 0.00052351545309648f && turnxspeed >= -0.00052351545309648f) {
 		turnxspeed = 0.0f;
 	}
 #else
-	applyRotation(&curroty, goalroty, &turnyspeed, 0.00021813141938765f, 0.00043626284f, 0.013087885f);
+	CHOPPER_APPLYROTATION(&curroty, goalroty, &turnyspeed, 0.00021813141938765f, 0.00043626284f, 0.013087885f);
 
 	if (curroty == goalroty && turnyspeed <= 0.00043626284f && turnyspeed >= -0.00043626284f) {
 		turnyspeed = 0.0f;
 	}
 
-	applyRotation(&currotx, goalrotx, &turnxspeed, 0.00021813141938765f, 0.00043626284f, 0.013087885f);
+	CHOPPER_APPLYROTATION(&currotx, goalrotx, &turnxspeed, 0.00021813141938765f, 0.00043626284f, 0.013087885f);
 
 	if (currotx == goalrotx && turnxspeed <= 0.00043626284f && turnxspeed >= -0.00043626284f) {
 		turnxspeed = 0.0f;
 	}
 #endif
 
-	currotz += (-turnyspeed * 40.0f - currotz) * 0.1f;
+#ifndef PLATFORM_N64
+	if (g_Vars.lvupdate240 & 3) {
+		// A tenth of the way per 60th is 1 - 0.9^(1/4) per 240th
+		const f32 ease240 = 1.0f - __builtin_powf(0.9f, 0.25f);
+
+		for (i = 0; i < g_Vars.lvupdate240; i++) {
+			currotz += (-turnyspeed * 40.0f - currotz) * ease240;
+		}
+	} else
+#endif
+	{
+		currotz += (-turnyspeed * 40.0f - currotz) * 0.1f;
+	}
 
 	spfc.x = M_BADTAU - currotx;
 	spfc.y = curroty;
