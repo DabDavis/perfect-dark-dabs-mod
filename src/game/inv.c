@@ -383,10 +383,10 @@ bool invCanHaveAllGunsWeapon(s32 weaponnum)
  * The All Guns cheat's list. Perfect Dark's is every weapon up to the
  * Psychosis Gun, by number. In a level GE Plus started it is GoldenEye's
  * instead (bondinv.c's equipallguns: ITEM_FIST up to ITEM_TANKSHELLS, in
- * GoldenEye's item order) - the guns, the knives, the explosives, the
- * detonator it gives with them and its tank's shells ("Tank" on the watch,
- * the list's last), but not the Silver and Gold PP7s, the watch laser and the
- * taser that the port has no weapon for; followed by Perfect Dark's own list
+ * GoldenEye's item order) - the guns, the knives, the Silver and Gold PP7s,
+ * the explosives, the detonator it gives with them, the taser and its tank's
+ * shells ("Tank" on the watch, the list's last), but not the watch laser,
+ * which the port has no weapon of its own for; followed by Perfect Dark's own list
  * only when the player has asked for Perfect Dark's guns in GE Plus
  * (Mod.GePlusPdGuns). F3 20260929-025554.
  *
@@ -416,6 +416,8 @@ static const u8 g_GeAllGuns[] = {
 	WEAPON_GE_SNIPERRIFLE,
 	WEAPON_GE_COUGARMAGNUM,
 	WEAPON_GE_GOLDENGUN,
+	WEAPON_GE_SILVERPP7,
+	WEAPON_GE_GOLDPP7,
 	WEAPON_GE_MOONRAKER,
 	WEAPON_GE_GRENADELAUNCHER,
 	WEAPON_GE_ROCKETLAUNCHER,
@@ -424,6 +426,7 @@ static const u8 g_GeAllGuns[] = {
 	WEAPON_GE_PROXIMITYMINE,
 	WEAPON_GE_REMOTEMINE,
 	WEAPON_GE_DETONATOR,
+	WEAPON_GE_TASER,
 	WEAPON_GE_TANKSHELLS,
 };
 
@@ -458,20 +461,45 @@ static bool invAllGunsPairs(s32 weaponnum)
  * watch's list, all under j_text_trigger), so it is never cycled to, listed or
  * held as a pair. A knife actually picked up is still the player's: the
  * cartridge only tests it where the cheat is asked.
+ *
+ * GoldenEye's Silver PP7, Gold PP7 and taser are GoldenEye's own: a ROM
+ * hack's level, whose gun set is its own (gegunsHackSetIn()), has guns of the
+ * hack's on those items (its extra pistols, WEAPON_GE_EXTRA1-4), and leaves
+ * them out, as it did before they were weapons of the port's.
  */
+static bool invGeAllGunsHas(s32 weaponnum)
+{
+	if (weaponnum == WEAPON_GE_HUNTINGKNIFE && gexFrontIsJapanese()) {
+		return false;
+	}
+
+	if (weaponnum >= WEAPON_GE_SILVERPP7 && weaponnum <= WEAPON_GE_TASER && gegunsHackSetIn()) {
+		return false;
+	}
+
+	return true;
+}
+
 static s32 invGeAllGunsCount(void)
 {
-	return gexFrontIsJapanese() ? NUM_GE_ALLGUNS - 1 : NUM_GE_ALLGUNS;
+	s32 count = 0;
+
+	for (s32 i = 0; i < NUM_GE_ALLGUNS; i++) {
+		count += invGeAllGunsHas(g_GeAllGuns[i]);
+	}
+
+	return count;
 }
 
 static s32 invGeAllGunsAt(s32 index)
 {
-	// the knife is the list's second, straight after Unarmed
-	if (gexFrontIsJapanese() && index >= 1) {
-		index++;
+	for (s32 i = 0; i < NUM_GE_ALLGUNS; i++) {
+		if (invGeAllGunsHas(g_GeAllGuns[i]) && index-- == 0) {
+			return g_GeAllGuns[i];
+		}
 	}
 
-	return g_GeAllGuns[index];
+	return WEAPON_NONE;
 }
 
 /** Perfect Dark's own list after GoldenEye's, with its Unarmed left out. */

@@ -2428,6 +2428,12 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 	}
 
 #ifndef PLATFORM_N64
+	// GoldenEye's taser fires once a press: held lowered, not ready, until
+	// the trigger is let go (gegunsOnePerPress())
+	if (gegunsOnePerPress(hand->gset.weaponnum) && !hand->triggerreleased) {
+		return false;
+	}
+
 	// GoldenEye's gun is ready after its two recoil speeds alone once the
 	// trigger has been let go, whatever the fourth speed and whether or not
 	// it is pressed again yet (gegunsReleasedReady())
@@ -3993,6 +3999,7 @@ void bgunTickHand(s32 handnum)
 	// after the states, which clear the hand's posrotmtx each pass
 	gegunsOwnMeleeTick(hand, handnum, g_Vars.lvupdate60freal);
 	gegunsOwnThrowTick(hand, handnum, g_Vars.lvupdate60freal);
+	gegunsOwnTaserTick(hand, handnum, g_Vars.lvupdate60freal);
 #endif
 }
 

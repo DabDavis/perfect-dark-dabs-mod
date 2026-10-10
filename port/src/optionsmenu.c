@@ -5408,6 +5408,7 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 };
 
 static MenuItemHandlerResult menuhandlerGePlusPdGuns(s32 operation, struct menuitem *item, union handlerdata *data);
+static MenuItemHandlerResult menuhandlerGePlusCheatGuns(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGePlusLocked(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGePlusRegion(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGePlusRevisionFixes(s32 operation, struct menuitem *item, union handlerdata *data);
@@ -5561,6 +5562,14 @@ struct menuitem g_ExtendedDabsModMissionMenuItems[] = {
 		(uintptr_t)"GoldenEye: Include Perfect Dark Guns",
 		0,
 		menuhandlerGePlusPdGuns,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GoldenEye: Cheat Guns",
+		0,
+		menuhandlerGePlusCheatGuns,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,
@@ -6307,6 +6316,27 @@ static MenuItemHandlerResult menuhandlerGePlusPdGuns(s32 operation, struct menui
 		return gexPlusGetPdGuns();
 	case MENUOP_SET:
 		gexPlusSetPdGuns(!gexPlusGetPdGuns());
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * "GoldenEye: Cheat Guns": GoldenEye's Silver PP7, Gold PP7 and taser - the
+ * guns its cartridge hands out only by cheat - in the Combat Simulator's
+ * weapon lists and three weapon sets of GoldenEye's arenas (gexplus.c,
+ * Mod.GePlusCheatGuns, off unless turned on). The Weapons page has it too
+ * ("GoldenEye Cheat Guns", setup.c), for Perfect Dark's Combat Simulator;
+ * this one is for GoldenEye's own, whose weapon set is a row of its folder.
+ */
+static MenuItemHandlerResult menuhandlerGePlusCheatGuns(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return gexPlusGetCheatGuns();
+	case MENUOP_SET:
+		gexPlusSetCheatGuns(!gexPlusGetCheatGuns());
 		break;
 	}
 
@@ -7757,6 +7787,11 @@ static MenuItemHandlerResult menuhandlerRoomGePdGuns(s32 operation, struct menui
 	return operation == MENUOP_CHECKHIDDEN ? !roomRulesGoldenEye() : menuhandlerGePlusPdGuns(operation, item, data);
 }
 
+static MenuItemHandlerResult menuhandlerRoomGeCheatGuns(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return operation == MENUOP_CHECKHIDDEN ? !roomRulesGoldenEye() : menuhandlerGePlusCheatGuns(operation, item, data);
+}
+
 static MenuItemHandlerResult menuhandlerRoomGeRegion(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	return operation == MENUOP_CHECKHIDDEN ? !roomRulesGoldenEye() : menuhandlerGePlusRegion(operation, item, data);
@@ -7803,6 +7838,7 @@ static struct menuitem g_NetRoomRulesMenuItems[] = {
 		MODALARM_SPEED_MAX - MODALARM_SPEED_MIN, menuhandlerModGuardSpawnSpeed },
 	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Guard Weapons", menuhandlerModGuardWeapons),
 	ROOMRULE(MENUITEMTYPE_CHECKBOX, "GoldenEye: Include Perfect Dark Guns", menuhandlerRoomGePdGuns),
+	ROOMRULE(MENUITEMTYPE_CHECKBOX, "GoldenEye: Cheat Guns", menuhandlerRoomGeCheatGuns),
 	ROOMRULE(MENUITEMTYPE_DROPDOWN, "GoldenEye: Region Rules", menuhandlerRoomGeRegion),
 	ROOMRULE(MENUITEMTYPE_CHECKBOX, "GoldenEye: Later Revision (JP/PAL)", menuhandlerRoomGeRevision),
 	ROOMRULE_SEPARATOR,

@@ -59,8 +59,10 @@
 _Static_assert(MODEL_GE_FIRST + NUM_GE_WEAPONS <= MODEL_REMAKE_FIRST,
 		"a model state per GoldenEye gun, before the remake's models");
 _Static_assert(MPWEAPON_GE_EXTRA1 - MPWEAPON_GE_FIRST == NUM_GE_GUNS
-		&& NUM_MPWEAPONS - MPWEAPON_GE_EXTRA1 == NUM_GE_EXTRA,
-		"a Combat Simulator row per GoldenEye gun, and per hack's own pistol");
+		&& MPWEAPON_GE_SILVERPP7 - MPWEAPON_GE_EXTRA1 == NUM_GE_EXTRA
+		&& NUM_MPWEAPONS - MPWEAPON_GE_SILVERPP7 == NUM_GE_CHEATGUNS
+		&& WEAPON_GE_SILVERPP7 == WEAPON_GE_EXTRA4 + 1,
+		"a Combat Simulator row per GoldenEye gun, per hack's own pistol and per cheat gun, in weapon order");
 _Static_assert(NUM_WEAPONS <= WEAPON_MPLOCATION00, "a weapon number below the pads' (gunctrl's are s16)");
 
 static const char *const names[NUM_GE_WEAPONS] = {
@@ -103,6 +105,10 @@ static const char *const names[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_EXTRA2          - WEAPON_GE_FIRST] = LANG_N("Pistol\n"),
 	[WEAPON_GE_EXTRA3          - WEAPON_GE_FIRST] = LANG_N("Pistol\n"),
 	[WEAPON_GE_EXTRA4          - WEAPON_GE_FIRST] = LANG_N("Pistol\n"),
+	// GoldenEye's cheat guns, as its LgunE has them (GUN_STR_65, _38, _6F)
+	[WEAPON_GE_SILVERPP7       - WEAPON_GE_FIRST] = LANG_N("Silver PP7\n"),
+	[WEAPON_GE_GOLDPP7         - WEAPON_GE_FIRST] = LANG_N("Gold PP7\n"),
+	[WEAPON_GE_TASER           - WEAPON_GE_FIRST] = LANG_N("Taser\n"),
 };
 
 /**
@@ -210,6 +216,9 @@ static const u8 geShootSounds[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_GOLDENGUN - WEAPON_GE_FIRST]       = 117,
 	[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST]       = 228, // LASER_GUN
 	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 12,  // GUN_TANK2BIGBIG_1
+	[WEAPON_GE_SILVERPP7 - WEAPON_GE_FIRST]       = 107, // the PP7's
+	[WEAPON_GE_GOLDPP7 - WEAPON_GE_FIRST]         = 107,
+	[WEAPON_GE_TASER - WEAPON_GE_FIRST]           = 100, // taser_stats' Sound, 0x64
 };
 
 // the gun set's (gegunsStageSet()): GoldenEye's, or a ROM hack's own
@@ -474,6 +483,7 @@ static struct noisesettings *gegunsNoise(s32 i)
 #endif
 #define GEGUNS_GE_FRAME_TICKS    2
 #define GEGUNS_PD_SHOT_OVERHEAD  1
+#define GETASER_LOWER60          16 // geTaserLower's length
 
 /**
  * How long GoldenEye holds a shot back after the trigger is pressed, in
@@ -489,7 +499,25 @@ s32 gegunsTriggerDelay60(s32 weaponnum)
 		return 6;
 	}
 
+	// the taser fires once it is lowered: TRIGGER_PRESS samples
+	// taserFireKeyFrames until the track ends (gegunsOwnTaserTick())
+	if (weaponnum == WEAPON_GE_TASER) {
+		return GETASER_LOWER60;
+	}
+
 	return 0;
+}
+
+/**
+ * Whether one of GoldenEye's guns fires once a press: the taser, which
+ * gunfire.c keeps in GUN_ANIM_STATE_FIRE, lowered and firing no more, while
+ * the trigger is held, and raises only when it is let go. Perfect Dark fires
+ * a single-shot gun again while the trigger is held; bgun0f09aba4() holds
+ * this one until it is released.
+ */
+s32 gegunsOnePerPress(s32 weaponnum)
+{
+	return weaponnum == WEAPON_GE_TASER;
 }
 
 /**
@@ -687,6 +715,11 @@ static struct weaponfunc *gegunsFunc(s32 i, s32 f, const struct weaponfunc *src,
 	fn->ammoindex = src->ammoindex;
 	fn->fire_animation = src->fire_animation; // the model's
 	fn->flags = src->flags;
+
+	// the taser fires with no flash (gunfire.c leaves field_87D clear)
+	if (WEAPON_GE_FIRST + i == WEAPON_GE_TASER && f == 0) {
+		fn->flags |= FUNCFLAG_NOMUZZLEFLASH;
+	}
 
 	// GoldenEye's gun has the one noise whatever it is doing
 	fn->noisesettings = noise && (f == 0 || (src->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) ? noise : src->noisesettings;
@@ -1031,6 +1064,14 @@ static void gegunsBuild(s32 i, const struct weapon *model, const struct weapon *
 	def->flags3 = engine->flags3;
 	def->unequippedreloadindex = engine->unequippedreloadindex;
 	def->pickupsound = gegunsPickupSound(i);
+
+	// GoldenEye's taser has no AmmoType and fires anyway: gunfire.c fires a
+	// gun of AmmoType none whatever its magazine holds. Perfect Dark's hand
+	// spent a round out of its empty clip and so fired nothing (bondgun.c's
+	// shotstotake), and it did no harm at all
+	if (WEAPON_GE_FIRST + i == WEAPON_GE_TASER) {
+		def->flags3 |= WEAPONFLAG3_FREESHOTS;
+	}
 
 	// A thrown knife of GoldenEye's does its damage and falls: it neither
 	// stays where it lands nor poisons, as the combat knife's does
@@ -1581,6 +1622,9 @@ static const u8 geItems[NUM_GE_WEAPONS] = {
 		[WEAPON_GE_TIMEDMINE - WEAPON_GE_FIRST] = 27,
 		[WEAPON_GE_PROXIMITYMINE - WEAPON_GE_FIRST] = 28,
 		[WEAPON_GE_REMOTEMINE - WEAPON_GE_FIRST] = 29,
+		[WEAPON_GE_SILVERPP7 - WEAPON_GE_FIRST] = 20,
+		[WEAPON_GE_GOLDPP7 - WEAPON_GE_FIRST] = 21,
+		[WEAPON_GE_TASER - WEAPON_GE_FIRST] = 31,
 };
 
 static const u8 *items = geItems;
@@ -1829,27 +1873,33 @@ static void gegunsFindConverted(void)
 		}
 	}
 
-	if (dir < 0) {
+	// GoldenEye's cheat guns are GoldenEye's own on a hack's stage too: the
+	// hack has guns of its own on their items (its extra pistols, on the
+	// weapons before them), whose models those numbers would find there
+	const s32 gedir = g_GunSetDir >= 0 ? modloaderGexPlusDirIndex() : dir;
+
+	if (dir < 0 && gedir < 0) {
 		return;
 	}
 
 	for (s32 i = 0; i < NUM_GE_WEAPONS; i++) {
 		const s32 item = GE_GUN_INDEX(i) ? gegunsItemNumber(i) : 0;
+		const s32 from = i >= WEAPON_GE_SILVERPP7 - WEAPON_GE_FIRST && i <= WEAPON_GE_TASER - WEAPON_GE_FIRST ? gedir : dir;
 		char name[16];
 		char path[FS_MAXPATH + 1];
 
-		if (item <= 0) {
+		if (item <= 0 || from < 0) {
 			continue;
 		}
 
 		snprintf(name, sizeof(name), "Igx%03dZ", item);
-		snprintf(path, sizeof(path), "%s/files/%s", fsGetModDirAt(dir), name);
+		snprintf(path, sizeof(path), "%s/files/%s", fsGetModDirAt(from), name);
 
 		if (fsFileSize(path) <= 0) {
 			continue;
 		}
 
-		convertedModel[i] = (u16)romdataRegisterModFile(name, dir);
+		convertedModel[i] = (u16)romdataRegisterModFile(name, from);
 
 		if (convertedModel[i]) {
 			found++;
@@ -1940,6 +1990,9 @@ static const f32 geOwnPos[NUM_GE_WEAPONS][3] = {
 	[WEAPON_GE_TIMEDMINE - WEAPON_GE_FIRST] = { 11.0f, -21.0f, -37.0f },
 	[WEAPON_GE_PROXIMITYMINE - WEAPON_GE_FIRST] = { 11.0f, -21.0f, -37.0f },
 	[WEAPON_GE_REMOTEMINE - WEAPON_GE_FIRST] = { 11.0f, -21.0f, -37.0f },
+	[WEAPON_GE_SILVERPP7 - WEAPON_GE_FIRST] = { 11.0f, -20.8f, -33.5f },
+	[WEAPON_GE_GOLDPP7 - WEAPON_GE_FIRST] = { 11.0f, -20.8f, -33.5f },
+	[WEAPON_GE_TASER - WEAPON_GE_FIRST] = { 16.0f, -16.7f, -22.0f },
 };
 
 static const f32 (*ownpos)[3] = geOwnPos;
@@ -2163,6 +2216,10 @@ static const s16 geChrProps[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_TIMEDMINE       - WEAPON_GE_FIRST] = 201, // PROP_CHRTIMEDMINE
 	[WEAPON_GE_PROXIMITYMINE   - WEAPON_GE_FIRST] = 200, // PROP_CHRPROXIMITYMINE
 	[WEAPON_GE_REMOTEMINE      - WEAPON_GE_FIRST] = 199, // PROP_CHRREMOTEMINE
+	// the silver and gold PP7s are held as the PP7 is; the taser as nothing
+	// (getPropForHeldItem() has no prop for ITEM_TASER)
+	[WEAPON_GE_SILVERPP7       - WEAPON_GE_FIRST] = 191, // PROP_CHRWPPK
+	[WEAPON_GE_GOLDPP7         - WEAPON_GE_FIRST] = 191, // PROP_CHRWPPK
 };
 
 static const s16 *chrProps = geChrProps;
@@ -3021,11 +3078,22 @@ static f32 geThrowTime[MAX_PLAYERS][2];
 #define THROWSTEP(h) geThrowStep[gegunsSwingPlayer()][h]
 #define THROWTIME(h) geThrowTime[gegunsSwingPlayer()][h]
 
+enum { GETASER_NONE, GETASER_LOWER, GETASER_RAISE };
+
+// each player's hands' taser: lowered or coming up, and how far (by player,
+// as the slashes above; gegunsOwnTaserTick())
+static s8 geTaserStep[MAX_PLAYERS][2];
+static f32 geTaserTime[MAX_PLAYERS][2];
+
+#define TASERSTEP(h) geTaserStep[gegunsSwingPlayer()][h]
+#define TASERTIME(h) geTaserTime[gegunsSwingPlayer()][h]
+
 // no slash or throw under way in anyone's hands (a stage starting)
 static void gegunsOwnSwingsStop(void)
 {
 	memset(geKnifeTrack, -1, sizeof(geKnifeTrack));
 	memset(geThrowStep, GETHROW_NONE, sizeof(geThrowStep));
+	memset(geTaserStep, GETASER_NONE, sizeof(geTaserStep));
 }
 
 static s32 gegunsOwnThrowApplies(const struct hand *hand)
@@ -3093,6 +3161,80 @@ void gegunsOwnThrowTick(struct hand *hand, s32 handnum, f32 lvupdate60)
 	}
 
 	hand->useposrot = true;
+}
+
+/**
+ * GoldenEye's taser on its own model (gun.c's taserFireKeyFrames and
+ * taserRaiseKeyframes): lowered to fire from the press (16 sixtieths, which
+ * the shot waits for: gegunsTriggerDelay60()), held lowered while the trigger
+ * is held after the shot, and raised when it is let go (16 more). Perfect
+ * Dark's host, the PP9i, kicks up as a pistol does instead.
+ */
+static const struct geknifekey geTaserLower[6] = {
+	{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 0, { 0.5f, -6.0f, -8.0f }, { 0.439468f, 0.278829f, 0.195178f }, 0.5f, 8.0f },
+	{ 0, { -2.0f, -8.0f, -10.0f }, { 1.101655f, 0.460753f, 0.570961f }, 0.5f, 8.0f },
+	{ 0, { -2.0f, -8.0f, -10.0f }, { 1.101655f, 0.460753f, 0.570961f }, 0.5f, 8.0f },
+	{ 1, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f },
+};
+
+static const struct geknifekey geTaserRaise[6] = {
+	{ 0, { -2.0f, -8.0f, -10.0f }, { 1.101655f, 0.460753f, 0.570961f }, 0.5f, 8.0f },
+	{ 0, { -2.0f, -8.0f, -10.0f }, { 1.101655f, 0.460753f, 0.570961f }, 0.5f, 8.0f },
+	{ 0, { 0.5f, -6.0f, -8.0f }, { 0.439468f, 0.278829f, 0.195178f }, 0.5f, 8.0f },
+	{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 1, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f },
+};
+
+/**
+ * Each tick, after the hand's states (bondgun.c, with the knife's): lowered
+ * from the shot's press until the trigger is let go after it - a tap still
+ * lowers it all the way and fires, as GoldenEye's does - then raised. Stops
+ * at once if the taser is put away or not on its own model.
+ */
+void gegunsOwnTaserTick(struct hand *hand, s32 handnum, f32 lvupdate60)
+{
+	if (handnum < 0 || handnum > 1) {
+		return;
+	}
+
+	if (hand->gset.weaponnum != WEAPON_GE_TASER || !gegunsOwnModelInUse(WEAPON_GE_TASER)
+			|| hand->state == HANDSTATE_CHANGEGUN) {
+		TASERSTEP(handnum) = GETASER_NONE;
+		return;
+	}
+
+	if (hand->state == HANDSTATE_ATTACK
+			&& (hand->stateminor == HANDSTATEMINOR_ATTACK_SHOOT_0 || !hand->triggerreleased)) {
+		if (TASERSTEP(handnum) != GETASER_LOWER) {
+			TASERSTEP(handnum) = GETASER_LOWER;
+			TASERTIME(handnum) = 0.0f;
+		} else {
+			TASERTIME(handnum) += lvupdate60;
+		}
+
+		// lowered, and held there once the track has ended
+		gegunsSampleTrack(geTaserLower, TASERTIME(handnum), &hand->posrotmtx, handnum == HAND_LEFT);
+		hand->useposrot = true;
+		return;
+	}
+
+	if (TASERSTEP(handnum) == GETASER_LOWER) {
+		TASERSTEP(handnum) = GETASER_RAISE;
+		TASERTIME(handnum) = 0.0f;
+	} else if (TASERSTEP(handnum) == GETASER_RAISE) {
+		TASERTIME(handnum) += lvupdate60;
+	} else {
+		return;
+	}
+
+	if (gegunsSampleTrack(geTaserRaise, TASERTIME(handnum), &hand->posrotmtx, handnum == HAND_LEFT)) {
+		hand->useposrot = true;
+	} else {
+		TASERSTEP(handnum) = GETASER_NONE;
+	}
 }
 
 // F3's [netplay] section: a player's hand's knife slash (-1 none) and throw
@@ -4328,11 +4470,29 @@ void gegunsStageSet(s32 stagenum)
 	g_GunSetDir = dir;
 
 	// and each one's model in the hand, the set's own (gegunsFindConverted()):
-	// gebean.c's for GoldenEye's guns, and here for the hack's own pistols,
-	// which the release has nothing of
+	// gebean.c's for GoldenEye's guns, which does the hack's own pistols and
+	// GoldenEye's cheat guns with them (gegunsExtraModelsRefresh())
 	gebeanGunsStageRefresh();
 
-	for (s32 w = WEAPON_GE_EXTRA1; w <= WEAPON_GE_EXTRA4; w++) {
+	gegunsExtraModelsRefresh();
+	gegunsExtraRowsRefresh();
+
+	sysLogPrintf(LOG_NOTE, "geguns: %s guns", set ? "a ROM hack's own" : "GoldenEye's own");
+}
+
+/**
+ * The models in the hand of the guns gebean.c has no rows for - a ROM hack's
+ * own pistols (WEAPON_GE_EXTRA1-4) and GoldenEye's cheat guns (the Silver
+ * PP7, the Gold PP7, the taser): GoldenEye's own model in either look, out of
+ * the gun set's conversion (gegunsFindConverted()), with its hand in it; the
+ * host's with the host's hands where the conversion has none. Wherever
+ * gebean.c sets the others' (gebeanGunsRefresh(): at boot, on F6 and as a
+ * stage loads) - setting them only on a change of gun set left GoldenEye's
+ * own set's cheat guns on their host's model.
+ */
+void gegunsExtraModelsRefresh(void)
+{
+	for (s32 w = WEAPON_GE_EXTRA1; w <= WEAPON_GE_TASER; w++) {
 		const s32 i = w - WEAPON_GE_FIRST;
 		const u16 own = gegunsOwnModel(i);
 
@@ -4344,10 +4504,6 @@ void gegunsStageSet(s32 stagenum)
 			g_GeWeaponDefs[i].flags |= gegunsHandsFlag(i);
 		}
 	}
-
-	gegunsExtraRowsRefresh();
-
-	sysLogPrintf(LOG_NOTE, "geguns: %s guns", set ? "a ROM hack's own" : "GoldenEye's own");
 }
 
 /** Whether a ROM hack's own gun set is in (gegunsStageSet()): its stage is loaded. */
@@ -4445,6 +4601,32 @@ void gegunsExtraRowsRefresh(void)
 		const s32 i = WEAPON_GE_EXTRA1 + k - WEAPON_GE_FIRST;
 
 		g_MpWeapons[MPWEAPON_GE_EXTRA1 + k].unlockfeature = set && set->names[i][0] ? 0 : MPFEATURE_NEVER;
+	}
+
+	gegunsCheatRowsRefresh();
+}
+
+/**
+ * The Combat Simulator's rows of GoldenEye's cheat guns (MPWEAPON_GE_SILVERPP7:
+ * the Silver PP7, the Gold PP7, the taser): shown when the player asks for
+ * them on the Weapons page (Mod.GePlusCheatGuns, off unless turned on) while
+ * GoldenEye's guns are listed at all - its PP7's row shown, which gebean.c
+ * does wherever there is a conversion or the release to draw them - and the
+ * menus name GoldenEye's own guns rather than a ROM hack's (gegunsMenuSet()).
+ * Hidden, nothing hands them out: GoldenEye's own multiplayer never did.
+ */
+s32 gegunsCheatGunsOffered(void)
+{
+	return !modDataMpWeaponsImported() && !gegunsMenuSet()
+		&& g_MpWeapons[MPWEAPON_GE_FIRST].unlockfeature != MPFEATURE_NEVER;
+}
+
+void gegunsCheatRowsRefresh(void)
+{
+	const s32 show = gexPlusGetCheatGuns() && gegunsCheatGunsOffered();
+
+	for (s32 k = 0; k < NUM_GE_CHEATGUNS; k++) {
+		g_MpWeapons[MPWEAPON_GE_SILVERPP7 + k].unlockfeature = show ? 0 : MPFEATURE_NEVER;
 	}
 }
 

@@ -126,6 +126,10 @@ s32 gexPlusWeaponSets(s32 *first);
 void gexPlusWeaponSetsAppend(void); // GoldenEye's own sets in the whole list, at boot and after a swap
 s32 gexPlusGetPdGuns(void);
 void gexPlusSetPdGuns(s32 on);
+// Mod.GePlusCheatGuns: GoldenEye's Silver PP7, Gold PP7 and taser offered in
+// the Combat Simulator's weapons and three weapon sets of GoldenEye's (off)
+s32 gexPlusGetCheatGuns(void);
+void gexPlusSetCheatGuns(s32 on);
 
 /**
  * The Combat Simulator's dropdowns mark the rows a GoldenEye conversion

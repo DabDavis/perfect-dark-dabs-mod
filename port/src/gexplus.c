@@ -26,6 +26,7 @@
 #include "data.h"
 #include "modloader.h"
 #include "gexplus.h"
+#include "geguns.h"
 #include "gecinema.h"
 #include "gexfront.h"
 #include <string.h>
@@ -1990,17 +1991,45 @@ void gexPlusMissionExitTick(void)
 #define GESETS_NAME   32
 #define GESETS_ROW    (GESETS_NAME + GESETS_SLOTS)
 #define GESETS_GROUPS 4
+#define GESETS_CHEAT  3
+#define GESETS_MAX    (GESETS_NUM + GESETS_CHEAT)
 
 extern s32 g_MpWeaponSetNum;
 
 struct gesetsgroup {
 	char dir[FS_MAXPATH + 1]; // the conversion's mod dir; "" a free group
-	s32 num;
-	struct mpweaponset sets[GESETS_NUM];
-	char text[GESETS_NUM][GESETS_NAME + 2];
+	s32 num;                  // listed: numown, and the cheat sets after them while they are on
+	s32 numown;               // read out of menu/gesets.bin
+	struct mpweaponset sets[GESETS_MAX];
+	char text[GESETS_MAX][GESETS_NAME + 2];
+};
+
+/**
+ * GoldenEye's cheat guns (WEAPON_GE_SILVERPP7 on, geguns.c) offered in its
+ * arenas' weapon sets: three sets of the port's after GoldenEye's own
+ * fourteen, while Mod.GePlusCheatGuns is on (the Weapons page's "GoldenEye
+ * Cheat Guns", off unless turned on). GoldenEye's own multiplayer has no set
+ * with any of them - its Silver PP7 and Gold PP7 come by cheat in solo only,
+ * and its taser not at all - so these are built the way its own sets are:
+ * eight slots from the lightest gun to the heaviest, which Perfect Dark's six
+ * take evenly (geSetsGroup()), each after a set of GoldenEye's own: Pistols
+ * with the Silver PP7 at the top, Golden Gun with the Gold PP7 in its place,
+ * and one gun all through, as Slappers Only and Throwing Knives are.
+ */
+static const struct {
+	const char *name;
+	u8 slots[GESETS_SLOTS];
+} g_GeCheatSets[GESETS_CHEAT] = {
+	{ "Silver PP7s\n", { WEAPON_GE_PP7, WEAPON_GE_PP7, WEAPON_GE_DD44, WEAPON_GE_DD44, WEAPON_GE_DD44,
+		WEAPON_GE_SILVERPP7, WEAPON_GE_SILVERPP7, WEAPON_GE_SILVERPP7 } },
+	{ "Gold PP7\n", { WEAPON_GE_DD44, WEAPON_GE_DD44, WEAPON_GE_KLOBB, WEAPON_GE_KLOBB, WEAPON_GE_KF7SOVIET,
+		WEAPON_GE_KF7SOVIET, WEAPON_GE_PP7SILENCED, WEAPON_GE_GOLDPP7 } },
+	{ "Tasers\n", { WEAPON_GE_TASER, WEAPON_GE_TASER, WEAPON_GE_TASER, WEAPON_GE_TASER, WEAPON_GE_TASER,
+		WEAPON_GE_TASER, WEAPON_GE_TASER, WEAPON_GE_TASER } },
 };
 
 static s32 g_GePlusPdGuns = 0;
+static s32 g_GePlusCheatGuns = 0;
 static struct gesetsgroup g_GeSetsGroups[GESETS_GROUPS];
 static s32 g_GeSetsFirst = -1; // the block of the list
 static s32 g_GeSetsNum = 0;
@@ -2009,6 +2038,7 @@ static s32 g_GeSetsIn = -1; // whose group the block holds
 PD_CONSTRUCTOR static void gexPlusGunsConfigInit(void)
 {
 	configRegisterInt("Mod.GePlusPdGuns", &g_GePlusPdGuns, 0, 1);
+	configRegisterInt("Mod.GePlusCheatGuns", &g_GePlusCheatGuns, 0, 1);
 }
 
 s32 gexPlusGetPdGuns(void)
@@ -2019,6 +2049,37 @@ s32 gexPlusGetPdGuns(void)
 void gexPlusSetPdGuns(s32 on)
 {
 	g_GePlusPdGuns = on ? 1 : 0;
+}
+
+s32 gexPlusGetCheatGuns(void)
+{
+	return g_GePlusCheatGuns;
+}
+
+static void geSetsCheatGunsChanged(void);
+
+/**
+ * Mod.GePlusCheatGuns as `on`, and what follows it put in step there and
+ * then: the cheat guns' rows, GoldenEye's cheat sets in the weapon set list
+ * (geSetsCheatGunsChanged()), and, switched off, a slot holding one of them
+ * emptied - a hidden row still hands its gun out, and the slot's menu would
+ * name another. Each step is the same done twice, so it runs whatever the
+ * setting held before: netrules.c writes a host's value, and a client's own
+ * back after the match, straight into it.
+ */
+void gexPlusSetCheatGuns(s32 on)
+{
+	g_GePlusCheatGuns = on ? 1 : 0;
+	gegunsCheatRowsRefresh();
+	geSetsCheatGunsChanged();
+
+	if (!g_GePlusCheatGuns) {
+		for (s32 i = 0; i < ARRAYCOUNT(g_MpSetup.weapons); i++) {
+			if (g_MpSetup.weapons[i] >= MPWEAPON_GE_SILVERPP7 && g_MpSetup.weapons[i] < NUM_MPWEAPONS) {
+				g_MpSetup.weapons[i] = MPWEAPON_NONE;
+			}
+		}
+	}
 }
 
 /** Whether the block is still where it was put: a mod swap puts the list back. */
@@ -2048,6 +2109,50 @@ static const char *geSetsDir(s32 own)
 	}
 
 	return NULL;
+}
+
+/** Whether a group is GoldenEye's own, never a ROM hack's: the one the cheat sets go in. */
+static s32 geSetsGroupIsGe(const struct gesetsgroup *group)
+{
+	const char *tag = gexPlusMenuTagOfDir(group->dir);
+
+	return tag && !strcmp(tag, "GE");
+}
+
+/**
+ * How many of a group's sets are listed: its own, and GoldenEye's cheat sets
+ * after them while they are asked for, built into the group the first time
+ * (g_GeCheatSets, eight slots taken to six as GoldenEye's own are).
+ */
+static s32 geSetsGroupCount(struct gesetsgroup *group)
+{
+	if (!g_GePlusCheatGuns || !geSetsGroupIsGe(group) || group->numown + GESETS_CHEAT > GESETS_MAX) {
+		return group->numown;
+	}
+
+	for (s32 k = 0; k < GESETS_CHEAT; k++) {
+		struct mpweaponset *set = &group->sets[group->numown + k];
+
+		if (set->name) {
+			continue;
+		}
+
+		for (s32 j = 0; j < NUM_MPWEAPONSLOTS; j++) {
+			set->slots[j] = g_GeCheatSets[k].slots[(j * (GESETS_SLOTS - 1) + (NUM_MPWEAPONSLOTS - 1) / 2) / (NUM_MPWEAPONSLOTS - 1)];
+		}
+
+		set->unk0c = set->slots[0];
+		set->unk0d = set->slots[1];
+		set->unk0e = set->slots[2];
+		set->unk0f = set->slots[3];
+		set->unk10 = set->slots[4];
+		set->unk11 = set->slots[5];
+
+		snprintf(group->text[group->numown + k], sizeof(group->text[0]), "%s", g_GeCheatSets[k].name);
+		set->name = langAddPortText(group->text[group->numown + k]);
+	}
+
+	return group->numown + GESETS_CHEAT;
 }
 
 /** Mod dir `dir`'s sets, read the first time they are asked for; -1 where it has none. */
@@ -2127,7 +2232,8 @@ static s32 geSetsGroup(const char *dir)
 		set->name = langAddPortText(group->text[i]);
 	}
 
-	group->num = num;
+	group->numown = num;
+	group->num = geSetsGroupCount(group);
 	sysMemFree(d);
 
 	return index;
@@ -2138,6 +2244,8 @@ static s32 geSetsGroup(const char *dir)
  * same size or the list's last, after the list otherwise. A set chosen out of
  * the block is chosen again as the row it was, whose guns are the group's.
  */
+static s32 geSetsNumMoved(s32 oldnum, const struct gesetsgroup *group);
+
 static void geSetsPut(s32 index)
 {
 	const struct gesetsgroup *group = &g_GeSetsGroups[index];
@@ -2160,8 +2268,16 @@ static void geSetsPut(s32 index)
 
 	memcpy(&g_MpWeaponSets[first], group->sets, sizeof(group->sets[0]) * group->num);
 
+	const s32 oldnum = g_MpNumWeaponSets;
+
 	if (first + group->num > g_MpNumWeaponSets || (last && first == g_GeSetsFirst)) {
 		g_MpNumWeaponSets = first + group->num;
+	}
+
+	// a block of another length in place of the last (GoldenEye's own with
+	// its cheat sets, a ROM hack's without): the set chosen keeps its meaning
+	if (last && first == g_GeSetsFirst) {
+		geSetsNumMoved(oldnum, group);
 	}
 
 	g_GeSetsFirst = first;
@@ -2173,6 +2289,80 @@ static void geSetsPut(s32 index)
 	}
 
 	sysLogPrintf(LOG_NOTE, "gexplus: %d weapon sets of %s in the list at %d", g_GeSetsNum, group->dir, first);
+}
+
+/**
+ * The list's last block put again at another length (geSetsPut(), the cheat
+ * sets coming or going), `oldnum` sets long before and now ending at
+ * g_MpNumWeaponSets: Random Five, Random and Custom follow the list's end
+ * (WEAPONSET_RANDOMFIVE), so a choice of one of them moves with it, and a set
+ * past the block's new end - one of the cheat sets - is the block's first
+ * that hands anything out (GoldenEye's first is Slappers Only, none): 1 then,
+ * for the caller to apply. Without it a GoldenEye arena's Custom (31 of 29
+ * with the cheat sets) was past the end of a ROM hack's list, and a hack's
+ * Random GoldenEye's Silver PP7s.
+ */
+static s32 geSetsNumMoved(s32 oldnum, const struct gesetsgroup *group)
+{
+	s32 picked = 0;
+
+	if (g_MpNumWeaponSets == oldnum) {
+		return 0;
+	}
+
+	if (g_MpWeaponSetNum >= oldnum) {
+		g_MpWeaponSetNum += g_MpNumWeaponSets - oldnum;
+	} else if (g_MpWeaponSetNum >= g_MpNumWeaponSets) {
+		g_MpWeaponSetNum = group->num > 1 && group->sets[0].slots[0] == WEAPON_DISABLED
+			? g_GeSetsFirst + 1 : g_GeSetsFirst;
+		picked = 1;
+	} else {
+		return 0;
+	}
+
+	sysLogPrintf(LOG_NOTE, "gexplus: weapon set list %d -> %d long: set %d chosen", oldnum, g_MpNumWeaponSets, g_MpWeaponSetNum);
+
+	return picked;
+}
+
+/**
+ * The cheat sets switched on or off (gexPlusSetCheatGuns()): GoldenEye's
+ * group lists them or not from now on, and where its block is in the list,
+ * the list's last, it is put again at once, longer or shorter
+ * (geSetsNumMoved()). Nothing where the list already has them as asked.
+ */
+static void geSetsCheatGunsChanged(void)
+{
+	const s32 inlist = geSetsInList();
+	const s32 last = inlist && g_GeSetsFirst + g_GeSetsNum == g_MpNumWeaponSets;
+
+	for (s32 i = 0; i < GESETS_GROUPS; i++) {
+		struct gesetsgroup *group = &g_GeSetsGroups[i];
+
+		if (!group->dir[0] || !geSetsGroupIsGe(group)) {
+			continue;
+		}
+
+		group->num = geSetsGroupCount(group);
+
+		if (!inlist || g_GeSetsIn != i || !last || group->num == g_GeSetsNum
+				|| g_GeSetsFirst + group->num > MP_MAX_WEAPONSETS) {
+			continue;
+		}
+
+		const s32 oldnum = g_MpNumWeaponSets;
+
+		memcpy(&g_MpWeaponSets[g_GeSetsFirst], group->sets, sizeof(group->sets[0]) * group->num);
+		g_MpNumWeaponSets = g_GeSetsFirst + group->num;
+		g_GeSetsNum = group->num;
+
+		if (geSetsNumMoved(oldnum, group)) {
+			mpApplyWeaponSet();
+		}
+
+		sysLogPrintf(LOG_NOTE, "gexplus: GoldenEye's cheat sets %s, %d sets of %s at %d", g_GePlusCheatGuns ? "listed" : "left out",
+				g_GeSetsNum, group->dir, g_GeSetsFirst);
+	}
 }
 
 /** The mode's sets in the block (GoldenEye's own for `own`): whether they are. */

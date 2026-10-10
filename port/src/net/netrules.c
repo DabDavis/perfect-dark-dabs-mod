@@ -77,6 +77,9 @@ static const struct {
 	{ "Mod.BodiesDrawn",             NETKEY_SYNC },
 	{ "Mod.Akimbo",                  NETKEY_SYNC },
 	{ "Mod.GePlusPdGuns",            NETKEY_SYNC },
+	// GoldenEye's cheat guns: the host's, put in step before its weapon set's
+	// number is read (netRulesApplyCheatGuns)
+	{ "Mod.GePlusCheatGuns",         NETKEY_SYNC },
 	{ "Mod.GePlusRegion",            NETKEY_SYNC },
 	{ "Mod.BorrowGoldenEyeGuns",     NETKEY_MUST },
 	// read at a stage load (the setup and portals a conversion wrote both of)
@@ -270,6 +273,26 @@ static void netRulesWriteKey(const struct netkeyvalue *kv)
 
 	// within the range the setting was registered with, whatever was sent
 	configClampEntry(kv->key);
+}
+
+/**
+ * Mod.GePlusCheatGuns out of a list of keys, put in step at once
+ * (gexPlusSetCheatGuns()): GoldenEye's cheat sets are three more in the
+ * weapon set list, which a set's number counts by and Random Five, Random and
+ * Custom follow the end of, so the list must be the host's before its number
+ * is taken - and this machine's own again before its own is. Otherwise a
+ * client with them off would read the host's Silver PP7s (26 after
+ * GoldenEye's fourteen) as its own Random Five, and under Auto Random roll
+ * guns of its own at the match's start. The keys loop after writes the same.
+ */
+static void netRulesApplyCheatGuns(const struct netkeyvalue *keys, s32 nkeys)
+{
+	for (s32 i = 0; i < nkeys; i++) {
+		if (strcasecmp(keys[i].key, "Mod.GePlusCheatGuns") == 0 && keys[i].type == CONFIG_TYPE_S32) {
+			gexPlusSetCheatGuns(keys[i].s);
+			return;
+		}
+	}
 }
 
 void netRulesWriteValue(struct netbuf *b, const struct netkeyvalue *kv)
@@ -1314,6 +1337,8 @@ static void netRulesPut(const struct netrulesmsg *rules, s32 coop)
 	g_MpSetup.scorelimit = rules->scorelimit;
 	g_MpSetup.teamscorelimit = rules->teamscorelimit;
 
+	netRulesApplyCheatGuns(rules->keys, rules->nkeys);
+
 	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
 		g_MpSetup.weapons[i] = rules->weapons[i];
 	}
@@ -1482,6 +1507,7 @@ static void netRulesRestoreFrom(const struct netrulessaved *saved)
 	g_GexPlusVariant = saved->gexplusvariant;
 	mpSetGexPlusMode(saved->gexplusmode != 0);
 	gexPlusSetScenario(saved->gexplusscenario);
+	netRulesApplyCheatGuns(saved->keys, saved->nkeys);
 	g_MpSetup = saved->mpsetup;
 	memcpy(g_BotConfigsArray, saved->bots, sizeof(saved->bots));
 	memcpy(g_MpSimSlots, saved->simslots, sizeof(saved->simslots));

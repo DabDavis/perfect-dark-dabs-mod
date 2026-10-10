@@ -1704,6 +1704,27 @@ MenuItemHandlerResult menuhandlerMpAutoRandomWeapon(s32 operation, struct menuit
 
 	return 0;
 }
+
+/**
+ * GoldenEye's cheat guns - the Silver PP7, the Gold PP7 and the taser - in
+ * the weapon lists and three weapon sets of GoldenEye's (Mod.GePlusCheatGuns,
+ * gexplus.c), shown where GoldenEye's guns are offered at all
+ * (gegunsCheatGunsOffered()).
+ */
+MenuItemHandlerResult menuhandlerMpGeCheatGuns(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !gegunsCheatGunsOffered();
+	case MENUOP_GET:
+		return gexPlusGetCheatGuns();
+	case MENUOP_SET:
+		gexPlusSetCheatGuns(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
 #endif
 
 struct menuitem g_MpWeaponsMenuItems[] = {
@@ -1731,6 +1752,14 @@ struct menuitem g_MpWeaponsMenuItems[] = {
 		(uintptr_t)"Auto Random\n",
 		0,
 		menuhandlerMpAutoRandomWeapon,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GoldenEye Cheat Guns\n",
+		0,
+		menuhandlerMpGeCheatGuns,
 	},
 #endif
 	{

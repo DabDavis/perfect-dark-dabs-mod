@@ -1645,6 +1645,12 @@ static void gebeanGunsRefresh(void)
 		sysLogPrintf(LOG_NOTE, "gebean: %d GoldenEye guns in the Combat Simulator's weapons, %d with the release's pickup",
 				ARRAYCOUNT(gunRows), shown);
 	}
+
+	// and the guns there are no rows here for, the hack's own pistols and
+	// GoldenEye's cheat guns: GoldenEye's own model (geguns.c); and the cheat
+	// guns' Combat Simulator rows, where asked for
+	gegunsExtraModelsRefresh();
+	gegunsCheatRowsRefresh();
 }
 
 void gebeanGunsStageRefresh(void)

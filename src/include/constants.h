@@ -195,7 +195,7 @@ s32 langpackIsCjk(void);
 // ITEM_TASER and ITEM_TANKSHELLS come just before it): a driver who switched
 // to a gun in the tank switches back to the shells the same way (F3
 // 20260929-062621). The shells are only in the inventory while he drives.
-#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS || ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < WEAPON_GE_FIRST + NUM_GE_GUNS) || (weaponnum) == WEAPON_GE_DETONATOR || (weaponnum) == WEAPON_GE_TANKSHELLS || ((weaponnum) >= WEAPON_GE_EXTRA1 && (weaponnum) <= WEAPON_GE_EXTRA4))
+#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS || ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < WEAPON_GE_FIRST + NUM_GE_GUNS) || (weaponnum) == WEAPON_GE_DETONATOR || (weaponnum) == WEAPON_GE_TANKSHELLS || ((weaponnum) >= WEAPON_GE_EXTRA1 && (weaponnum) <= WEAPON_GE_TASER))
 #else
 #define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS)
 #endif
@@ -3380,7 +3380,11 @@ s32 langpackIsCjk(void);
 // while its gun set is (geguns.c), after them; the randomizer rolls the rows
 // before them, as it did before they were added
 #define MPWEAPON_GE_EXTRA1        (MPWEAPON_GE_FIRST + 25)
-#define NUM_MPWEAPONS             (MPWEAPON_GE_EXTRA1 + 4)
+// and GoldenEye's own cheat guns (WEAPON_GE_SILVERPP7 to WEAPON_GE_TASER),
+// shown while Mod.GePlusCheatGuns asks for them (geguns.c); after the hack's
+// so no saved index moves, and past what the randomizer rolls
+#define MPWEAPON_GE_SILVERPP7     (MPWEAPON_GE_EXTRA1 + 4)
+#define NUM_MPWEAPONS             (MPWEAPON_GE_SILVERPP7 + 3)
 #endif
 
 #ifndef PLATFORM_N64
@@ -4917,6 +4921,15 @@ enum weaponnum {
 	/*0x81*/ WEAPON_GE_EXTRA2,           // PP9i
 	/*0x82*/ WEAPON_GE_EXTRA3,           // PP9i
 	/*0x83*/ WEAPON_GE_EXTRA4,           // PP9i
+	// GoldenEye's own guns its cartridge hands out only by cheat (the Silver
+	// PP7 and Gold PP7 cheats, Extra Weapons, All Guns) and never in a
+	// multiplayer set: ITEM_SILVERWPPK, ITEM_GOLDWPPK and the taser,
+	// ITEM_TASER, which no level gives at all. Pistols on the PP7's host,
+	// built from their own gunWeaponStat rows (geguns.c); the Combat
+	// Simulator offers them behind Mod.GePlusCheatGuns.
+	/*0x84*/ WEAPON_GE_SILVERPP7,        // PP9i
+	/*0x85*/ WEAPON_GE_GOLDPP7,          // PP9i
+	/*0x86*/ WEAPON_GE_TASER,            // PP9i
 #endif
 	NUM_WEAPONS
 };
@@ -4926,6 +4939,7 @@ enum weaponnum {
 #define NUM_GE_WEAPONS  (NUM_WEAPONS - WEAPON_GE_FIRST)
 #define NUM_GE_GUNS     (WEAPON_GE_COVERTMODEM - WEAPON_GE_FIRST)
 #define NUM_GE_EXTRA    (WEAPON_GE_EXTRA4 + 1 - WEAPON_GE_EXTRA1)
+#define NUM_GE_CHEATGUNS (WEAPON_GE_TASER + 1 - WEAPON_GE_SILVERPP7)
 // a gun of GoldenEye's or a hack's own (index = weaponnum - WEAPON_GE_FIRST)
 #define GE_GUN_INDEX(i) (((i) >= 0 && (i) < NUM_GE_GUNS) || ((i) >= WEAPON_GE_EXTRA1 - WEAPON_GE_FIRST && (i) < NUM_GE_WEAPONS))
 #endif

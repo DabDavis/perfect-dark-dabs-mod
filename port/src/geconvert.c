@@ -6215,8 +6215,8 @@ static const uint8_t g_GeItemWeapon[] = {
 	0x6b,  /* 17 SNIPERRIFLE   Sniper Rifle */
 	0x6c,  /* 18 RUGER         Cougar Magnum */
 	0x6d,  /* 19 GOLDENGUN     Golden Gun */
-	0x5e,  /* 20 SILVERWPPK    a PP7; the port has no silver one of its own */
-	0x5e,  /* 21 GOLDWPPK      a PP7; nor a gold one */
+	0x84,  /* 20 SILVERWPPK    Silver PP7 (WEAPON_GE_SILVERPP7) */
+	0x85,  /* 21 GOLDWPPK      Gold PP7 */
 	0x6e,  /* 22 LASER         Moonraker laser */
 	0x6e,  /* 23 WATCHLASER    the watch laser is the same beam */
 	0x6f,  /* 24 GRENADELAUNCH Grenade Launcher */
@@ -6310,12 +6310,13 @@ static int itemWeaponIsGun(uint32_t w)
  * GoldenEye gun whose file it took - Goldfinger's GsniperrifleZ at 20 is
  * GoldenEye's sniper rifle with a model, numbers and name of its own (the
  * Armalite AR7) - and takes that gun's weapon here, and the file is what
- * says which. A gun on a file GoldenEye has no weapon of its own for - the
- * silver and gold PP7s, which the port gives the PP7's number, the watch
- * laser, which it gives the Moonraker's, the taser, which it gives none -
- * takes one of four weapons past the detonator, pistols on the PP7's host:
- * Goldfinger's Luger P08, Walther P38 and two Smith & Wessons. A gun is an
- * item a hand holds as a prop (heldprops).
+ * says which. A gun on the file of one of GoldenEye's guns no hack's set
+ * stands in for - the silver and gold PP7s and the taser, GoldenEye's cheat
+ * guns (WEAPON_GE_SILVERPP7 on, always GoldenEye's own), and the watch laser,
+ * which rides the Moonraker's number - takes one of four weapons past the
+ * detonator, pistols on the PP7's host: Goldfinger's Luger P08, Walther P38
+ * and two Smith & Wessons. A gun is an item a hand holds as a prop
+ * (heldprops).
  */
 static void itemWeaponsBuild(void)
 {
@@ -11768,7 +11769,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// models, each with the hand that holds it, converted the same way
 		// and written under its item number - ITEM_FIST (1), Bond's own hand
 		// that slaps when he is unarmed (geslappers.c), ITEM_KNIFE (2) to
-		// ITEM_REMOTEMINE (29) and the detonator (30), whichever have a model
+		// ITEM_REMOTEMINE (29), the detonator (30) and the taser (31),
+		// whichever have a model; the silver and gold PP7s (20, 21) and the
+		// taser are the cheat guns (WEAPON_GE_SILVERPP7 to WEAPON_GE_TASER)
 		{
 			int written = 0;
 
@@ -11781,12 +11784,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				buf data, z;
 				char rel[64];
 
-				// the silver and gold PP7s are no gun of the port's
-				// (g_GeItemWeapon gives them another's); past the remote
-				// mine, the watch's detonator (ITEM_TRIGGER, 30,
-				// WEAPON_GE_DETONATOR) and the gadgets. The watch laser
-				// (23) rides WEAPON_GE_MOONRAKER but is drawn with its own
-				// model, GwatchlaserZ, the detonator's twin (gegadgets.c)
+				// past the remote mine, the watch's detonator (ITEM_TRIGGER,
+				// 30, WEAPON_GE_DETONATOR), the taser (31) and the gadgets.
+				// The watch laser (23) rides WEAPON_GE_MOONRAKER but is drawn
+				// with its own model, GwatchlaserZ, the detonator's twin
+				// (gegadgets.c)
 				if (!g_Items[item].file) {
 					continue;
 				}
@@ -11800,7 +11802,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 							&& strcmp(g_Items[item].file, "GtriggerZ") && !soloGadgetItem(item)) {
 						continue;
 					}
-				} else if (item == 20 || item == 21 || (item > 30 && !soloGadgetItem(item))) {
+				} else if (item > 31 && !soloGadgetItem(item)) {
 					continue;
 				}
 
