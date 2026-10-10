@@ -31,6 +31,46 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 55 2026-10-11
+Online co-op: objectives done by any player count for everyone (collecting, gadgets, consoles, reaching exits), and every guest gets the mission's gear, not just the host and the first guest (thanks dab)
+Online GoldenEye co-op: after a death and a new life (Mission Respawn), reaching Bunker's exit ends the mission again (thanks dab)
+Online: after hosting a game, joining someone else's room no longer leaves you frozen, unable to walk or shoot, or stuck on GoldenEye's opening shot (thanks dab)
+Online: Guards Alerted! guards are the host's on every machine: no more T-posed guards only some players see, and nobody is missing them (thanks dab)
+Guards Alerted!: a guard stuck where he can't reach anyone (Ravine's pit) is replaced, so the waves keep coming (thanks dab)
+Online: only one player can drive GoldenEye's tank at a time (thanks dab)
+Online: Combat Boost wears off for players who joined someone else's game (thanks dab)
+Online: Surface's vent grate falls for everyone, not just the host (thanks dab)
+Online with Akimbo: your left-hand gun no longer reloads over and over; your hands always match what the host has you holding (thanks dab)
+Online: cheats are the host's for everyone, so a cheat turned on only on your machine no longer makes your gun keep switching and reloading (thanks dick)
+Online: Room Rules are the room's own: a new room starts at the standard settings, the host changes them for that room only, and your own settings and Combat Simulator setup are never changed (thanks Parabolee)
+Online: the Game Lobby shows the download of the host's map mod and its progress instead of "waiting for the host" (thanks dab)
+Online: with a very large mod library, the host's map mod is loaded instead of the game asking you to install a mod you already got from the host (thanks dab)
+Online: rejoining a host whose mod changed since it last sent it downloads the new copy instead of refusing (thanks dab)
+Online: the players panel and chat are no longer cut off while a pause menu is open (thanks ElmoBear)
+Online: getting killed while typing a problem report no longer closes the report (thanks Shockwave S08)
+Changing the fire mode of GoldenEye's Golden Gun no longer changes the next player's name (dabba showed as dabbq, open as ope~) (thanks dab and ElmoBear)
+Online: shooting a guard the host could not see no longer crashes the host
+Online: hosting a GoldenEye co-op mission with empty seats no longer crashes when guards spawn
+Opening the weapon menu in a Perfect Dark mod with a nameless weapon or item no longer crashes (Air Force Twenty One)
+GoldenEye: an opening shot whose caption is missing from the mission's text no longer crashes the cinema (Archives)
+New: GoldenEye's multiplayer Control Style page has a Look Up/Down row for each player (left alone it follows the watch, as on the cartridge), and Extended Options, Controller has Invert Right Stick X and Y (thanks Shockwave S08)
+GoldenEye: the Community Edition's fixes are built in for everyone, no zip needed: its fog distances, prop shading, mission cases and Dr. Doak's own face in the HD look (thanks savantique)
+GoldenEye: with the Community Edition's updater zip in added-content, its art (skies, Frigate's sea, pictures, Doak's head) is on by default; Community Edition Art on Mods, Missions turns it off
+GoldenEye, HD look: guards and objects stay visible as far as you can see the level, instead of vanishing at the old N64 distance (thanks savantique)
+GoldenEye Depot, HD look: the patches of old low-detail floor showing through the computer room's carpet (and nine other spots) are gone (thanks echoremastered)
+GoldenEye: the mission timer starts when you get control of Bond and stops during scripted cutscenes, as on the cartridge (thanks Casey)
+GoldenEye: with Infinite Ammo on, the tank's shells stay full (thanks Casey)
+GoldenEye: guards under the Psychosis Gun no longer speak Perfect Dark's guard lines (thanks Casey)
+GoldenEye Statue Park: Janus walks straight to the statue with his guards, as on the cartridge, instead of wandering off and arriving late (thanks savantique)
+GoldenEye Dam: you no longer fall through the tower roof at the top of the stairwell (thanks savantique)
+GoldenEye Frigate: you can walk over the speedboat's seat back, as on the cartridge, so getting off the boat is easy again (thanks savantique)
+GoldenEye Surface 2: walking into the step by the ladder no longer jams you in the corner; you slide along it as on the cartridge (thanks ClassicAlfredo)
+Simulants' GoldenEye automatics (AR33, RC-P90 and the rest) no longer go silent in the middle of a burst when a fight gets loud (thanks dblaney1)
+ROM Hack Guns: Goldfinger 64's and TND64's guns fire with their own game's sounds on Perfect Dark's and GoldenEye's arenas (thanks raffine52)
+Switching away from akimbo Falcon 2s with Quick Weapon Swap no longer leaves a red laser line on the screen (thanks ElmoBear)
+GoldenEye's HD levels build once more on the next start
+Online play needs everyone on this update (protocol 28)
+
 notes 54 2026-10-10
 Above 60 FPS: autoguns fire at the 60 FPS rate (they fired four times as fast at 240) and turn smoothly
 Above 60 FPS: switching and reloading guns take as long as at 60 (they were slightly quicker)
