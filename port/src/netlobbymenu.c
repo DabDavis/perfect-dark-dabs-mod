@@ -807,6 +807,12 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 		netLobbyCancelPending();
 	}
 
+	// closed with no room made (Back): this machine's own setup and
+	// settings again
+	if (operation == MENUOP_CLOSE && !netLobbyInRoom()) {
+		netLobbyRoomRulesCancel();
+	}
+
 	return 0;
 }
 
@@ -1013,6 +1019,10 @@ static MenuDialogHandlerResult dialogCreate(s32 operation, struct menudialogdef 
 {
 	if (operation == MENUOP_OPEN) {
 		netLobbyClearMessage();
+
+		// the room's own Room Rules and Combat Simulator setup from here,
+		// this machine's own kept aside (owner, F3 20261010-053136)
+		netLobbyRoomRulesBegin();
 
 		if (!s_Create.name[0]) {
 			snprintf(s_Create.name, sizeof(s_Create.name), "%.12s's Room", netLobbyAccount());
@@ -1851,6 +1861,7 @@ static char *textChatLine(struct menuitem *item)
 static char *textRoomStatus(struct menuitem *item)
 {
 	const struct netlobbyroom *room = netLobbyGetRoom();
+	char fetch[192];
 
 	// the chat line, while it is open (nethud.c: Space or the chat key)
 	if (netHudChatLine(s_Status, sizeof(s_Status), 36)) {
@@ -1879,6 +1890,12 @@ static char *textRoomStatus(struct menuitem *item)
 			// the room opens again when it leaves that, and the next
 			// launch has this player in it
 			snprintf(s_Status, sizeof(s_Status), "%s", "In: the host's match is over; you join its next.\n");
+		} else if (netContentFetchLine(fetch, sizeof(fetch) - 1)) {
+			// in with the host, its map's mod coming from it (through the
+			// lobby's relay a few MB take a minute): not "waiting for the
+			// host" (F3 20261010-040905, "relay did not connect properly")
+			strcat(fetch, "\n");
+			textWrapN(270, fetch, s_Status, sizeof(s_Status), g_CharsHandelGothicXs, g_FontHandelGothicXs);
 		} else if (netLobbyJoinedWait() == 2) {
 			snprintf(s_Status, sizeof(s_Status), "%s", "In: waiting for the host to start the match.\n");
 		} else {

@@ -217,6 +217,8 @@ void netFlush(void);
 void netWait(s32 us);
 void netStageStart(void);
 void netSessionModSwapped(void); // modmode.c: the host's PD mod was just entered at a STAGE_LOAD's stage change (protocol 25)
+// The Game Lobby (netlobbymenu.c): a client's fetch of the host's content under way, its progress in out; 0 none
+s32 netContentFetchLine(char *out, s32 size);
 void netCheckQuit(void);
 
 // Tick passes (pdmain.c mainTick)

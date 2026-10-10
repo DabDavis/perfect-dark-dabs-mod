@@ -2725,6 +2725,12 @@ static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize, char *
 			id = netFindMapStage(dir, map);
 		}
 
+		// mounted, but the map had no stage number of its own: a library
+		// past the Stage Loader's numbers (F3 20261010-040946)
+		if (id < 0) {
+			id = netContentRegisterMap(dir, map);
+		}
+
 		if (id < 0) {
 			netContentNoStageText(1, dir, map, 0, nostage, nostagesize);
 			snprintf(fetchdir, NET_MAXMAPDIR + 1, "%s", dir);
@@ -4832,6 +4838,48 @@ static void netSessionClose(void)
  * come once the lobby has made it (netSessionLobbySetRoom); until then no
  * ticket can match. 0, or -1 if the socket did not open.
  */
+/*
+ * Net.Name: a lobby session plays as the account's name (s_Name), and the
+ * player's own goes back at the session's end; a pd.ini write meanwhile
+ * writes the own (it had stayed the account's: netlobbytest rules)
+ */
+static char s_NameOwn[sizeof(s_Name)];
+static s32 s_NameKept = 0;
+static s32 s_NameSwapped = 0;
+
+static void netSessionNameSet(const char *name)
+{
+	if (!s_NameKept) {
+		snprintf(s_NameOwn, sizeof(s_NameOwn), "%s", s_Name);
+		s_NameKept = 1;
+	}
+
+	snprintf(s_Name, sizeof(s_Name), "%s", name);
+}
+
+static void netSessionNameBack(void)
+{
+	if (s_NameKept) {
+		snprintf(s_Name, sizeof(s_Name), "%s", s_NameOwn);
+		s_NameKept = 0;
+	}
+}
+
+// configSave (netRulesConfigSaveBegin/End): 1 the own name in, 0 back out
+void netSessionNameSaveSwap(s32 begin)
+{
+	char t[sizeof(s_Name)];
+
+	if (!s_NameKept || s_NameSwapped == begin) {
+		return;
+	}
+
+	snprintf(t, sizeof(t), "%s", s_Name);
+	snprintf(s_Name, sizeof(s_Name), "%s", s_NameOwn);
+	snprintf(s_NameOwn, sizeof(s_NameOwn), "%s", t);
+	s_NameSwapped = begin;
+}
+
 s32 netSessionLobbyHost(const char *name)
 {
 	struct nethashcomp comps[NET_MAXCOMPS];
@@ -4846,7 +4894,7 @@ s32 netSessionLobbyHost(const char *name)
 
 	netSessionHash(comps, NET_MAXCOMPS);
 	memset(s_Clients, 0, sizeof(s_Clients));
-	snprintf(s_Name, sizeof(s_Name), "%s", name);
+	netSessionNameSet(name);
 	s_Role = NETROLE_HOST;
 	s_LobbyRoomOn = 1;
 	s_LobbyRoomId[0] = '\0';
@@ -4904,7 +4952,7 @@ s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const
 	snprintf(s_ConnectAddr, sizeof(s_ConnectAddr), "%s", addr);
 	s_ConnectPort = port;
 	snprintf(s_Ticket, sizeof(s_Ticket), "%s", ticket);
-	snprintf(s_Name, sizeof(s_Name), "%s", name);
+	netSessionNameSet(name);
 	s_ConnectWindowMs = windowms > 0 ? windowms : NET_CONNECT_WINDOW_MS;
 	s_Unreached = 0;
 	s_Role = NETROLE_CLIENT;
@@ -4959,6 +5007,7 @@ void netSessionLobbyStop(void)
 	}
 
 	netHostOwnNameBack();
+	netSessionNameBack();
 	netContentSessionEnd();
 	s_FetchStageLen = 0;
 	s_FetchStageMatch = 0;

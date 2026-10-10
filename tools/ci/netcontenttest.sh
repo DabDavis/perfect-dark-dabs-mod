@@ -54,7 +54,7 @@
 # (an empty files/) still leaves with NOMOD, named.
 #
 # Env: OUT (build/netcontent-out), PORT (27300), CASES (all: ge geyolt gegg
-# gelook gfvariant gffetch gfcs gfcsfetch fetch xbla modmap modmount modmissing pdmodown pdmodfetch overlay props),
+# gelook gfvariant gffetch gfcs gfcsfetch fetch xbla modmap modmount modfetch modreclaim modmissing pdmodown pdmodfetch overlay props),
 # PDMOD (PerfectDarkAllSoloLevelsInMultiplayer), CHECKONLY (1: only the checks,
 # on the last run's files). The GoldenEye cases need the GoldenEye ROM
 # converted (mods/GoldenEye Arenas), gfvariant Goldfinger 64 converted too
@@ -84,8 +84,10 @@ set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcontent-out}; PORT=${PORT:-27300}
-CASES=${CASES:-ge geyolt gegg gelook gfvariant gffetch gfcs gfcsfetch fetch xbla modmap modmount modmissing pdmodown pdmodfetch overlay props}
+CASES=${CASES:-ge geyolt gegg gelook gfvariant gffetch gfcs gfcsfetch fetch xbla modmap modmount modfetch modreclaim modmissing pdmodown pdmodfetch overlay props}
 PDMOD=${PDMOD:-PerfectDarkAllSoloLevelsInMultiplayer}
+# modreclaim's client's other map mod (one map), installed beside PD_Kakariko
+RECLAIMMOD=${RECLAIMMOD:-darknoon_valley[mrkane]}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -458,6 +460,16 @@ run() {
 		modmap) runcase modmap "ModDir=\nMapMods=PD_Kakariko\nStartArmed=1\n" "ModDir=\nMapMods=PD_Kakariko\n" "--net-test-map Playground" "" ;;
 		# the client's Mod.MapMods left the host's map mod out: mounted on demand
 		modmount) runcase modmount "ModDir=\nMapMods=PD_Kakariko\nStartArmed=1\n" "ModDir=\nMapMods=\n" "--net-test-map Playground" "" ;;
+		# the client has no copy of the host's map mod at all: served by the
+		# host into memory, mounted, and the kept STAGE_LOAD finds the map
+		# (F3 20261010-040946: refused NOSTAGE after the fetch)
+		modfetch) CLIENTBIN=$(fetchclient) runcase modfetch "ModDir=\nMapMods=PD_Kakariko\nStartArmed=1\n" "ModDir=\nMapMods=\n" "--net-test-map Playground" "" ;;
+		# modmount with the client's stage numbers run out (--mod-stage-limit 2:
+		# its other map mod's one map, then Car Park): Playground registered
+		# on its own, the other mod's map giving up its number (F3
+		# 20261010-040946: a library past 189 maps, the host's map refused)
+		modreclaim) runcase modreclaim "ModDir=\nMapMods=PD_Kakariko\nStartArmed=1\n" "ModDir=\nMapMods=$RECLAIMMOD\n" "--net-test-map Playground" \
+			"--mod-stage-limit 2" ;;
 		# the host's overlay mod is one the client has no copy of (a folder
 		# with a files/ dir is a mod): the client leaves over it, named
 		modmissing) mkdir -p "$OUT/mod_only/files"
@@ -604,6 +616,18 @@ for c in $CASES; do
 			&& pass "xbla: the client kept its own Mod.XblaMeshes (0) beside the host's 1" || fail "xbla: Mod.XblaMeshes not the client's own"
 		;;
 	modmap) checkplay modmap "map Playground from mod PD_Kakariko" ;;
+	modreclaim)
+		checkplay modreclaim "map Playground from mod PD_Kakariko"
+		grep -q "modloader: stage 0x[0-9a-f]* (.*) given up for Playground" "$C" \
+			&& pass "modreclaim: $(grep -m1 -o 'modloader: stage .* given up for Playground' "$C" | cut -c12-)" || fail "modreclaim: no number given up"
+		grep -q "net: content: map Playground of PD_Kakariko had no stage number here; registered as" "$C" \
+			&& pass "modreclaim: Playground registered on request" || fail "modreclaim: Playground not registered on request"
+		;;
+	modfetch)
+		checkplay modfetch "map Playground from mod PD_Kakariko"
+		grep -q "net: content: PD_Kakariko fetched from the host and mounted for its maps" "$C" \
+			&& pass "modfetch: the client was served PD_Kakariko" || fail "modfetch: no fetch of PD_Kakariko in the client's log"
+		;;
 	modmount)
 		checkplay modmount "map Playground from mod PD_Kakariko"
 		grep -q "net: content: PD_Kakariko mounted for its maps for the host's choice" "$C" && pass "modmount: the client mounted PD_Kakariko on demand" || fail "modmount: no on-demand mount in the client's log"

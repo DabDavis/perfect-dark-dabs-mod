@@ -249,6 +249,12 @@ s32 traceReportIsOpen(void)
 	return g_Open;
 }
 
+s32 traceReportIsOpenIn(s32 menu)
+{
+	return g_Open && g_OpenMenu == menu && menu >= 0 && menu < ARRAYCOUNT(g_Menus) && g_Menus[menu].curdialog
+		&& g_Menus[menu].curdialog->definition == &g_TraceReportMenuDialog;
+}
+
 s32 traceReportHoldsInput(void)
 {
 	return g_Open || g_HoldFrames > 0;

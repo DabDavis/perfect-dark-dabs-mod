@@ -265,6 +265,30 @@ bool mpRegisterArena(s16 stagenum, const char *name)
 }
 
 /**
+ * The arena row of a stage the mod loader gave to another map (a net client's
+ * reclaimed stage number: modloader.c): its name now that map's. False when
+ * no row has the stage.
+ */
+bool mpRenameArena(s16 stagenum, const char *name)
+{
+	s32 slot;
+
+	for (slot = MP_NUM_STOCK_ARENAS; slot < g_MpNumArenas && slot < (s32)ARRAYCOUNT(g_MpArenas); slot++) {
+		const s32 nameslot = slot - MP_NUM_STOCK_ARENAS;
+
+		if (g_MpArenas[slot].stagenum == stagenum && nameslot < (s32)ARRAYCOUNT(g_MpArenaModNames)) {
+			snprintf(g_MpModArenaNames[nameslot], sizeof(g_MpModArenaNames[0]), "%s\n", name);
+			g_MpArenaModNames[nameslot] = g_MpModArenaNames[nameslot];
+			g_MpArenas[slot].requirefeature = 0;
+			g_MpArenas[slot].name = 0;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
  * Replace the whole list with the one a mod's data segment carries: the
  * arenas its own game offered, in its order, with its unlock features and its
  * text ids for the names. Everything past it is cleared so nothing matches a

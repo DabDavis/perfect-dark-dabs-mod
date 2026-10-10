@@ -10,6 +10,7 @@
 void modloaderInit(void);
 // Register mounted dir i's maps alone (a dir mounted after boot: a net match's, netcontent.c); the maps registered
 s32 modloaderAddDir(s32 i);
+s32 modloaderAddDirMap(s32 i, const char *map); // one map of a mounted dir, a number reclaimed if none is free; -1
 void modloaderGetStats(s32 *registered, s32 *found, s32 *mods);
 const char *modloaderGetStageModDir(s32 stagenum);
 // The same directory as an index into the mounted list, or -1. What a texture

@@ -50,6 +50,7 @@ void netClientLeave(void);
 void netStageStopped(void);
 // H13 config.c configSave: the player's own values while pd.ini is written
 void netRulesConfigSaveBegin(void);
+void netRulesCaptureStock(void); // config.c, before pd.ini is read: the rules' stock values (a new room's)
 void netRulesConfigSaveEnd(void);
 // H14 options that change the game mid-match
 s32 netRulesLocked(void);

@@ -14260,8 +14260,12 @@ void bgunSetTriggerOn(s32 handnum, bool on)
 	}
 }
 
-#define SETFUNCPRI() g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[(g_Vars.currentplayer->gunctrl.weaponnum - 1) >> 3] &= ~(1 << ((g_Vars.currentplayer->gunctrl.weaponnum - 1) & 7))
-#define SETFUNCSEC() g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[(g_Vars.currentplayer->gunctrl.weaponnum - 1) >> 3] |= 1 << ((g_Vars.currentplayer->gunctrl.weaponnum - 1) & 7)
+// The bit of the gun's host (weaponHost(), as VALIDWEAPON and FUNCISSEC read
+// it): a GoldenEye gun's own number is past the six bytes of gunfuncs, and
+// its bit landed in the next player's name (0x6d set bit 4 of name[4]:
+// "dabbq", "(ope~)", F3 20261010-035224, -035446)
+#define SETFUNCPRI() g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[(weaponHost(g_Vars.currentplayer->gunctrl.weaponnum) - 1) >> 3] &= ~(1 << ((weaponHost(g_Vars.currentplayer->gunctrl.weaponnum) - 1) & 7))
+#define SETFUNCSEC() g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[(weaponHost(g_Vars.currentplayer->gunctrl.weaponnum) - 1) >> 3] |= 1 << ((weaponHost(g_Vars.currentplayer->gunctrl.weaponnum) - 1) & 7)
 
 /**
  * This is called once B has been held for 25 ticks, or earlier if pressing B+Z.

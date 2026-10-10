@@ -2217,6 +2217,11 @@ void netLobbyLeave(void)
 		s_AdoptEndDue = 1;
 	}
 
+	// a room made here: its own Room Rules go with it (netRulesRoomBegin)
+	if (netRulesRoomOn()) {
+		s_AdoptEndDue = 1;
+	}
+
 	netMigrateForget();
 	s_InRoom = 0;
 	s_MainIsHost = 0;
@@ -3004,6 +3009,10 @@ static void lobbyStepDown(void)
 	if (s_Adopted) {
 		s_Adopted = 0;
 		netMigrateAdoptEnd();
+	} else if (netRulesRoomOn()) {
+		// a room made here whose hosting passed to another: a member now,
+		// with this machine's own setup and settings back
+		netRulesAdoptEnd();
 	}
 
 	s_MainIsHost = 0;
@@ -3055,6 +3064,30 @@ static void lobbyMigrateTick(void)
 		sysLogPrintf(LOG_NOTE, "lobby: room %s renewed this seat's rendezvous key", s_Room.sum.id);
 		netRdvEnter(0, s_Room.sum.id, s_Room.youudpid, s_Room.youudpkey);
 		snprintf(s_MainUdpKey, sizeof(s_MainUdpKey), "%s", s_Room.youudpkey);
+	}
+}
+
+/**
+ * Room Rules (netrules.c netRulesRoomBegin): the Create Room page opened,
+ * the room's own rules from the stock values; closed with no room made, this
+ * machine's own back. A room left a moment ago gives its own back first.
+ */
+void netLobbyRoomRulesBegin(void)
+{
+	if (s_AdoptEndDue && !s_InRoom && !s_CreatePending) {
+		s_AdoptEndDue = 0;
+		netMigrateAdoptEnd();
+	}
+
+	if (!s_InRoom && !s_Adopted) {
+		netRulesRoomBegin();
+	}
+}
+
+void netLobbyRoomRulesCancel(void)
+{
+	if (!s_InRoom && !s_CreatePending && !s_Adopted && netRulesRoomOn()) {
+		netRulesAdoptEnd();
 	}
 }
 
@@ -3225,6 +3258,10 @@ void netLobbyTick(void)
 			s_AdoptEndDue = 1;
 		}
 
+		if (netRulesRoomOn()) {
+			s_AdoptEndDue = 1;
+		}
+
 		netMigrateForget();
 		s_InRoom = 0;
 		s_MainIsHost = 0;
@@ -3370,6 +3407,7 @@ void netLobbyShutdown(void)
  *                                  hack's tag): the host's menus at the launch
  *   --net-lobby-solo               host: LAUNCH with nobody else in the room
  *   --net-lobby-keep-endscreen     an end screen stays up (the script closes it otherwise)
+ *   --net-lobby-rules K=V,...      host: the room's Room Rules set so (they start at stock)
  *   --net-lobby-menus              host: the room made from the Perfect Menu's Online
  *                                  Game, its Game Lobby up, as a player makes one
  *
@@ -3438,6 +3476,16 @@ static s32 lobbyScriptBackInRoom(void)
 {
 	return !netSessionMatchLoading() && g_StageNum == STAGE_CITRAINING && s_InRoom && s_Room.valid
 		&& !s_Room.launched && s_Room.countdownms < 0;
+}
+
+extern s32 g_MpWeaponSetNum;
+
+// netlobbytest rules: this machine's Combat Simulator setup, to compare
+static void lobbyScriptLogSetup(const char *when)
+{
+	sysLogPrintf(LOG_NOTE, "lobby script: host: setup %s: stage 0x%02x scenario %d weapon set %d time limit %d score limit %d options %08x chrslots %llx",
+			when, g_MpSetup.stagenum, g_MpSetup.scenario, g_MpWeaponSetNum, g_MpSetup.timelimit, g_MpSetup.scorelimit,
+			g_MpSetup.options, (unsigned long long)g_MpSetup.chrslots);
 }
 
 static void lobbyScriptTick(void)
@@ -3511,6 +3559,47 @@ static void lobbyScriptTick(void)
 			if (now - s_ScriptAt > 3000 && g_MainChangeToStageNum < 0 && g_MenuData.root != 0 && g_Menus[g_MpPlayerNum].curdialog) {
 				struct netlobbycreate c;
 				const s32 sims = sysArgGetInt("--net-test-sims", 2);
+
+				// as Create Room opens: the room's own Room Rules from stock,
+				// then --net-lobby-rules "KEY=VALUE,..." as its page would set
+				// them (netlobbytest rules)
+				// (pd.ini as it stands before any room, for the test's compare)
+				if (sysArgGetString("--net-lobby-rules")) {
+					configSave("$S/pd-before.ini");
+					lobbyScriptLogSetup("before the room");
+				}
+
+				netLobbyRoomRulesBegin();
+
+				if (sysArgGetString("--net-lobby-rules")) {
+					char rules[512];
+					char *tok = rules;
+
+					snprintf(rules, sizeof(rules), "%s", sysArgGetString("--net-lobby-rules"));
+
+					while (tok && *tok) {
+						char *next = strchr(tok, ',');
+						char *eq;
+
+						if (next) {
+							*next++ = '\0';
+						}
+
+						eq = strchr(tok, '=');
+
+						if (eq) {
+							*eq = '\0';
+							netRulesRoomSet(tok, eq + 1);
+						}
+
+						tok = next;
+					}
+
+					// and the room's Combat Simulator setup its own: another
+					// weapon set and time limit than this machine's
+					g_MpWeaponSetNum = g_MpWeaponSetNum == 1 ? 2 : 1;
+					g_MpSetup.timelimit = g_MpSetup.timelimit == 5 ? 6 : 5;
+				}
 
 				g_MpSetup.stagenum = sysArgGetInt("--net-test-stage", 0x32);
 
@@ -3701,6 +3790,18 @@ static void lobbyScriptTick(void)
 			break;
 		case 6:
 			if (now - s_ScriptAt > 3000) {
+				// --net-lobby-rules with --net-lobby-host-leaves: Create Room
+				// opened again (the next room starts at stock, not at the last
+				// room's), pd.ini written meanwhile, and Back (netlobbytest rules)
+				if (sysArgGetString("--net-lobby-rules") && sysArgCheck("--net-lobby-host-leaves")) {
+					sysLogPrintf(LOG_NOTE, "lobby script: host: Create Room again");
+					netLobbyRoomRulesBegin();
+					configSave("$S/pd-inroom.ini");
+					netLobbyRoomRulesCancel();
+					configSave(CONFIG_PATH);
+					lobbyScriptLogSetup("after the rooms");
+				}
+
 				fflush(stdout);
 				exit(0);
 			}

@@ -63,6 +63,7 @@ void traceReportTick(void);
 // The dialog is up. GE Plus's intro and folder screens give it the menus'
 // tick and render while it is (menuTick(), menuRender()).
 s32 traceReportIsOpen(void);
+s32 traceReportIsOpenIn(s32 menu); // open in g_Menus[menu], on top
 // Up, or closed within the last few frames: screens that read the pads
 // themselves (GE Plus's folder and watch) leave them alone.
 s32 traceReportHoldsInput(void);

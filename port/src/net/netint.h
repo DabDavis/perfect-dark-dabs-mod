@@ -293,6 +293,7 @@ s32 netContentFollow(const struct netcontentneed *n, char *text, s32 textsize); 
 void netContentRestore(s32 atstagechange);     // client: the session is over (1: a stage change follows)
 s32 netContentCanHost(const char *mod, const char *ge, const char *stagekey); // host migration: this machine could host such a room
 s32 netContentMountMaps(const char *dirbase);  // client: a map's mod installed but not mounted; 1 mounted now
+s32 netContentRegisterMap(const char *dirbase, const char *map); // client: a mounted mod's map with no stage number registered now; -1
 void netContentNoStageText(s32 kind, const char *dir, const char *map, s32 id, char *text, s32 size);
 const char *netContentVariantTag(void);
 s32 netContentVariantApply(const char *tag);
@@ -322,6 +323,7 @@ const char *netContentVariantName(const char *tag);      // g_GexPlusVariant's v
 s32 netSessionSendPeer(s32 peer, s32 channel, const void *data, s32 len); // netsession.c: host, reliable, to a peer by index
 s32 netModFileAllowed(const char *rel, s32 isdir); // nethash.c: a PD mod's file that is hashed and served (protocol 25)
 u64 netHashDirContents(const char *path);      // nethash.c: a folder's simulation-affecting bytes, cached
+void netHashDirForget(const char *path);       // nethash.c: that folder's cached hash dropped
 u64 netHashDirContentsUncached(const char *path); // the same, never cached (a fetch checked before it is kept)
 void netSessionHashInvalidate(void);           // nethash.c: the overlay changed; the table is taken again
 
@@ -469,6 +471,10 @@ const struct netcooprules *netRulesKeptCoop(void);
 const struct netcontentneed *netRulesKeptContent(void);
 s32 netRulesAdopt(s32 swapslot);
 void netRulesAdoptEnd(void);
+void netRulesRoomBegin(void); // a room made here: own setup and settings kept aside, Room Rules from stock
+s32 netRulesRoomSet(const char *key, const char *value); // a Room Rule set (tests)
+s32 netRulesRoomOn(void);
+void netSessionNameSaveSwap(s32 begin); // configSave: the player's own Net.Name in (1), the account's back (0)     // own setup and settings kept aside (a room made or taken over)
 
 // netmigrate.c: host migration (CLAUDE-notes/netplay.md "Host migration")
 void netMigrateKeep(const char *room, u32 matchid, s32 stage, s32 myslot, s32 resume, const u8 *seats, s32 pastsnap);

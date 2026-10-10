@@ -124,6 +124,7 @@ MenuItemHandlerResult menuhandlerMpTeamsLabel(s32 operation, struct menuitem *it
 s32 mpGetNumStages(void);
 char *mpGetArenaName(s32 index);
 bool mpRegisterArena(s16 stagenum, const char *name);
+bool mpRenameArena(s16 stagenum, const char *name);
 s32 mpImportArenas(const struct mparena *arenas, s32 count);
 extern s32 g_MpNumArenas;
 extern bool g_MpArenasImported;

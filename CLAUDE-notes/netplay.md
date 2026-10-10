@@ -2281,9 +2281,10 @@ settings would remain static."
   Handicaps, Teams, Load and Save Settings beside the five there were, and
   a **Room Rules** page (optionsmenu.c `g_NetRoomRulesMenuDialog`): the
   SYNC keys above plus Simulant AI, each row the Dab's Mod menu's own
-  handler. It edits the host's own values (pd.ini at the page's close), as
-  the Dab's Mod menu does; RULES takes them at the match start, so a client
-  plays them and H12 gives it its own back. Mission Respawn/Lives only in a
+  handler. Since 2026-10-10 it edits the room's own values, which start at
+  stock, never the host's pd.ini or offline settings (see "Room Rules are
+  the room's own" under F3 pass 36); RULES takes them at the match start, so
+  a client plays them and H12 gives it its own back. Mission Respawn/Lives only in a
   co-op room, GoldenEye's three only in a GoldenEye room, Simulant AI only
   in a match. Everything the setup pages write was on the wire already
   (`g_MpSetup.options`, the scenario's save bits, each slot's team and
@@ -2704,3 +2705,56 @@ in their own sections' notes.
   does. The local-player block's guns and ammo now look for this machine's
   own changes before putting the host's in (they were looked for only
   after, so a shot fired between two blocks could be undone by the next).
+
+## F3 pass 36 (2026-10-10, no wire change, protocol stays 27)
+
+- **"dabbq", "(ope~)"**: not the wire. `gunfuncs[6]` is a bit per weapon up
+  to WEAPON_COMBATBOOST; bondgun.c's SETFUNCPRI/SETFUNCSEC used the raw
+  weapon number while VALIDWEAPON and FUNCISSEC used `weaponHost()`, so
+  holding B on GoldenEye's Golden Gun (0x6d: byte 13, bit 4) set bit 4 of
+  the *next* player config's `name[4]` (sizeof(mpplayerconfig) is 320,
+  gunfuncs at 311). Offline it hit the next local player the same way. A
+  letter that grows by 0x10 in byte 4 of a name is this.
+- **The players panel clipped by a pause menu**: menuRender leaves the
+  scissor its dialog set with the 4:3 centring on, so `netHudRender` sets a
+  whole-view scissor with the aspect mode off before it draws.
+- **A death closed F3's Report a Problem**: `playerDieByShooter` closes
+  every menu of the player (func0f0f8120); it now leaves them when the
+  report is on top (`traceReportIsOpenIn`).
+- **A served PD mod gone stale**: a `$N/<mod>` served in an earlier session
+  whose bytes are not the host's now (the host re-imported it) is retired
+  (`fsMemDirRetire`, renamed out of reach, its memory kept), its cached hash
+  dropped (`netHashDirForget`, the cache is keyed by path) and fetched again.
+  It had been refused for good: the fetch said no because a folder of the
+  name was in memory.
+- **A map mod with no stage numbers left**: a library past the Stage
+  Loader's 189 numbers registers a mounted (or served) mod's first maps and
+  skips the rest; the host's map among them ended the session NOSTAGE ("drop
+  it in mods/"). `netContentRegisterMap` → `modloaderAddDirMap` registers
+  the one map, another mod's arena giving up its number (the last g_Stages
+  slot moved into the victim's, the arena row renamed; never a mission, the
+  running or chosen stage). `--mod-stage-limit N` fakes the cap
+  (netcontenttest `modreclaim`; `modfetch` is a guest with no mods served
+  PD_Kakariko). The Game Lobby's status line shows the fetch's progress
+  instead of "waiting for the host to start".
+- **Room Rules are the room's own** (owner, 2026-10-10; F3 20261010-053136:
+  a room's Start Armed reached the solo campaign, and its Combat Simulator
+  setup the local one). From the Create Room page on (`netLobbyRoomRulesBegin`;
+  the lobby script calls it before its create) this machine's own setup and
+  settings go aside in `s_Own` - the struct a taken-over room's host keeps
+  its own in - and the Room Rules keys (the SYNC keys and Mod.SimBrain) start
+  at their stock values, captured in `configInit` before pd.ini is read
+  (`netRulesCaptureStock`). The Room Rules page and the room's Combat
+  Simulator pages edit the live values, which RULES carries as before.
+  `configSave` always calls the swap now (the Create Room page has no session
+  yet), so pd.ini gets the own values; leaving the room ends it at the
+  session's close (`s_AdoptEndDue`, as an adopted room does), Back out of
+  Create Room at once (`netLobbyRoomRulesCancel`). The next room starts at
+  stock: nothing is remembered between rooms. Net.Name had the same leak (a
+  lobby session wrote the account's name over it for good): kept and put back
+  the same way (`netSessionNameSet`). No wire change. netlobbytest `rules`:
+  a host with Jump 3, Start Armed 2, Akimbo, modern sims offline; its room
+  at stock with `--net-lobby-rules Mod.JumpHeight=2`, the client playing Jump
+  2 and nothing of the host's own; pd.ini byte-identical before any room,
+  written inside one and after; the Combat Simulator setup its own again; a
+  second Create Room at stock again.

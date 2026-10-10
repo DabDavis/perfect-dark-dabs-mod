@@ -277,6 +277,23 @@ void fsMemDirDestroy(s32 dir)
 	memset(d, 0, sizeof(*d));
 }
 
+/**
+ * A sealed dir put out of reach under a name no path or lookup can give
+ * ("retired/<n>": a path's dir is the part before its first slash), so a
+ * newer copy of the same name can be made. Its files stay: whatever read
+ * from it keeps what it has.
+ */
+void fsMemDirRetire(s32 dir)
+{
+	static s32 retired;
+
+	if (dir < 0 || dir >= numMemDirs || !memDirs[dir].sealed || !memDirs[dir].name[0]) {
+		return;
+	}
+
+	snprintf(memDirs[dir].name, sizeof(memDirs[dir].name), "retired/%d", ++retired);
+}
+
 s32 fsMemDirAddFile(s32 dir, const char *rel, const void *data, u32 size)
 {
 	struct memdir *d;
