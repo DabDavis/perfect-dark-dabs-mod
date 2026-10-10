@@ -30,6 +30,11 @@
 #ifndef PLATFORM_N64
 #include "geguns.h"
 #include "langpack.h"
+#ifndef PLATFORM_N64
+#include "geroom.h"
+#include "gestan.h"
+#include "system.h"
+#endif
 #endif
 
 #ifndef PLATFORM_N64
@@ -2099,6 +2104,53 @@ static void modRandomTickEndless(void)
  * Answers once: the same call is what marks the move done, so a later death
  * spawns where the game would have spawned it.
  */
+/**
+ * A start or a landing on a level converted from GoldenEye, moved off what
+ * stands on its pad.
+ *
+ * The pad is dealt at the roll, where the level's props do not exist yet
+ * (modRandomPadCanSpawn()), and a GoldenEye arena stands doors on pads it also
+ * names as spots: Goldfinger 64's China has one on pad 45, and a run landing
+ * there put the player inside the door, where every step was a collision and
+ * he could not move at all (F3 20261005-095105). So once the props stand, a
+ * place a body of the player's width (thirty) is not clear at - a wall of the
+ * tile graph or a prop's edge within reach - moves where GoldenEye puts a chr
+ * teleported to a pad: the first of eight points sixty units out, from the
+ * pad's own facing, that the floor reaches and that is clear
+ * (geStanTeleportSpot()). Which pad the seed dealt does not change, only where
+ * on it the player stands, as with the floor's own y above.
+ */
+void modRandomSpawnClear(struct coord *pos, RoomNum *rooms, f32 angle)
+{
+#ifndef PLATFORM_N64
+	struct prop *self = g_Vars.currentplayer ? g_Vars.currentplayer->prop : NULL;
+	struct coord spot;
+	s32 room;
+
+	if (!geRoomActive() || rooms[0] <= 0) {
+		return;
+	}
+
+	if (geStanTeleportSpot(pos, rooms[0], angle, 30, self, &spot) <= 0
+			|| (spot.x == pos->x && spot.z == pos->z)) {
+		return;
+	}
+
+	room = geStanTileRoomAt(&spot, rooms[0]);
+
+	sysLogPrintf(LOG_NOTE, "randomizer: the spot (%.0f %.0f %.0f) is not clear; standing at (%.0f %.0f %.0f) in room %d",
+			pos->x, pos->y, pos->z, spot.x, pos->y, spot.z, room > 0 ? room : rooms[0]);
+
+	pos->x = spot.x;
+	pos->z = spot.z;
+
+	if (room > 0) {
+		rooms[0] = room;
+		rooms[1] = -1;
+	}
+#endif
+}
+
 bool modRandomTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle)
 {
 	struct pad pad;
@@ -2126,6 +2178,8 @@ bool modRandomTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle)
 	rooms[1] = -1;
 
 	*angle = atan2f(pad.look.x, pad.look.z);
+
+	modRandomSpawnClear(pos, rooms, *angle);
 
 	return true;
 }

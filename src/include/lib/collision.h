@@ -32,6 +32,10 @@ bool cdFindLadderDist(struct coord *pos, f32 width, f32 ymax, f32 ymin, RoomNum 
 #endif
 bool cd0002a13c(struct coord *pos, f32 radius, f32 arg2, f32 arg3, RoomNum *rooms, u16 geoflags);
 f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u8 *floortype, u16 *floorflags, RoomNum *floorroom, s32 *inlift, struct prop **lift);
+#ifndef PLATFORM_N64
+extern struct geo *g_CdGroundGeo;
+extern struct prop *g_CdGroundProp;
+#endif
 f32 cdReturnZero(void);
 f32 cdFindGroundAtCyl(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u8 *floortype);
 f32 cdFindFloorYColourTypeAtPos(struct coord *pos, RoomNum *rooms, u16 *floorcol, u8 *floortype);

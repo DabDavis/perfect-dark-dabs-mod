@@ -20,6 +20,7 @@ u32 modRandomGetSeed(void);
 void modRandomRoll(s32 stagenum);
 void modRandomTick(void);
 bool modRandomTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle);
+void modRandomSpawnClear(struct coord *pos, RoomNum *rooms, f32 angle);
 
 // Where a player put down on this pad would stand (false only when there is no
 // floor under it at all), and whether it is a pad worth dealing in the first

@@ -58,6 +58,7 @@
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
 #include "geroom.h"
+#include "gestan.h"
 #include "modloader.h"
 
 /**
@@ -1183,6 +1184,33 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 
 					ground = chrFindGround(sp98, chr->radius, sp94,
 							&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
+
+#ifndef PLATFORM_N64
+					// GoldenEye's guard stands on the tile its walk is on, and
+					// on no floor of the level's own that walk does not reach:
+					// a street run over a stairwell in plan (Goldfinger 64's
+					// Vaults) took Oddjob out of the building as he came down
+					// the stairs (geStanChrFloor()). Falling too - a guard
+					// going down a steep flight falls a little at every step,
+					// and a floor over the one it stood on never catches it -
+					// but not a simulant's jump, which may land anywhere
+					if (geRoomActive() && !inlift && !botIsJumping(chr)) {
+						struct prop *floorprop = NULL;
+						struct geo *floorgeo = geRoomGroundGeo(&floorprop);
+						f32 tileground;
+						s32 tileroom;
+
+						if (floorprop == NULL
+								&& geStanChrFloor(floorgeo, &prop->pos, chr->ground, arg2, chr->radius,
+									ground, &tileground, &tileroom)) {
+							ground = tileground;
+
+							if (tileroom > 0 && tileroom < g_Vars.roomcount) {
+								chr->floorroom = tileroom;
+							}
+						}
+					}
+#endif
 
 #if VERSION >= VERSION_NTSC_1_0
 #ifndef PLATFORM_N64

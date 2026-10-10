@@ -649,6 +649,22 @@ void setupCreateObject(struct defaultobj *obj, s32 cmdindex)
 			}
 
 #ifndef PLATFORM_N64
+			// GoldenEye leaves an object at its pad (a bound pad's box
+			// middle) where no walk in plan reaches where it meant to set it
+			// (sub_GAME_7F04088C(), geRoomObjStayUnreached())
+			if (geRoomActive() && (obj->flags & OBJFLAG_00000002) == 0) {
+				struct coord middle;
+				const bool boxed = padHasBboxData(obj->pad) && !(obj->flags2 & 1);
+
+				if (boxed) {
+					padGetCentre(obj->pad, &middle);
+				}
+
+				geRoomObjStayUnreached(obj, &pad.pos, pad.room, boxed ? &middle : NULL);
+			}
+#endif
+
+#ifndef PLATFORM_N64
 			// GoldenEye shades every object by its pad's tile (objInit()
 			// with the pad's stan), placed on the floor or not; Perfect Dark
 			// only looks a colour up for an object it sets down on one, and

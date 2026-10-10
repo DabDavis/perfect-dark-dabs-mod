@@ -63,7 +63,13 @@ struct geroomfloor {
 	RoomNum floorroom;
 	s32 inlift;
 	struct prop *lift;
+	struct geo *geo;
+	struct prop *prop;
 };
+
+// the floor the last geRoomGround() found, and its prop (NULL for the bg's)
+static struct geo *g_GeRoomGroundGeo;
+static struct prop *g_GeRoomGroundProp;
 
 /** The ground from one batch of rooms, kept if it is the highest yet. */
 static void geRoomAsk(struct coord *pos, f32 radius, RoomNum *rooms, struct geroomfloor *best)
@@ -73,10 +79,22 @@ static void geRoomAsk(struct coord *pos, f32 radius, RoomNum *rooms, struct gero
 	got.floorroom = -1;
 	got.ground = cdFindGroundInfoAtCyl(pos, radius, rooms, &got.floorcol, &got.floortype,
 			&got.floorflags, &got.floorroom, &got.inlift, &got.lift);
+	got.geo = g_CdGroundGeo;
+	got.prop = g_CdGroundProp;
 
 	if (got.ground > best->ground) {
 		*best = got;
 	}
+}
+
+/** The floor geRoomGround() last stood a body on, and the prop it belongs to (NULL: the level's own). */
+struct geo *geRoomGroundGeo(struct prop **prop)
+{
+	if (prop) {
+		*prop = g_GeRoomGroundProp;
+	}
+
+	return g_GeRoomGroundGeo;
 }
 
 f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u8 *floortype,
@@ -157,6 +175,9 @@ f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u
 	if (lift) {
 		*lift = best.lift;
 	}
+
+	g_GeRoomGroundGeo = best.ground > GEROOM_NOGROUND ? best.geo : NULL;
+	g_GeRoomGroundProp = best.ground > GEROOM_NOGROUND ? best.prop : NULL;
 
 	return best.ground;
 }
@@ -616,6 +637,57 @@ void geRoomObjRooms(struct defaultobj *obj)
 	propDeregisterRooms(prop);
 	roomsCopy(out, prop->rooms);
 	propRegisterRooms(prop);
+}
+
+/**
+ * Where GoldenEye leaves an object it cannot set where it meant to
+ * (propobj.c's sub_GAME_7F04088C(), which func0f06a730() is): having worked
+ * out where the object goes - on its pad's tile, or hung in the air from the
+ * pad - it walks the tile graph in plan from where it started (the pad, or a
+ * bound pad's box middle) to there, and where that walk meets an edge with
+ * nothing across it the object stays where it started, prop->pos and
+ * runtime_pos both: it is drawn, collides and is picked up at the pad.
+ * Perfect Dark set it where it meant to. Goldfinger 64's parachute on Plane
+ * (record 113, pad 86, its pad tilted 15 degrees) hung 9.5 units past the end
+ * of the hold's floor, over no tile Bond could walk to, so the pickup test
+ * (geStanPickupReaches()) never let him take it and the mission could not be
+ * finished (F3 20261005-034649, -150853, -150946); the cartridge has it at its
+ * pad (ares world dump, runtime_pos). An object whose flags2 has 1 never
+ * walks, and one with the "absolute position" flag (0x1000) or turned on its
+ * side (OBJFLAG_00000002, sub_GAME_7F040BA0()) is drawn where it was meant
+ * to whatever the walk: those keep the place they have.
+ */
+void geRoomObjStayUnreached(struct defaultobj *obj, struct coord *padpos, s32 padroom, struct coord *centre)
+{
+	struct prop *prop = obj->prop;
+	struct coord seed;
+	RoomNum rooms[2];
+	s32 tile;
+
+	if (!prop || prop->parent || (obj->flags2 & 1) || (obj->flags & OBJFLAG_IGNOREROOMCOLOUR)) {
+		return;
+	}
+
+	if (!geStanObjectTile(padpos, padroom, centre, &prop->pos, &tile, &seed)) {
+		return;
+	}
+
+	if (seed.x == prop->pos.x && seed.y == prop->pos.y && seed.z == prop->pos.z) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "geroom: object on pad %d (model %d) stays at its start (%.1f %.1f %.1f): "
+			"no walk from there to (%.1f %.1f %.1f)", obj->pad, obj->modelnum, seed.x, seed.y, seed.z,
+			prop->pos.x, prop->pos.y, prop->pos.z);
+
+	prop->pos = seed;
+
+	rooms[0] = geStanTileRoom(tile) > 0 ? geStanTileRoom(tile) : padroom;
+	rooms[1] = -1;
+
+	propDeregisterRooms(prop);
+	roomsCopy(rooms, prop->rooms);
+	func0f069c70(obj, true, true);
 }
 
 /**

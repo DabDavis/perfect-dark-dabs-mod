@@ -16,6 +16,7 @@
 #include "mod.h"
 #ifndef PLATFORM_N64
 #include "gewater.h"
+#include "modloader.h"
 #endif
 // a mod may give the animated textures below other numbers in its code
 #define MOD_TEX(x) modDataTexNum(x)
@@ -896,6 +897,20 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 #endif
 
 	spe0 = dyntexHasRoom();
+
+#ifndef PLATFORM_N64
+	// A converted GoldenEye level's texture numbers are its own pictures',
+	// and the numbers Perfect Dark animates below are other pictures there:
+	// Goldfinger 64's Bodega blanket is its 0dae - Perfect Dark's Chicago
+	// canal - and crept up the bed as a river (F3 20261009-013605), as
+	// GoldenEye's own 01c7 did on Depot and Silo and Goldfinger's 06cb on
+	// Island; its 029b on Club scrolled as Air Force One's monitor. The
+	// cartridge moves none of them: GoldenEye's loader moves its two waters
+	// alone (geWaterIsWaterTexture() below)
+	if (spe0 && modloaderStageIsRemake(g_Vars.stagenum)) {
+		spe0 = 0;
+	}
+#endif
 
 	if (spe0) {
 		for (j = 0; j < ARRAYCOUNT(sp90); j++) {

@@ -6243,16 +6243,31 @@ static int soloGadgetItem(int32_t item)
  * GE_GADGET_WEAPON, gegadgets.c): three thrown and sticking, the camera, the
  * watch magnet, and the six with no model in the hand, which share two numbers
  * by the mission. 0 for anything else.
+ *
+ * Two more that GoldenEye's own missions never name, a ROM hack's: the bomb
+ * case (33), which GoldenEye's code throws and sticks as it does the bug
+ * (gun.c's throw, PROP_CHRBOMBCASE), with the covert modem; and the bug
+ * detector (49), which has no model in the hand and is used on what it is for
+ * (gunfire.c's USE_ITEM, with the door decoder). Goldfinger 64's Club starts
+ * Bond with both, as its "Knockout Gas" and "Phone Tap": its first objective
+ * is the gas thrown into the locker room (OBJECTIVETYPE_THROWINROOM, item 33),
+ * which its guards also watch for (IFKeyDropped 33), and its phones are bugged
+ * with the tap equipped (IFBondHasItemEquipped 49). Neither had a weapon, so
+ * the opening gave neither and the mission could not be finished (F3
+ * 20261006-044204). Its code no longer sets the bomb case off (chrobjWeaponTick
+ * 7F043F18 tests item 0 where GoldenEye's tests 33), so the gas, like the
+ * covert modem, stays where it lands.
  */
 static uint32_t soloGadgetWeapon(uint32_t item)
 {
 	switch (item) {
-	case 47: return 0x77; // BUG: the covert modem, the tracker bug
+	case 47: case 33: return 0x77; // BUG: the covert modem, the tracker bug; and BOMBCASE
 	case 34: return 0x78; // PLASTIQUE
 	case 61: return 0x79; // GOLDENEYEKEY
 	case 40: return 0x7a; // CAMERA
 	case 60: return 0x7b; // WATCHMAGNETATTRACT
-	case 38: case 39: case 46: case 50: return 0x7c; // door decoder, bomb defuser, key analyser, guidance data
+	case 38: case 39: case 46: case 50: case 49: return 0x7c; // door decoder, bomb defuser, key analyser,
+	                                                           // guidance data; and BUGDETECTOR
 	case 55: case 73: return 0x7d; // data thief, DAT tape
 	}
 
@@ -6472,6 +6487,8 @@ static uint32_t soloItemWeapon(uint32_t item)
 
 #define WEAPON_GE_TANKSHELLS_ 0x7e
 #define ITEM_TANKSHELLS       32
+#define ITEM_BOMBCASE_        33
+#define ITEM_BUGDETECTOR_     49
 
 /**
  * A ROM hack's gadgets that are one item on every mission, as rows for every
@@ -6480,7 +6497,10 @@ static uint32_t soloItemWeapon(uint32_t item)
  * the detonator, with the remote mines, which is the item GtriggerZ is
  * (Goldfinger 64's 31, GoldenEye's 30), and the tank's shells, item 32, which a
  * hack keeps at GoldenEye's number as it keeps every item past the hand's
- * (itemWeaponsBuild()).
+ * (itemWeaponsBuild()). The bomb case and the bug detector, which share a
+ * weapon with GoldenEye's own gadgets only for the hack's mission that names
+ * them (soloGadgetWeapon()), are not counted: that mission has its own row,
+ * and the covert modem's weapon is still its one item on every other.
  */
 static void soloGadgetsEveryMission(void)
 {
@@ -6489,6 +6509,10 @@ static void soloGadgetsEveryMission(void)
 
 		for (uint32_t item = 1; item < NUM_ITEMS; ++item) {
 			const int trigger = g_Items[item].file && !strcmp(g_Items[item].file, "GtriggerZ");
+
+			if (item == ITEM_BOMBCASE_ || item == ITEM_BUGDETECTOR_) {
+				continue;
+			}
 
 			if (w == WEAPON_GE_DETONATOR_ ? trigger
 					: w == WEAPON_GE_TANKSHELLS_ ? item == ITEM_TANKSHELLS
@@ -6572,6 +6596,7 @@ static const uint8_t g_GeAmmoTypes[26][2] = {
 	{ 0x0b, 0 },       // GRENADEROUND   the grenade launcher stands on the Devastator
 	{ 0x0a, 0 },       // MAGNUM
 	{ 0x11, 0 },       // GGUN           golden bullets, a pool of their own (AMMOTYPE_GOLDENGUN): Egyptian's crate
+	[16] = { 0x20, 0 }, // BOMBCASE      a ROM hack's thrown gadget with the covert modem (soloGadgetWeapon())
 	[20] = { 0x20, 0 }, // BUG           the covert modem stands on the ECM mine
 	[22] = { 0x20, 0 }, // GEKEY         and so do the GoldenEye key
 	[23] = { 0x20, 0 }, // PLASTIQUE     and the plastique
@@ -11203,6 +11228,15 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	setAdd(allmodels, 199);
 	setAdd(allmodels, 200);
 	setAdd(allmodels, 201);
+	// and PROP_CHRBOMBCASE where a mission of a ROM hack's has the bomb case
+	// for a gadget (soloGadgetWeapon(), gegadgetsPropModel()): Goldfinger 64's
+	// Knockout Gas, which its code throws as that prop. GoldenEye's own
+	// missions never name the item, and their output stays as it was
+	for (int i = 0; i < g_NumCollectRows; ++i) {
+		if (g_CollectRows[i][2] == 33 && g_CollectRows[i][1] == 0x77) {
+			setAdd(allmodels, 226);
+		}
+	}
 	for (size_t i = 0; i < sizeof(g_IntroGuns) / sizeof(g_IntroGuns[0]); ++i) {
 		setAdd(allmodels, g_IntroGuns[i]);
 	}

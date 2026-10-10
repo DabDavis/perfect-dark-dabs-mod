@@ -993,3 +993,89 @@ Dark's Combat Simulator". Its props off its maps: 30 of its own for its guns
 (held, lying, its grenade and mines thrown); its rocket is GoldenEye's (it
 has none of its own), and on GoldenEye's arenas its thrown Oddjob's Hat is
 GoldenEye's knife (it is thrown as slot 186, which is the arena's there).
+## F3 pass 35 (2026-10-10, fix/f3-1010a-gfmission, converter 125 at merge)
+
+- **Plane's parachute (F3 20261005-034649, -150853, -150946).** Record 113
+  (item 51, collectable 0x45) on pad 86, whose look tilts it 15 degrees.
+  GoldenEye's `sub_GAME_7F04088C()` works out where the object stands (its
+  `newPos`, 9.5 units past the end of the hold's floor here), then walks the
+  tile graph in plan from the pad to there, and where that walk meets an
+  unlinked edge the object stays at the pad - `prop->pos` and `runtime_pos`
+  both (the ares world dump has it at the pad). Perfect Dark set it at
+  `newPos`, over no tile the player can walk to, so `geStanPickupReaches()`
+  never let him take it, and a shot dropped it out of the level.
+  `geRoomObjStayUnreached()` (geroom.c) after `func0f06a730()` in setup.c and
+  after `aiObjectMoveToPad()`; not for `flags2 & 1` (no walk), `0x1000`
+  (drawn at `newPos` whatever) or OBJFLAG_00000002 (`sub_GAME_7F040BA0()`
+  draws at its own point). Sweep: every GE, GF and TND64 mission on Agent and
+  007 - this parachute is the only object it moves.
+- **Club's Knockout Gas and Phone Tap (F3 20261006-044204).** Club's opening
+  gives items 33 and 49, GoldenEye's bomb case and bug detector (GF calls them
+  Knockout Gas and Phone Tap), which had no port weapon, so the opening left
+  them out. Objective A is `OBJECTIVETYPE_THROWINROOM` item 33 into pad 78's
+  room; its guards watch for the gas (`IFKeyDropped 33`); the phones want the
+  tap equipped (`IFBondHasItemEquipped 49`). `soloGadgetWeapon()`: 33 on the
+  covert modem's weapon (thrown and stuck - GF's chrobjWeaponTick 7F043F18
+  tests item 0 where GoldenEye's tests 33, so the gas never goes off), 49 on
+  GADGETA (used on the object); AMMO_BOMBCASE (16) on the ECM mine's ammo;
+  PROP_CHRBOMBCASE (226) joins the models where a mission names the gas, and
+  `gegadgetsPropModel()` picks the thrown model by item. Neither counts for
+  the every-mission rows (`soloGadgetsEveryMission()`). GoldenEye and TND64
+  conversions byte-identical; GF's differs in `modconfig.txt` (226),
+  `Pgx226Z`, Club's setup and `geslots.bin`.
+- **Miami's ending (F3 20261004-235154).** Bond's list teleports him to pad
+  0x3b6, eight units from the corridor wall, then walks him to the bed.
+  GoldenEye's `TRYTeleportingChrToPad` asks `chrAdjustPosForSpawn(..., TRUE)`:
+  a circle of twenty at the pad clear of the tile graph's walls, else the first
+  of eight points sixty out. The conversion's 1 is Perfect Dark's "force",
+  whose test leaves walls out (and a converted level's walls are only seen
+  from the floor the test's height finds, here 200 under the pad): Bond stood
+  in the wall and every step collided. `geStanTeleportSpot()` (gestan.c) is
+  GoldenEye's test; a body wider than twenty (the player's 30) is then moved
+  off any nearer wall (`geStanClearOfWalls()`, 6.5 units here). Sweep of all
+  104 converted teleports: three move (GE Depot 0x40e, Miami, TND64 mission 1
+  list 0x1001), the rest stay at the pad; the nudge touches Miami's alone.
+- **Vaults' stairs (F3 20261006-022555).** Its street (room 15, 329-343) runs
+  over the building's stairwell in plan, flights 179->301->445 under and over
+  it. The ground search (`geRoomGround()`) takes the highest floor in the body's
+  circle under the eye, so a player or a guard on a flight past the street's
+  height was stood on the street, in its room, walled in - "teleported
+  outside", Oddjob too. GoldenEye's height is the walked tile's. Now a floor
+  of the bg whose tile the walk does not reach (no link within the body's
+  reach) is not the ground: the player's walked tile's surface is
+  (`geStanPlayerFloor()`, bondwalk.c; in the air the floor landed on becomes
+  the walked tile), and a guard's (`geStanChrFloor()`, chr.c, from the tile
+  under where it stood on its last ground; while it falls too - a guard going
+  down a steep flight falls a little at every step, and Oddjob was caught by
+  the street on one of those - but never in a simulant's jump). `g_CdGroundGeo` (collision.c) and
+  `geRoomGroundGeo()` say which floor was found; `g_Stan.floors` maps a floor
+  geo to its tile. Probes: `stairs.py` (WP waypoints, rstick), `oddstairs.py`
+  (`chrGoToRoomPos` with magic mode held off).
+- **China's landing (F3 20261005-095105).** A run (or the randomizer) deals
+  pads at the roll, before any prop exists; GF's China arena stands a door on
+  pad 45, and a landing there stood the player inside the door. Once the props
+  stand, `modRandomSpawnClear()` moves a start or landing on a converted level
+  that a body of thirty is not clear at to GoldenEye's teleport spot - the
+  pad dealt is the same, so no randomizer version.
+- **Cartel's silo doorway (F3 20261006-192146, on 90c8622)**: already fixed by
+  8afdc37a9 and a9f538c30 - a walk-and-stop sweep of silo 1's doorway (16
+  stops, door open) sticks four times on 90c8622, never on b9a21531f.
+- **Bodega's blanket crept up the bed (F3 20261009-013605).** Perfect Dark's
+  room loader (`texLoadFromGdl()`) animates nine texture numbers by number -
+  0dae is Chicago's canal, a river scroll (`dyntex.c`). A converted level's
+  numbers are its own pictures' (geconvert keeps them), and Goldfinger's 0dae
+  is the plaid: its vertices' t ran on by 16 texels a second. The cartridge
+  holds it still (ares, four pictures 40 ticks apart, the band on the side
+  face on the same rows; ours moved 10 rows at 720p between shots). The same
+  numbers also moved GoldenEye's 01c7 on Depot (5 lists) and Silo (1),
+  Goldfinger's 06cb on Island (48, the concrete round the pool) as rivers and
+  its 029b on Club (2) as Air Force One's monitor. On a converted stage
+  (`modloaderStageIsRemake()`) none of Perfect Dark's numbers animate now;
+  GoldenEye's own two waters still move through `gewater.c`. To find what a
+  room animates: break on `dyntexUpdateLinear`/watch a vertex's t, or list
+  `g_DyntexRooms` after the rooms load; the scan of the converted bg files for
+  0xc0 commands naming those numbers is a few lines of Python (rarezip 0x1173
+  per room, raw deflate).
+- Probe trap: the port's movement stick is `rstick_x/y` (OSContPad +7/+8, the
+  extended controls), not `stick_x/y`; and `joy.c`'s line after
+  `osContGetReadData()` moves between builds (728 here, 613 on 90c8622).
