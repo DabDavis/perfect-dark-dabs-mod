@@ -60,8 +60,11 @@ struct xblaskystage {
 //
 // Levels with no row keep the game's sky: the Carrington Institute (its menu
 // drew no sky cube in the release), Deep Sea and Investigation (nothing of a
-// sky to see), and the arenas whose captures showed only ceilings (Grid,
-// Area 52, Base, Fortress).
+// sky to see), the arenas whose captures showed only ceilings (Grid,
+// Area 52, Base, Fortress), and G5 Building - indoors, its environment row
+// black with no clouds, stars or sun, so the N64 shows black up the laser
+// grid's open shafts, where a guessed cube drew Chicago's clouds in place of
+// a ceiling (F3 20261005-033926).
 static const struct xblaskystage xblaSkyStages[] = {
 	// Recorded from the release (Xenia, Defection and the Combat Simulator).
 	{ STAGE_DEFECTION,    XBLASKY_CITY },   // the skyline, frame for frame
@@ -78,7 +81,6 @@ static const struct xblaskystage xblaSkyStages[] = {
 	{ STAGE_SKEDARRUINS,  XBLASKY_SKEDAR }, // three suns, as the arena
 	{ STAGE_WAR,          XBLASKY_SKEDAR },
 	{ STAGE_CHICAGO,      XBLASKY_DUSK },   // the brown cloud colour Ravine's is
-	{ STAGE_G5BUILDING,   XBLASKY_DUSK },   // Chicago's night, the same clouds
 	{ STAGE_EXTRACTION,   XBLASKY_CITY },   // Defection's district
 	{ STAGE_MBR,          XBLASKY_CITY },
 	{ STAGE_AIRBASE,      XBLASKY_FIRE },   // a low evening sun

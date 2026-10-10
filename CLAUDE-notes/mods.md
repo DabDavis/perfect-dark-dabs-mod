@@ -7,7 +7,7 @@ the long form.
 
 - **The Stage Loader: every mod's maps as arenas beside the mod loaded** — mods.md, "The Stage Loader": maps-only mounts never overlay; the registrar rescans on a swap; the branch's fixes (allocation, pool checks, room sizing, textures by stage); the importer splits a rebuilt texture table (30) and writes the `maps` block (31) so a mod's arenas come from its own tables under its own names — a file name is Perfect Dark's slot, not the map (GE-X's `crad` is Aztec); every imported mod's maps take its own stage row, sky and model states (`modBorrowArenas()`, 2026-10-10: Dark Noon's grass drew as stretched stock crates)
 - **Mod directories, Load Mods, modconfig, `modcodediff`, the ROM symbol file, the data segment and importing a mod's weapon definitions** — [mods.md](CLAUDE-notes/mods.md): only the first mod dir joins the file search; files swap live, segments cannot; the `datasegment` block, `moddata.c`, and "where this stands" for continuing the import work
-- **A mod entered from the Perfect Menu, no restart (2026-10-09)** — mods.md, "A mod entered from the Perfect Menu": the "Perfect Dark Mods" row and its list, `modmode.c`'s queue (sound drains, the Institute reloads, the swap at the stage boundary in **port/src/pdmain.c's** outer loop - the port's main loop, not src/lib/main.c's), `modSwapPath()`, Mod.ModDir no longer mounted at startup and Load Mods gone; online, `modModeRequestAtNextStage()` swaps at the host's next STAGE_LOAD
+- **A mod entered from the Perfect Menu, no restart (2026-10-09)** — mods.md, "A mod entered from the Perfect Menu": the "Perfect Dark Mods" row and its list, `modmode.c`'s queue (sound drains, the Institute reloads, the swap at the stage boundary in **port/src/pdmain.c's** outer loop - the port's main loop, not src/lib/main.c's), `modSwapPath()`, Mod.ModDir no longer mounted at startup and Load Mods gone; online, `modModeRequestAtNextStage()` swaps at the host's next STAGE_LOAD; the All in One Mod's four map packs (`mod_gex`, `mod_goldfinger_64`, `mod_kakariko`, `mod_dark_noon`) are maps-only like the conversions and never on the list
 - **A mod entered live: data (2026-10-09)** — mods.md, "A mod entered live: data": `modDataUnload()` undoes a data segment import (tables back, then frees, statics reset); a mod with only `segs/data` + `segs/data.names` swaps live (`modDirHasBootSegs()`); a modconfig's weapon edits go into the game's own weapon objects and are kept/undone field by field; `--mod-data-swap A,B,none` + `--mod-dump-data FILE` are the test; hash file ids by name and struct fields, not padding
 - **A mod entered live: segments (2026-10-09)** — mods.md, "A mod entered live: segments": `romdataSegSwap()` + `modSegsEnter/Leave()` (modsegs.c) swap every non-audio segment between stages and back; the boot's and ROM's copies kept, appended animation rows rebased not renumbered, `g_NumListTextures` for a longer texture list; test with `--mod-segs-enter`/`--mod-dump-segs`/`--mod-segs-boot-stock`
 - **A mod entered live: online (2026-10-09, protocol 25)** — mods.md, "A mod entered live: online", and netplay.md's "Content follows the host": a guest follows the host's entered mod at the STAGE_LOAD's stage change (its own copy, or the host's served into `$N/<name>`), the key and RULES resolved again after the swap, no save switch, its own mod back after the session; fs.c resolves "$N" overlays for relative loads
@@ -2127,6 +2127,26 @@ meanwhile.
 - Test: `call (void)gexFrontGoBack()` from gdb puts the Perfect Menu up on a
   `--skip-intro` boot, then `call (int)modModeRequestEnter("mods/X", "X")`;
   `modmode: entered X` and the moddata lines follow in the log.
+- **The All in One Mod's four map packs are not on the list** (2026-10-10,
+  F3 pass 35: ten of Parabolee's reports and one more, all with
+  `Mod.ModDir=mod_goldfinger_64`). `mod_gex`, `mod_goldfinger_64`,
+  `mod_kakariko` and `mod_dark_noon` are what its launcher passes as
+  `--gexmoddir`, `--goldfinger64moddir`, `--kakarikomoddir`,
+  `--darknoonmoddir`, and the port it was made for reads each on its own maps
+  alone (its `g_ModNum`, set per stage). Their `textures/` are those maps' art
+  under Perfect Dark's numbers and their `files/` the maps' props, so loaded
+  as *the* mod they put Goldfinger 64's walls on Perfect Dark's own stages -
+  cut-outs where Defection's lift and the Institute's walls were solid,
+  "blue boxes" of sky through them - and Goldfinger's crate, ten times the
+  game's (409 in that port's model-state rows, `modloaderGetStageModelScale()`
+  here, which only a map-only mount reaches), seven metres wide on
+  Investigation and Car Park. Since notes 47 a pd.ini's `ModDir` is not
+  mounted at startup, so those reports are gone with it; entering the pack
+  from the Perfect Dark Mods row would have brought them straight back, so
+  `modListIsMapsOnly()` names the four beside the conversions
+  (`g_ModMapPackDirs`, mod.c). The Stage Loader mounts them for their maps as
+  before (`modloader: goldfinger_64 registered 4 of 4 maps`); `mod_allinone`,
+  the launcher's `--moddir`, stays on the list.
 ## A mod entered live: data (2026-10-09)
 
 Wave 1 of "PD mods as a live mode". A mod's data segment and its modconfig

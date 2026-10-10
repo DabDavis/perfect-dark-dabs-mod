@@ -3666,10 +3666,33 @@ s32 modListIndexOf(const char *name)
  * so loaded as *the* mod it repainted the Institute with GoldenEye's art (F3
  * report 20260922-202854, where Mod.ModDir had been set to it). A GoldenEye ROM
  * hack's conversion (Goldfinger 64's) is the same kind of folder.
+ *
+ * So are the All in One Mod's four map packs: its launcher mounts them with
+ * --gexmoddir, --goldfinger64moddir, --kakarikomoddir and --darknoonmoddir,
+ * and the port it was made for reads each one on its own maps alone. Their
+ * textures/ are those maps' art under Perfect Dark's numbers and their files/
+ * the maps' props (Goldfinger's ammo crate is ten times the game's), so
+ * entered as *the* mod they put see-through Goldfinger walls on Defection and
+ * seven-metre crates on Car Park (F3 20261005-060519 and nine more, Mod.ModDir
+ * set to mod_goldfinger_64). The Stage Loader still mounts them for their maps.
  */
+static const char *const g_ModMapPackDirs[] = {
+	"mod_gex", "mod_goldfinger_64", "mod_kakariko", "mod_dark_noon",
+};
+
 s32 modListIsMapsOnly(s32 index)
 {
-	return index >= 0 && index < numModsListed && gexPlusRomIsConversionDir(modList[index].name);
+	if (index < 0 || index >= numModsListed) {
+		return false;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(g_ModMapPackDirs); i++) {
+		if (!strcasecmp(modList[index].name, g_ModMapPackDirs[i])) {
+			return true;
+		}
+	}
+
+	return gexPlusRomIsConversionDir(modList[index].name);
 }
 
 // Load Mods' own view of the list: every mod but the maps-only ones
