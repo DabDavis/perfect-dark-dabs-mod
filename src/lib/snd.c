@@ -29,6 +29,7 @@
 #include "mod.h"
 #include "gesfx.h"
 #include "modaudio.h"
+#include "audio.h"
 #endif
 
 #define MAX_SEQ_SIZE_4MB 1024 * 14
@@ -1483,6 +1484,11 @@ void sndSetSoundMode(s32 mode)
 			break;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// two channels or six (port/src/audio.c)
+	audioSetSurround(mode == SOUNDMODE_SURROUND);
+#endif
 }
 
 ALSound *sndLoadSound(s16 soundnum)

@@ -975,5 +975,14 @@
     "there is no report to send": "送るレポートがありません",
     "this build has no network support": "このビルドはネットワーク非対応です",
     "wrong name or pin - Create Account if it is new": "名前かPINが違います。新規ならアカウント作成を",
-    "your PIN or security answers, readable.": "PINや秘密の質問の答えが読めます。\n"
+    "your PIN or security answers, readable.": "PINや秘密の質問の答えが読めます。\n",
+    "Surround Output": "サラウンド出力",
+    "5.1 Speakers": "5.1chスピーカー",
+    "Dolby Surround": "ドルビーサラウンド",
+    "Subwoofer": "サブウーファー",
+    "Used when Sound Mode is Surround": "サウンドモードがサラウンドの時に使用",
+    "Now playing 5.1": "5.1chで再生中",
+    "Now playing Dolby Surround": "ドルビーサラウンドで再生中",
+    "Speakers: not reported": "スピーカー: 不明",
+    "Speakers: %d channels": "スピーカー: %dch"
 }
