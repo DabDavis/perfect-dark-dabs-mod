@@ -323,6 +323,7 @@ struct netlpstate {
 	f32 health;
 	f32 shield;
 	s16 weaponnum;
+	s16 weaponleft;         // (protocol 28) the left hand's gun, 0 for none: a pair's, or Akimbo's mixed one
 	s32 loaded[4];          // hands[0].loadedammo[0..1], hands[1].loadedammo[0..1]
 	u16 ammo[NETLP_NUMAMMO];
 	u8 inv[32];             // a bit per weapon number held

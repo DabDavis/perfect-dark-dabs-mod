@@ -12,6 +12,7 @@
 #include "game/lang.h"
 #ifndef PLATFORM_N64
 #include "game/modghost.h"
+#include "net/net.h"
 #endif
 #include "game/pak.h"
 #include "bss.h"
@@ -298,6 +299,16 @@ void cheatsReset(void)
 	if (g_Vars.stagenum != STAGE_CITRAINING) {
 		g_CheatsActiveBank0 = g_CheatsEnabledBank0;
 		g_CheatsActiveBank1 = g_CheatsEnabledBank1;
+
+#ifndef PLATFORM_N64
+		// online the host's, on every machine: a client's own Unlimited
+		// Ammo and All Guns had its player's ammo and guns put back by the
+		// host every half second, the gun cycling and reloading for good
+		// (F3 20261010-050642)
+		if (g_NetMode != NETMODE_NONE) {
+			netCheatsEnabled(&g_CheatsActiveBank0, &g_CheatsActiveBank1);
+		}
+#endif
 
 		if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0 || g_Vars.normmplayerisrunning) {
 			// Co-op/counter-op/multi - deactivate "Weapons for Jo in Solo" cheats

@@ -38,11 +38,25 @@
 #           for ticks it spent dead here come in)
 #   time    a 1-minute time limit: the host ends it at 3600 ticks (give or
 #           take a few) and the client's level clock agrees
+#   hands   the local-player block's guns under Akimbo (F3 20261010-034434),
+#           Ravine, 150 ms: the host hands the client's player GoldenEye's
+#           Golden Gun with a DY357 in its inventory, then the DY357 alone
+#           (--net-test-give). The block's single-gun equip let Akimbo's
+#           switch carry the Golden Gun into the client's left hand, a pair
+#           the host never had, and the host's empty left magazine emptied
+#           it at every stable stretch: a reload for good. Now the block
+#           carries the left hand's gun (protocol 28): the client must hold
+#           the host's hands, no left magazine put in, the ammo sets few.
+#   cheats  a client's own cheats (F3 20261010-050642): the client has All
+#           Guns and the host Unlimited Ammo (--net-test-cheats): the
+#           client must play the host's (RULES, protocol 28), and its
+#           inventory changes and ammo sets stay few (its own had the host's
+#           block put its guns and ammo back every half second all match)
 #
 #   netpredicttest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netpredict-out), PORT (27300; uses PORT..PORT+5), MODDIR
-# (mod_allinone), CASES (clean lag loss wine sims time), FRAMES (3000),
+# Env: OUT (build/netpredict-out), PORT (27300; uses PORT..PORT+7), MODDIR
+# (mod_allinone), CASES (clean lag loss wine sims time hands cheats), FRAMES (3000),
 # WINEEXE (build-win/pd.x86_64.exe), MINMATCH (99, the matched share,
 # percent; the lossy, wine and sims runs are reported against it too),
 # MAXCPM (10, corrections a minute), AIM (10: the script's aim button, R,
@@ -53,7 +67,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpredict-out}; PORT=${PORT:-27300}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-clean lag loss wine sims time}
+CASES=${CASES:-clean lag loss wine sims time hands cheats}
 MAXCPM=${MAXCPM:-10}
 FRAMES=${FRAMES:-3000}
 MINMATCH=${MINMATCH:-99}
@@ -357,6 +371,55 @@ check_time() {
 		|| fail "time: the client's level clock '$ct' against the host's '$hl'"
 }
 
+# hands / cheats: a host and a client, the client's local-player block
+# counters read at the end (netents.c "net: local block")
+run_lp() {
+	local label=$1 port=$2 hini=$3 cini=$4 hargs=$5 cargs=$6
+	INI=$hini game "$label-host" 300 --moddir "$MODDIR" --host "$port" --net-test-host 1 --rng-seed 1 --endless \
+		--exit-frame 3400 $hargs &
+	local host=$!
+	waitfor "$OUT/$label-host.log" "net: hosting on UDP port" 60 || { echo "FAIL: $label host did not start"; kill -TERM $host; exit 2; }
+	INI=$cini game "$label-client" 290 --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join --exit-frame 3000 $cargs &
+	local client=$!
+	wait "$client"
+	kill -TERM "$host" 2>/dev/null
+	wait "$host"
+}
+
+# the last "local block" line's count NAME ("ammo sets", "inventory changes")
+lpcount() {
+	grep -h "net: local block so far\|net: local block at" "$OUT/$1-client.log" | tail -1 | sed -n "s/.* $2 \([0-9]*\).*/\1/p"
+}
+
+check_hands() {
+	local sets mags
+	check_run hands || return
+	grep -q "net: --net-test-give: slot 1 given guns 0x08/0x00" "$OUT/hands-host.log" \
+		&& pass "hands: the host put the DY357 alone in the client's player's hands" || fail "hands: the host's second give never happened"
+	grep -q "net: --net-test-give: slot 1 at tick 2700 holds 0x08/0x00" "$OUT/hands-host.log" \
+		&& pass "hands: the host's player still holds the DY357 alone at tick 2700" || fail "hands: the host's hands at 2700: $(grep -o 'slot 1 at tick 2700.*' "$OUT/hands-host.log")"
+	grep -q "local block (tick [0-9]*): hands 0x6d/0x00 here, the host's 0x08/0x00" "$OUT/hands-client.log" \
+		&& pass "hands: the client took the host's hands (both of them)" || fail "hands: the client never took the host's 0x08/0x00"
+	mags=$(grep -c "left hand's 0x6d magazine" "$OUT/hands-client.log")
+	[ "$mags" = 0 ] && pass "hands: no left-hand magazine of the host's put in the client's Golden Gun" \
+		|| fail "hands: $mags left-hand magazines put in (the Golden Gun reloading for good)"
+	sets=$(lpcount hands "ammo sets")
+	[ -n "$sets" ] && [ "$sets" -le 6 ] && pass "hands: $sets ammo sets all match" || fail "hands: ${sets:-no} ammo sets (want 6 at most)"
+}
+
+check_cheats() {
+	local sets inv
+	check_run cheats || return
+	grep -q "net: cheats: the host's 00000010 00000000 in force, not this machine's own 00000008 00000000" "$OUT/cheats-client.log" \
+		&& pass "cheats: the client plays the host's cheats (Unlimited Ammo), not its own (All Guns)" \
+		|| fail "cheats: $(grep -o 'net: cheats:.*' "$OUT/cheats-client.log" | head -1)"
+	sets=$(lpcount cheats "ammo sets")
+	inv=$(lpcount cheats "inventory changes")
+	[ -n "$sets" ] && [ "$sets" -le 6 ] && [ -n "$inv" ] && [ "$inv" -le 3 ] \
+		&& pass "cheats: $inv inventory changes and $sets ammo sets all match" \
+		|| fail "cheats: ${inv:-no} inventory changes and ${sets:-no} ammo sets (want 3 and 6 at most)"
+}
+
 i=0
 for c in $CASES; do
 	case $c in
@@ -366,6 +429,10 @@ for c in $CASES; do
 		sims)  SIMS=6 run sims $((PORT + i)) "$FRAMES" 0 "0,75" ;;
 		wine)  if [ -x "$(command -v wine)" ] && [ -e "$WINEEXE" ]; then run wine $((PORT + i)) "$FRAMES" 1 "${WINESIM-0,75}"; else echo "skip wine: no wine or no $WINEEXE"; fi ;;
 		time)  run_time $((PORT + i)) ;;
+		hands) run_lp hands $((PORT + i)) "[Mod]\nAkimbo=1\n" "[Mod]\nAkimboTriggers=1\nQuickWeaponSwap=1\n" \
+				"--net-test-stage 0x17 --net-sim 0,72 --net-test-give 600,0x6d,-0x08/1200,0x08" "--net-sim 0,72" ;;
+		cheats) run_lp cheats $((PORT + i)) "[Mod]\nStartArmed=1\n" "[Mod]\nStartArmed=1\n" \
+				"--net-test-stage 0x32 --mp-weapons 1,4,7,9,10,1 --net-sim 0,38 --net-test-cheats 0x10" "--net-sim 0,38 --net-test-cheats 0x08" ;;
 	esac
 	i=$((i + 1))
 done
@@ -383,6 +450,8 @@ for c in $CASES; do
 			snaps "$c"
 			;;
 		time) [ -e "$OUT/time-host.log" ] && check_time ;;
+		hands) [ -e "$OUT/hands-client.log" ] && check_hands ;;
+		cheats) [ -e "$OUT/cheats-client.log" ] && check_cheats ;;
 	esac
 done
 

@@ -155,6 +155,16 @@ static s32 s_DevicePending = 0;   // ... and a device switched (NETCMD_DEVICE)
 static u8 s_Device[2];
 static u32 s_TestEquipTick = 0;   // --net-test-equip TICK,WEAPON: a menu's pick made at TICK
 static s32 s_TestEquipWeapon = 0;
+// --net-test-give TICK,RIGHT[,LEFT][/TICK,RIGHT[,LEFT]...]: the host hands
+// every client's player these guns at TICK (a negative LEFT is given but not
+// put in the hand)
+#define NET_TESTGIVES 4
+static s32 s_TestGives = 0;
+static u32 s_TestGiveTick[NET_TESTGIVES];
+static s32 s_TestGive[NET_TESTGIVES][2];
+static u32 s_TestGiven[NET_TESTGIVES];          // ... the pads given them (once each: a tick has several passes)
+static u32 s_TestGiveLogged[MAX_PLAYERS];
+static s32 s_TestGiveHost = 0;                 // --net-test-give-host: the host's own player too
 
 // --net-test-input FILE: a per-tick script for the local pad and mouse
 struct netscriptline {
@@ -265,6 +275,29 @@ void netPlayersArgs(void)
 		if (equip && strchr(equip, ',')) {
 			s_TestEquipTick = (u32)strtoul(equip, NULL, 0);
 			s_TestEquipWeapon = (s32)strtol(strchr(equip, ',') + 1, NULL, 0);
+		}
+	}
+
+	{
+		const char *give = sysArgGetString("--net-test-give");
+
+		s_TestGiveHost = sysArgCheck("--net-test-give-host");
+
+		while (give && *give && s_TestGives < NET_TESTGIVES) {
+			unsigned int tick = 0;
+			int right = 0;
+			int left = 0;
+
+			if (sscanf(give, "%u,%i,%i", &tick, &right, &left) < 2) {
+				break;
+			}
+
+			s_TestGiveTick[s_TestGives] = tick;
+			s_TestGive[s_TestGives][0] = right;
+			s_TestGive[s_TestGives][1] = left;
+			s_TestGives++;
+			give = strchr(give, '/');
+			give = give ? give + 1 : NULL;
 		}
 	}
 
@@ -703,6 +736,78 @@ s32 netPlayersHostBody(s32 playernum, f32 *facing, f32 *travel, s32 *travelset)
 }
 
 /**
+ * --net-test-give on the host, at a player's pass: the guns (a pair or two
+ * different ones under Akimbo), with ammo, in its hands - every client's
+ * player, and the host's own too with --net-test-give-host
+ */
+static void netPlayersTestGive(s32 pad)
+{
+	struct player *p = g_Vars.currentplayer;
+
+	if (!s_TestGives || pad < 0 || pad >= MAX_PLAYERS || !p) {
+		return;
+	}
+
+	for (s32 g = 0; g < s_TestGives; g++) {
+		if (g_NetTick < s_TestGiveTick[g] || (s_TestGiven[g] & (1u << pad)) || p->isdead || s_TestGive[g][0] <= WEAPON_NONE || s_TestGive[g][0] >= NUM_WEAPONS) {
+			continue;
+		}
+
+		const s32 right = s_TestGive[g][0];
+		// a negative LEFT: given, but the right hand's gun alone in the hands
+		const s32 carry = s_TestGive[g][1] < 0 ? -s_TestGive[g][1] : WEAPON_NONE;
+		const s32 left = s_TestGive[g][1] > WEAPON_UNARMED && s_TestGive[g][1] < NUM_WEAPONS ? s_TestGive[g][1] : WEAPON_NONE;
+		s32 h;
+
+		if (left == right) {
+			invGiveDoubleWeapon(right, right);
+		} else {
+			invGiveSingleWeapon(right);
+
+			if (left > WEAPON_NONE) {
+				invGiveSingleWeapon(left);
+			}
+
+			if (carry > WEAPON_UNARMED && carry < NUM_WEAPONS) {
+				const s32 type = bgunGetAmmoTypeForWeapon(carry, FUNC_PRIMARY);
+
+				invGiveSingleWeapon(carry);
+
+				if (type > 0 && type < ARRAYCOUNT(p->ammoheldarr)) {
+					p->ammoheldarr[type] = 40;
+				}
+			}
+		}
+
+		for (h = 0; h < 2; h++) {
+			const s32 w = h == 0 ? right : left;
+
+			if (w > WEAPON_UNARMED) {
+				const s32 type = bgunGetAmmoTypeForWeapon(w, FUNC_PRIMARY);
+
+				if (type > 0 && type < ARRAYCOUNT(p->ammoheldarr)) {
+					p->ammoheldarr[type] = 40;
+				}
+			}
+		}
+
+		bgunEquipHands(right, left);
+		s_TestGiven[g] |= 1u << pad;
+		sysLogPrintf(LOG_NOTE, "net: --net-test-give: slot %d given guns 0x%02x/0x%02x (tick %u)", pad, right, left, g_NetTick);
+	}
+
+	// ... and the hands every 300 ticks after, for the gates to set beside
+	// the client's
+	if ((s_TestGiven[0] & (1u << pad)) && g_NetTick % 300 == 0 && s_TestGiveLogged[pad] != g_NetTick) {
+		s_TestGiveLogged[pad] = g_NetTick;
+		sysLogPrintf(LOG_NOTE, "net: --net-test-give: slot %d at tick %u holds 0x%02x/0x%02x, magazines %d/%d",
+				pad, g_NetTick, bgunGetWeaponNum(HAND_RIGHT), bgunGetWeaponNum(HAND_LEFT),
+				p->hands[HAND_RIGHT].loadedammo[0], p->hands[HAND_LEFT].loadedammo[0]);
+	}
+
+}
+
+/**
  * The host, at a client's player's pass: the guns its menu put in the hands
  * and the device it switched (protocol 15), played once each, and only
  * what the player holds here
@@ -766,6 +871,10 @@ void netRemotePassBegin(void)
 
 	if (g_NetMode == NETMODE_SERVER && g_NetRemotePass) {
 		netPlayersHostApplyChoices(g_Vars.currentplayernum);
+	}
+
+	if (g_NetMode == NETMODE_SERVER && s_TestGives && (g_NetRemotePass || s_TestGiveHost)) {
+		netPlayersTestGive(netPadOfPlayer(g_Vars.currentplayernum));
 	}
 }
 
