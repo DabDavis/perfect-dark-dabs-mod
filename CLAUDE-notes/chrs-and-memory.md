@@ -529,13 +529,23 @@ background list 0x1023 (`g_BgChrs[33]`, chrnum 4035) at its mid cutscene
 0x042a once the intro is over (lvframe60 ~3317) - the `--skip-cutscenes` flag
 skips that cutscene too.
 
-Not changed: gating list execution for alert chrs to frames that hold a 60th.
-Nothing the lists read is set and cleared inside one frame outside that block
-(the hearing flag and CONSIDERPROXIES are cleared in it, a hit raises
-CHRCFLAG_TRIGGERSHOTLIST which waits for the list, the cutscene skip latches),
-but two things depend on the per-frame run: the converted-mission first tick
-(`firsttick`, above the block, sets `sleep = -1` so a new chr's list runs the
-tick it is made - a 60 Hz gate would bring back Facility's Doak bug unless it
-is exempt), and `aiGeObjectNudge()`, which scales its move by
-`lvupdate60freal`, correct for a list run every frame and a quarter of the
-distance for one run once a 60th at 240 (a background list today).
+Gating list execution for alert chrs to frames that hold a 60th (done
+afterwards, fix/highfps-aigate): `chraTick()`'s `runlist` (`diffframe240 >= 4
+|| lvupdate60 > 0`, or the chr's first tick) gates `chraiExecute()` and the
+two flag clears after the action switch (the hearing flag, CONSIDERPROXIES);
+the action tick itself still runs every frame. Nothing the lists read is set
+and cleared inside one frame outside that block (the two flags now wait with
+the list, a hit raises CHRCFLAG_TRIGGERSHOTLIST which waits for the list, the
+cutscene skip latches). Two things depended on the per-frame run and were
+changed with it: the first tick (`firsttick`: `sleep = -1` on a chr's first
+tick, now on every stage, not only converted missions, so a new chr's list
+runs the frame it is made as at 60 - Facility's Doak), and
+`aiGeObjectNudge()`, which now moves by the integer 60ths off the 60 FPS path
+(by the frame's real length a list run once a 60th - a background list -
+moved a quarter of the distance at 240).
+
+Probing the AI cheaply: break on `*chraiExecute` (the exact entry, so `$rdi`
+is the entity and `$esi` the prop type) and filter in `stop()`; a breakpoint at
+a line inside it can see `g_Vars.chrdata` still 0 (the store is not made yet),
+and a `condition` set on a Python breakpoint that has a `stop()` method did
+not filter anything here - filter in `stop()`.

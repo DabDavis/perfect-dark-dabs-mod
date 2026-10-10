@@ -10830,7 +10830,15 @@ bool aiGeObjectNudge(void)
 		RoomNum rooms[8];
 
 		if (cmd[5] & 1) {
+#ifndef PLATFORM_N64
+			// A list runs once a 60th above 60 FPS (chraTick(); the
+			// background lists that do this always did), so a run is a
+			// 60th's move: by the frame's real length a list run at 240 moved
+			// a quarter of it. A frame of a 60th or more keeps stock's sum.
+			amount *= g_Vars.diffframe240 >= 4 ? g_Vars.lvupdate60freal : (f32)g_Vars.lvupdate60;
+#else
 			amount *= g_Vars.lvupdate60freal;
+#endif
 		}
 
 		if (cmd[5] & 2) {

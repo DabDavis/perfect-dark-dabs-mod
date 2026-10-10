@@ -15741,7 +15741,10 @@ void chraTick(struct chrdata *chr)
 	// Facility's Doak (spawned as 5000-odd, renamed 0x4f by his first command)
 	// read as dead to the background list one tick behind him, failing
 	// "Contact double agent" on 00 Agent the moment Bond left the duct.
-	if (firsttick && chr->sleep == 0 && modloaderStageIsMission(g_Vars.stagenum)) {
+	// Every new chr's, not only a converted mission's: at 60 FPS each one's
+	// list runs on its first tick (sleep 0 less a 60th), and above 60 a
+	// stock chr that waited a few frames is the framerate showing through.
+	if (firsttick && chr->sleep == 0) {
 		chr->sleep = -1;
 	}
 #endif
@@ -15751,8 +15754,28 @@ void chraTick(struct chrdata *chr)
 			|| chr->alertness >= 65
 			|| (chr->aibot && (chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD))) {
 		u8 pass = race == RACE_HUMAN || race == RACE_SKEDAR;
+#ifndef PLATFORM_N64
+		// An alert or never-sleeping chr comes in here every frame, and its
+		// list ran every frame: four times a 60th at 240 FPS, so whatever a
+		// list does per run (a random roll, a count, a poll in a loop) came
+		// four times as often as at 60. Its list now runs on the frames that
+		// hold a 60th, as an idle chr's and the background lists' already do
+		// (their sleep only goes negative on those). The action tick below
+		// still runs every frame, so the chr moves, turns and aims smoothly.
+		// A frame of a 60th or more (60 and 30 FPS, an online sim tick) runs
+		// it as before, and so does a chr's first tick, as at 60: a new chr's
+		// list runs on the frame it is made (a converted mission's lists rely
+		// on it - Facility's Doak, above).
+		// The two flags cleared after the list (heard the target, consider
+		// proximity mines) wait with it for the next run, so a shot heard on
+		// a frame between runs is still seen.
+		bool runlist = firsttick || g_Vars.diffframe240 >= 4 || g_Vars.lvupdate60 > 0;
+#endif
 		chr->sleep = 0;
 
+#ifndef PLATFORM_N64
+		if (runlist)
+#endif
 		chraiExecute(chr, PROPTYPE_CHR);
 
 		// Consider setting shootingatmelist
@@ -15849,8 +15872,13 @@ void chraTick(struct chrdata *chr)
 		}
 
 #if VERSION >= VERSION_NTSC_1_0
-		chr->hidden &= ~CHRHFLAG_IS_HEARING_TARGET;
-		chr->hidden2 &= ~CHRH2FLAG_CONSIDERPROXIES;
+#ifndef PLATFORM_N64
+		if (runlist)
+#endif
+		{
+			chr->hidden &= ~CHRHFLAG_IS_HEARING_TARGET;
+			chr->hidden2 &= ~CHRH2FLAG_CONSIDERPROXIES;
+		}
 #else
 		chr->hidden &= ~(CHRHFLAG_IS_HEARING_TARGET | CHRHFLAG_CONSIDERPROXIES);
 #endif
