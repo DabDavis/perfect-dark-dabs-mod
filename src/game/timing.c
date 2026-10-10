@@ -55,7 +55,7 @@ void frametimeCalculate(void)
 	} while (g_Vars.mininc60 && diffframe60 < g_Vars.mininc60);
 
 #ifndef PLATFORM_N64
-	if (g_FixedStep) {
+	if (g_FixedStep == 60) {
 		// --fixed-step: every frame is exactly one tick whatever the clock
 		// says, so a headless run with --rng-seed replays the same match
 		diffframe60 = 1;
@@ -63,6 +63,13 @@ void frametimeCalculate(void)
 		g_Vars.lostframetime60t = 0;
 		g_Vars.lostframetime240t = 0;
 		diffframet = CYCLES_PER_FRAME;
+	} else if (g_FixedStep) {
+		// --fixed-fps N: every frame is exactly 1/N s instead, carried the way
+		// an uncapped frame's time is - at 240 a 240th each, and a 60th every
+		// fourth frame. The same replay at a high framerate, unpaced.
+		diffframet = CYCLES_PER_FRAME * 60 / g_FixedStep;
+		diffframe60 = (g_Vars.lostframetime60t + (s32)diffframet + CYCLES_PER_FRAME / 2) / CYCLES_PER_FRAME;
+		diffframe240 = (g_Vars.lostframetime240t + (s32)diffframet + CYCLES_PER_FRAME / 2 / 4) / (CYCLES_PER_FRAME / 4);
 	}
 #endif
 
@@ -72,7 +79,7 @@ void frametimeCalculate(void)
 #ifdef PLATFORM_N64
 	g_Vars.mininc60 = 1;
 #else
-	g_Vars.mininc60 = g_TickRateDiv;
+	g_Vars.mininc60 = g_FixedStep && g_FixedStep != 60 ? 0 : g_TickRateDiv;
 #endif
 
 	frametimeApply(diffframe60, diffframe240, count);

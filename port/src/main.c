@@ -74,7 +74,7 @@ u32 g_VmNumPageReplaces = 0;
 u8 g_VmShowStats = 0;
 
 s32 g_TickRateDiv = 1;
-s32 g_FixedStep = 0; // --fixed-step, see frametimeCalculate()
+s32 g_FixedStep = 0; // --fixed-step (60) or --fixed-fps N, see frametimeCalculate()
 s32 g_ExitFrame = 0; // --exit-frame N: quit when the level reaches frame N, so a measured run covers the same frames whatever its speed (lvTick)
 s32 g_SkipCutscenes = 0; // --skip-cutscenes: every cutscene skipped as soon as it lets itself be, so a headless mission run reaches play (playerTickCutscene)
 s32 g_AlarmAtFrame = 0; // --alarm-at N: raise the alarm at that level frame, so a headless run exercises what the alarm sets off (lvTick)
@@ -350,7 +350,13 @@ int main(int argc, const char **argv)
 	// --run-room N: and the first landing is in this room when it has a
 	// waypoint there - one room's landing without finding a seed for it
 	g_ModRunFirstRoom = sysArgGetInt("--run-room", -1);
-	g_FixedStep = sysArgCheck("--fixed-step");
+	// --fixed-step: every frame 1/60 s of game time; --fixed-fps N: 1/N s
+	// (30 to 240), the uncapped tick rate's frames made repeatable
+	g_FixedStep = sysArgCheck("--fixed-step") ? 60 : 0;
+	if (sysArgGetInt("--fixed-fps", 0) > 0) {
+		const s32 fps = sysArgGetInt("--fixed-fps", 0);
+		g_FixedStep = fps < 30 ? 30 : fps > 240 ? 240 : fps;
+	}
 	g_ExitFrame = sysArgGetInt("--exit-frame", 0);
 	g_StateHashEvery = sysArgGetInt("--state-hash", 0);
 	g_ShotFrame = sysArgGetInt("--screenshot-frame", 0);
