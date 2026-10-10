@@ -6276,8 +6276,14 @@ bool chrIsRoomOffScreen(struct chrdata *chr, struct coord *waypos, RoomNum *wayr
 	// spawned out of sight, walked his first steps on his feet, turning from
 	// his pad's heading as he went, where GoldenEye faces him down his route
 	// at once and walks him straight (F3 report 20261010-102926)
+	//
+	// And GoldenEye goes magic only where its tile walk from the chr reaches
+	// the pad in a straight line: chrlvStanRoomRelated() answers no when the
+	// walk stops short. Runway's patrolling guard (chr 23), whose next pad is
+	// 3700 away across the hangars, walks on his feet on the cartridge; taken
+	// magic here, he stood at his segment's start for a thousand ticks
 	if (offscreen && geRoomActive() && !chr->aibot) {
-		return true;
+		return geStanReaches(&prop->pos, chr->ground, waypos);
 	}
 #endif
 
