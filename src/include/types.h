@@ -6541,6 +6541,9 @@ struct extplayerconfig {
 	f32 crosshairedgeboundary;
 	s32 crosshairhealth;
 	s32 usereloads;
+	// GoldenEye multiplayer's LOOK UP/DOWN row (gexfront.c): 0 untouched, the
+	// solo watch's setting as on the cartridge; 1 upright, 2 reverse
+	s32 gemplook;
 };
 
 struct setupblock {

@@ -139,6 +139,9 @@ s32 inputControllerMask(void);
 
 // get/set Input.Player%d.SwapSticks
 s32 inputControllerGetSticksSwapped(s32 cidx);
+// Invert Right Stick X (axis 0) / Y (axis 1), per controller, off by default
+s32 inputControllerGetRightStickInverted(s32 cidx, s32 axis);
+void inputControllerSetRightStickInverted(s32 cidx, s32 axis, s32 inverted);
 void inputControllerSetSticksSwapped(s32 cidx, s32 swapped);
 
 // get/set Input.Player%d.StickCButtons (DualAnalog is 1 if StickCButtons is 0)

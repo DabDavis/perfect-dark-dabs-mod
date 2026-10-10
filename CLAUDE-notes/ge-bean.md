@@ -14931,3 +14931,41 @@ by 1. With the Community Edition the fog ends at 5000 and the fade moves out by 
 **Doak's HD face (20261010-092900).** The owner kept the release's `head/headdave` for Doak (2026-09-26,
 cb052e42c), which is another man's face; the Community Edition's `new/head/headdave` is Doak's own
 (curly hair, goatee - dumped with cafftool.py), so with the CE on he has his face. Not changed.
+
+## GoldenEye multiplayer's LOOK UP/DOWN, and Invert Right Stick X/Y (2026-10-10, feat/ge-mp-look-invert, F3 20261010-190432)
+
+**On the cartridge** multiplayer has no look setting of its own: every player of
+a match reads the one `game_options_entries[PLAYER_OPTION_LOOK]`, which is the
+solo watch's LOOK UP/DOWN. Here GoldenEye multiplayer reads each player's Reverse
+Pitch (`optionsGetForwardPitch(mpindex)`, `g_PlayerConfigsArray[0-3]`), which
+GoldenEye mode had nowhere to set. Now the folder's **Control Style page has a
+second row per player, LOOK UP/DOWN** (up/down moves between the two rows,
+left/right turns UPRIGHT/REVERSE; LoptionsE's own words, slots 0x11/0x1b/0x1c,
+loaded into the front beside LtitleE and title-cased for the folder font).
+Storage: `g_PlayerExtCfg[n].gemplook`, pd.ini `Game.PlayerN.GoldenEyeMpLook`:
+0 = never touched, **follow the solo watch** (`MPINDEX_SOLO` = 12's Reverse
+Pitch, as the cartridge does); 1 upright, 2 reverse - and a change is written
+through to the player's Reverse Pitch as well. `optionsGetForwardPitch()` asks
+`gexPlusMpLook()` first, which answers only in a GoldenEye match
+(`g_GexPlusMode && normmplayerisrunning`) and only for a player of this
+machine (offline: `LOCALPLAYER(mpindex)`; online: the machine's own pad,
+`netPlayersLocalPad()`). Online nothing new goes on the wire: a client in
+GoldenEye mode sends the resolved look as the Reverse Pitch bit of its slot
+config (`netWriteSlotCfg()`), and the host plays a remote slot by what it sent.
+Perfect Dark's own matches and missions never take the override.
+
+**Invert Right Stick X / Y** (Extended > Controller > Analog Stick Settings,
+per controller; pd.ini `[Input.PlayerN] InvertRStickX/Y`, off by default) turn
+the **physical** right stick's axes round exactly as a negative
+`RStickScaleX/Y` does (`inputAxisSens()`), in every mode and before anything is
+sent online. With Swap Sticks on (the default) that stick is the N64 stick, so
+menus that read the stick see it turned round too, as with a negative scale.
+**Reverse Pitch (or LOOK UP/DOWN REVERSE) and Invert Y cancel each other out.**
+
+Proof (gdb, `tools/fakepad/` `fakepad.so` + `lookprobe.py`, an LD_PRELOAD that attaches an SDL virtual pad in the
+process and returns axes gdb writes - no inferior calls, which hang this game
+under gdb): in a GoldenEye match, player 1 with an untouched row followed the
+watch (invertpitch 0 under UPRIGHT, 1 under REVERSE, its own PD bit ignored),
+player 2's row overrode the watch both ways; on Perfect Dark's 0x32 the same
+settings gave each player's own bit. RX+ for 20 frames turned +66.5 degrees,
+-66.5 inverted (both modes); RY+ for 15 frames pitched +49, -49 inverted.

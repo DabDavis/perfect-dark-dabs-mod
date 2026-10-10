@@ -7,6 +7,9 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "gexfront.h"
+#endif
 
 u8 g_InGameSubtitles = 1;
 u8 g_CutsceneSubtitles = 0;
@@ -46,6 +49,16 @@ s32 optionsGetContpadNum2(s32 mpchrnum)
 
 s32 optionsGetForwardPitch(s32 mpchrnum)
 {
+#ifndef PLATFORM_N64
+	s32 upright;
+
+	// a GoldenEye match: the player's own LOOK UP/DOWN row, or the solo
+	// watch's as on the cartridge (gexfront.c)
+	if (gexPlusMpLook(mpchrnum, &upright)) {
+		return upright;
+	}
+#endif
+
 	return (g_PlayerConfigsArray[mpchrnum].options & OPTION_FORWARDPITCH) != 0;
 }
 
