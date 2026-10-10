@@ -31,6 +31,22 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 50 2026-10-10
+New: Goldfinger 64 and Tomorrow Never Dies 64 guns in the Combat Simulator: pick ROM Hack Guns on the Weapons page to play any arena with that game's guns and weapon sets; online, everyone plays with the host's choice (thanks raffine52)
+New: GoldenEye's Silver PP7, Gold PP7 and Taser: turn on GoldenEye Cheat Guns on the Weapons page to add them to the weapon lists, with three new GoldenEye weapon sets (off by default) (thanks PCGENE789)
+GoldenEye's All Guns cheat includes the Silver PP7, Gold PP7 and Taser, as on the cartridge, and the Taser zaps like GoldenEye's
+GoldenEye in the XBLA look: windows and glass doors stay see-through from any distance, as in the XBLA release (Control's control room, Facility's labs, the huts on Dam and Surface) (thanks echoremastered)
+Online: hosting a GoldenEye campaign room, a cinema or the credits from the Cinema page plays for everyone in the room, and you're all back in the room for the next mission when it ends
+Online: guests see GoldenEye's on-screen mission lines too
+Goldfinger 64 Plane: the parachute gear hangs over the hold's floor where you can take it, and shooting it no longer drops it out of the level (thanks ClassicAlfredo and Shadowspike74)
+Goldfinger 64 Club: you start with the Knockout Gas and the Phone Tap again, so the first objective can be done (thanks Odeyseis)
+Goldfinger 64 Miami: in the ending Bond walks in, kneels beside Jill, and the mission ends (thanks Odeyseis)
+Goldfinger 64 Vaults: going up or down the stairwell no longer puts you, or Oddjob, out on the street behind invisible walls (thanks ClassicAlfredo)
+Randomizer: landing on a spot where a door stands (Goldfinger 64's China) puts you just beside it, free to move (thanks savantique)
+Goldfinger 64 Bodega: the red blanket stays still as on the cartridge instead of crawling up the bed (thanks N4h)
+GoldenEye, Goldfinger 64 and Tomorrow Never Dies 64 convert once more on the next start
+Online play needs everyone on this update (protocol 27)
+
 notes 49 2026-10-10
 GoldenEye: with Guards Alerted on, the extra guards are the level's own soldiers with its own guns, and no longer fight the other guards (thanks chickensalad and Odeyseis)
 GoldenEye with Mission Respawn: after dying and coming back, reaching the exit ends the mission again (thanks ClassicAlfredo)
