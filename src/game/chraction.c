@@ -6268,6 +6268,19 @@ bool chrIsRoomOffScreen(struct chrdata *chr, struct coord *waypos, RoomNum *wayr
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye's test is the rooms on the way being drawn, and nothing else
+	// (chrlvStanRoomRelated()): it never asks whether the line from the
+	// waypoint to Bond runs through his room. Outdoors that line always does,
+	// so on a converted level no guard ever went magic. Statue Park's Janus,
+	// spawned out of sight, walked his first steps on his feet, turning from
+	// his pad's heading as he went, where GoldenEye faces him down his route
+	// at once and walks him straight (F3 report 20261010-102926)
+	if (offscreen && geRoomActive() && !chr->aibot) {
+		return true;
+	}
+#endif
+
 	if (offscreen) {
 		for (i = 0; i < PLAYERCOUNT(); i++) {
 			portal00018148(waypos, &g_Vars.players[i]->prop->pos, wayrooms, sp50, 0, 0);
@@ -15315,7 +15328,19 @@ void chrTickGoPos(struct chrdata *chr)
 		// Every 10 ticks: Check something a couple of waypoints ahead
 		// This might be checking if the chr has line of sight to that pad and can
 		// walk straight to it.
-		if (chr->act_gopos.waydata.age % 10 == 5 || (chr->act_gopos.flags & GOPOSFLAG_INIT)) {
+#ifndef PLATFORM_N64
+		// GoldenEye looks ahead only as the waydata's age comes round (its
+		// chrlvTickGoPos() has no first-tick look): with Perfect Dark's, a
+		// guard spawned beside Statue Park's Janus cut two waypoints on its
+		// first tick and walked across his path at his side instead of behind
+		// him, and the two steered round each other all the way to the statue
+		// (F3 report 20261010-102926)
+		const u32 initlook = geRoomActive() && !chr->aibot ? 0 : (chr->act_gopos.flags & GOPOSFLAG_INIT);
+#else
+		const u32 initlook = chr->act_gopos.flags & GOPOSFLAG_INIT;
+#endif
+
+		if (chr->act_gopos.waydata.age % 10 == 5 || initlook) {
 			// Load waypoint that the chr is running to
 			waypoint = chr->act_gopos.waypoints[chr->act_gopos.curindex];
 
@@ -15367,11 +15392,11 @@ void chrTickGoPos(struct chrdata *chr)
 			}
 		}
 
-		if (chr->act_gopos.waydata.age % 10 == 0 || (chr->act_gopos.flags & GOPOSFLAG_INIT)) {
+		if (chr->act_gopos.waydata.age % 10 == 0 || initlook) {
 			waypoint = chr->act_gopos.waypoints[chr->act_gopos.curindex];
 
 			if (waypoint) {
-				candosomething = (chr->act_gopos.flags & GOPOSFLAG_INIT) != 0;
+				candosomething = initlook != 0;
 				padUnpack(waypoint->padnum, PADFIELD_FLAGS | PADFIELD_POS, &pad);
 
 				next = chr->act_gopos.waypoints[chr->act_gopos.curindex + 1];
