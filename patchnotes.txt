@@ -31,6 +31,13 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 54 2026-10-10
+Above 60 FPS: autoguns fire at the 60 FPS rate (they fired four times as fast at 240) and turn smoothly
+Above 60 FPS: switching and reloading guns take as long as at 60 (they were slightly quicker)
+Above 60 FPS: escalators (and you riding them), hover crates, hover beds and the hoverbike move smoothly
+Above 60 FPS: HUD messages slide, fade and flash smoothly
+Above 60 FPS: the wind in rain and snow turns smoothly, rain streaks change length smoothly, and rain splashes no longer come four times as often
+
 notes 53 2026-10-10
 Above 60 FPS: enemies and simulants out of view also make their decisions and take their steps at the same rate as at 60
 
