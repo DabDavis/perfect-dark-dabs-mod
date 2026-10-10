@@ -14862,3 +14862,26 @@ time a pane touches its portal): a portal behind a far pane is open in the XBLA
 look where the N64 look shuts it, so chrs beyond count as seen (they move with
 collision, `chraction.c`'s off-screen test) - as with Glass See-Through. Not
 part of the built level: no HDCACHE bump.
+
+## Depot's floor patches, Statue Park's guard distance, Doak's HD face (F3 pass 36, 2026-10-10, fix/f3-1010c-gehd)
+
+**Depot's computer room "texture mismatch" (20261010-133114/-133128).** Depot keeps 30 of GoldenEye's 89
+rooms in the HD look (43-81, three to a place at ten places): each is one flat quad, two triangles, on a
+floor (y -218, -108, -30, 25), and Bean's mesh assigns nothing to them. They lay within 4 units of Bean's own
+floor, so the backdrop rule (hidden when under a quarter of a room's triangles are within a cell of Bean's
+mesh) kept them, and they were drawn over Bean's carpet as patches of GoldenEye's low-detail reddish floor
+(the computer room's, rooms 55-57, beside the containers). A kept room whose every triangle lies within
+`KEPT_ON_DIST` (8) of Bean's mesh is now hidden too: Bean's own surface replaced it. Drawing only
+(`gebeanStageRoomHidden()`); tiles, collision and the N64 look untouched. Over the 20 missions and the
+six arena-only HD levels only Depot changes ("30 kept, 30 of them not drawn"). HDCACHE 23. Rig
+`~/wt/f3-1010c-gehd-run/cam.sh` (gdb camera at a mission, `PRE=hideprobe.py HIDE=...` hides rooms live).
+
+**Statue Park's guards vanishing at a distance (20261010-102617) is GoldenEye's.** Its fog row's object
+fade (NearFog 2000, MaxVisRange 2500, MaxObfuscationRange 2000; GE bgfog.c) is what GoldenEye's
+propobj.c fades and drops chrs by depth, and ours (`posIsInObjFadeDistance()`) is the same; the retail
+release's HD fog for Statue ends at 3500, the level's own far plane, so `envGetDistFadeSettings()` scales
+by 1. With the Community Edition the fog ends at 5000 and the fade moves out by 5000/3500.
+
+**Doak's HD face (20261010-092900).** The owner kept the release's `head/headdave` for Doak (2026-09-26,
+cb052e42c), which is another man's face; the Community Edition's `new/head/headdave` is Doak's own
+(curly hair, goatee - dumped with cafftool.py), so with the CE on he has his face. Not changed.
