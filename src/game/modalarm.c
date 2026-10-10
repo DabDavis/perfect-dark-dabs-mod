@@ -30,6 +30,9 @@
 #include "system.h"
 #include "gebean.h"
 #include "gestan.h"
+#include "gexplus.h"
+#include "modloader.h"
+#include "game/propobj.h"
 #include <stdlib.h>
 #include <string.h>
 #endif
@@ -132,6 +135,48 @@ static s32 g_ModAlarmCountdown60 = 0;
 static s32 g_ModAlarmNumWaypoints = 0;
 static s32 g_ModAlarmReserve = 0;
 static bool g_ModAlarmPadGraph = false; // this stage's waypoints are modAlarmBuildPadWaypoints()'s
+
+#ifndef PLATFORM_N64
+/**
+ * A converted GoldenEye mission's reinforcements are GoldenEye's own guards.
+ *
+ * Perfect Dark's answer for a stage it has no uniform for is the dataDyne
+ * shock trooper with the mission side arms, put on TEAM_ENEMY and set to
+ * fight other AI. On a GoldenEye level that was a Perfect Dark soldier in a
+ * GoldenEye mission, posed by GoldenEye's animations on a skeleton they were
+ * not made for and carrying Perfect Dark's guns (F3 20261004-183458) - and
+ * fighting the level's own guards (F3 20261004-185009): the conversion leaves
+ * the setup's guards on team 0 and a GoldenEye script's spawns on chrInit()'s
+ * TEAM_01, neither sharing a bit with TEAM_ENEMY, and CHRFLAG0_AIVSAI's enemy
+ * scan lists TEAM_01.
+ *
+ * GoldenEye's own reinforcement is the clone (chrai.c's TRYCloningChr, Perfect
+ * Dark's aiDuplicateChr): the body of a guard of the level, a head out of the
+ * level's pool, that guard's guns and hat, his team, and GoldenEye's global
+ * list GAILIST_STANDARD_CLONE - run to Bond, then stand guard as every
+ * GoldenEye guard does. So that is what a reinforcement is here, made after
+ * one of the level's own guards, picked at random from those standing when
+ * the first one is due (a guard's gun is gone once he dies). Never a named
+ * character: a body that carries its own head (Trevelyan, Natalya) or names
+ * one (Doak, Mishkin), nor a civilian, an ally or an unarmed man.
+ */
+#define MODALARM_MAXTEMPLATES 24
+#define MODALARM_GE_CLONELIST (0x0800 + 12) // GAILIST_STANDARD_CLONE, geconvert.c's soloGlobalAiId()
+
+struct modalarmtemplate {
+	s16 bodynum;
+	s16 hatmodel;     // -1: bareheaded
+	s16 gunnum[2];    // by hand, -1: empty
+	s16 gunmodel[2];
+	u8 team;
+	u8 squadron;
+	u8 voicebox;
+	u8 dual;          // the two guns are one pair
+};
+
+static struct modalarmtemplate g_ModAlarmTemplates[MODALARM_MAXTEMPLATES];
+static s32 g_ModAlarmNumTemplates = -1; // looked for when the first guard is due
+#endif
 
 /**
  * The match's guard tally, by match slot: how many guards each player or
@@ -335,6 +380,152 @@ static s32 modAlarmChooseBody(void)
 		return BODY_DDSHOCK;
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Whether the stage is a converted mission whose reinforcements are made after
+ * its own guards (g_ModAlarmTemplates). A Randomizer run deals its own bodies,
+ * and a match on a converted arena has no guards to copy.
+ */
+static bool modAlarmUsesTemplates(void)
+{
+	return !g_Vars.normmplayerisrunning && !modRunIsOn() && modloaderStageIsMission(g_Vars.stagenum);
+}
+
+static bool modAlarmIsTemplate(struct chrdata *chr, u8 playerteam, s32 playerbody)
+{
+	struct prop *gun;
+
+	if (chr->chrnum < 0 || chr->prop == NULL || chr->model == NULL
+			|| chr->prop->type != PROPTYPE_CHR || chr->aibot
+			|| chrIsDead(chr) || chr->actiontype == ACT_DEAD || chr->actiontype == ACT_DIE
+			|| chr->team == TEAM_NONCOMBAT || (chr->team & playerteam) != 0
+			|| (chr->chrflags & (CHRCFLAG_KILLCOUNTABLE | CHRCFLAG_HIDDEN))
+			|| chr->bodynum < 0 || chr->bodynum >= NUM_HEADSANDBODIES || chr->bodynum == playerbody
+			|| chr->headnum < 0 || gexPlusRomOwnHead(chr->bodynum) >= 0
+			|| modAlarmIsGuard(chr)) {
+		return false;
+	}
+
+	gun = chr->weapons_held[HAND_RIGHT] ? chr->weapons_held[HAND_RIGHT] : chr->weapons_held[HAND_LEFT];
+
+	return gun && gun->weapon && modAlarmCanChrFire(gun->weapon->weaponnum);
+}
+
+/**
+ * The level's guards that a reinforcement may be made after, a fair sample of
+ * at most MODALARM_MAXTEMPLATES of them, so a uniform is dealt as often as the
+ * level posts it.
+ */
+static void modAlarmFindTemplates(void)
+{
+	u8 playerteam = 0;
+	s32 playerbody = -1;
+	s32 seen = 0;
+	s32 i;
+
+	if (g_Vars.bond && g_Vars.bond->prop && g_Vars.bond->prop->chr) {
+		playerteam = g_Vars.bond->prop->chr->team;
+		playerbody = g_Vars.bond->prop->chr->bodynum;
+	}
+
+	g_ModAlarmNumTemplates = 0;
+
+	for (i = 0; i < chrsGetNumSlots(); i++) {
+		struct chrdata *chr = &g_ChrSlots[i];
+		struct modalarmtemplate *t;
+		s32 h;
+
+		if (!modAlarmIsTemplate(chr, playerteam, playerbody)) {
+			continue;
+		}
+
+		seen++;
+
+		if (g_ModAlarmNumTemplates < MODALARM_MAXTEMPLATES) {
+			t = &g_ModAlarmTemplates[g_ModAlarmNumTemplates++];
+		} else {
+			s32 j = rngRandom() % seen;
+
+			if (j >= MODALARM_MAXTEMPLATES) {
+				continue;
+			}
+
+			t = &g_ModAlarmTemplates[j];
+		}
+
+		t->bodynum = chr->bodynum;
+		t->team = chr->team;
+		t->squadron = chr->squadron;
+		t->voicebox = chr->voicebox;
+		t->hatmodel = chr->weapons_held[2] && chr->weapons_held[2]->obj ? chr->weapons_held[2]->obj->modelnum : -1;
+
+		for (h = HAND_RIGHT; h <= HAND_LEFT; h++) {
+			struct prop *prop = chr->weapons_held[h];
+
+			t->gunnum[h] = prop && prop->weapon ? prop->weapon->weaponnum : -1;
+			t->gunmodel[h] = prop && prop->weapon ? prop->weapon->base.modelnum : -1;
+		}
+
+		t->dual = chr->weapons_held[HAND_RIGHT] && chr->weapons_held[HAND_LEFT]
+			&& chr->weapons_held[HAND_RIGHT]->weapon && chr->weapons_held[HAND_LEFT]->weapon
+			&& chr->weapons_held[HAND_RIGHT]->weapon->dualweapon == chr->weapons_held[HAND_LEFT]->weapon;
+	}
+
+	if (g_ChrSpawnTrace) {
+		sysLogPrintf(LOG_NOTE, "alarm: %d of the level's %d armed guards to make reinforcements after",
+				g_ModAlarmNumTemplates, seen);
+	}
+}
+
+/**
+ * The guard the next reinforcement is made after, or NULL to make it Perfect
+ * Dark's way. Also NULL on a converted mission with none of its guards
+ * standing armed yet, and the caller waits: a Perfect Dark soldier is the one
+ * thing a GoldenEye level must not get.
+ */
+static const struct modalarmtemplate *modAlarmChooseTemplate(void)
+{
+	if (g_ModAlarmNumTemplates <= 0) {
+		modAlarmFindTemplates();
+	}
+
+	if (g_ModAlarmNumTemplates <= 0) {
+		g_ModAlarmNumTemplates = -1; // look again next time
+		return NULL;
+	}
+
+	return &g_ModAlarmTemplates[rngRandom() % g_ModAlarmNumTemplates];
+}
+
+/**
+ * Guard Weapons: Random on a converted mission: a gun a guard can fire out of
+ * the weapon table's rows the stage may roll (mpWeaponRowSuitsStage()) -
+ * GoldenEye's, and Perfect Dark's only with "Include Perfect Dark Guns" on -
+ * never a knife, a grenade or a mine. -1 when there is none.
+ */
+static s32 modAlarmChooseMissionGun(void)
+{
+	u8 guns[NUM_MPWEAPONS];
+	s32 numguns = 0;
+	s32 i;
+
+	for (i = 0; i < NUM_MPWEAPONS; i++) {
+		s32 weaponnum = g_MpWeapons[i].weaponnum;
+
+		if (g_MpWeapons[i].unlockfeature != MPFEATURE_NEVER
+				&& (modAlarmIsGun(weaponnum)
+					|| (weaponnum >= WEAPON_GE_PP7 && weaponnum <= WEAPON_GE_ROCKETLAUNCHER)
+					|| (weaponnum >= WEAPON_GE_EXTRA1 && weaponnum <= WEAPON_GE_EXTRA4))
+				&& mpWeaponRowSuitsStage(&g_MpWeapons[i])
+				&& modAlarmCanChrFire(weaponnum)) {
+			guns[numguns++] = weaponnum;
+		}
+	}
+
+	return numguns > 0 ? guns[rngRandom() % numguns] : -1;
+}
+#endif
 
 /**
  * The stage's waypoints, counted the way setupLoadWaypoints() counts them.
@@ -1604,6 +1795,9 @@ void modAlarmReset(void)
 
 	g_ModAlarmNumHeads = 0;
 	g_ModAlarmNumWaypoints = -1; // counted on first use: the setup is not loaded yet
+#ifndef PLATFORM_N64
+	g_ModAlarmNumTemplates = -1;
+#endif
 
 	// A few seconds' grace after the stage starts, or after its intro ends -
 	// the countdown does not run through a cutscene - so the first guard is
@@ -1801,14 +1995,15 @@ static s32 modAlarmNearestPlayer(struct coord *pos, f32 *dist)
  * the corpse reaper, which modAlarmTick() does for itself with better
  * knowledge of whose corpses they are.
  */
-static struct chrdata *modAlarmSpawn(s32 bodynum, struct coord *pos, RoomNum *rooms, f32 angle)
+static struct chrdata *modAlarmSpawn(s32 bodynum, struct coord *pos, RoomNum *rooms, f32 angle, bool asclone)
 {
-	struct modeldef *headmodeldef;
+	struct modeldef *headmodeldef = NULL;
 	struct coord pos2;
 	RoomNum rooms2[8];
 	struct model *model;
 	struct prop *prop;
 	struct chrdata *chr;
+	u8 *ailist = NULL;
 	s32 headnum;
 
 	pos2 = *pos;
@@ -1818,10 +2013,25 @@ static struct chrdata *modAlarmSpawn(s32 bodynum, struct coord *pos, RoomNum *ro
 		return NULL;
 	}
 
-	headnum = modAlarmChooseHead(bodynum, &headmodeldef);
+#ifndef PLATFORM_N64
+	// One of a converted mission's own guards (g_ModAlarmTemplates): a head
+	// out of the level's pool, as GoldenEye's clone takes (bodyChooseHead()
+	// answers out of GoldenEye's choice for the level), and its clone list
+	if (asclone) {
+		headnum = bodyChooseHead(bodynum);
+		ailist = ailistFindById(MODALARM_GE_CLONELIST);
+	} else
+#endif
+	{
+		headnum = modAlarmChooseHead(bodynum, &headmodeldef);
+	}
 
 	if (headnum < 0) {
 		return NULL;
+	}
+
+	if (ailist == NULL) {
+		ailist = ailistFindById(GAILIST_UNALERTED);
 	}
 
 	model = body0f02d338(bodynum, headnum, NULL, headmodeldef, false, true);
@@ -1830,7 +2040,7 @@ static struct chrdata *modAlarmSpawn(s32 bodynum, struct coord *pos, RoomNum *ro
 		return NULL;
 	}
 
-	prop = chrAllocate(model, &pos2, rooms2, angle, ailistFindById(GAILIST_UNALERTED));
+	prop = chrAllocate(model, &pos2, rooms2, angle, ailist);
 
 	if (prop == NULL) {
 		modelmgrFreeModel(model);
@@ -1923,6 +2133,68 @@ static u8 modAlarmMissionTeam(void)
 
 	return best;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * modAlarmArm() for a reinforcement made after one of a converted mission's
+ * own guards: what aiDuplicateChr() gives GoldenEye's clone - his guns and his
+ * hat, his team and squadron - and nothing of Perfect Dark's responder: no
+ * team of its own, no fight with other AI, no accuracy over his. The voice is
+ * his too. Guard Weapons: Random rolls the stage's own guns instead
+ * (modAlarmChooseMissionGun()), and Akimbo Guards pairs a gun he carries alone.
+ */
+static s32 modAlarmArmLike(struct chrdata *chr, s32 playernum, const struct modalarmtemplate *t)
+{
+	struct prop *held[2] = { NULL, NULL };
+	s32 gun = t->gunnum[HAND_RIGHT] >= 0 ? t->gunnum[HAND_RIGHT] : t->gunnum[HAND_LEFT];
+	s32 roll = modGetGuardWeapons() == MODALARM_WEAPONS_RANDOM ? modAlarmChooseMissionGun() : -1;
+	s32 h;
+
+	chr->team = t->team;
+	chr->squadron = t->squadron;
+	chr->voicebox = t->voicebox;
+
+	if (playernum >= 0) {
+		chr->p1p2 = playernum;
+	}
+
+	chr->target = -1;
+
+	// as a clone in a co-op mission with AI buddies (aiDuplicateChr())
+	if (g_MissionConfig.iscoop && g_Vars.numaibuddies > 0) {
+		chr->flags |= CHRFLAG0_AIVSAI;
+	}
+
+	if (roll >= 0) {
+		gun = roll;
+		held[HAND_RIGHT] = chrGiveWeaponWithAutoModel(chr, gun, 0);
+	} else {
+		for (h = HAND_RIGHT; h <= HAND_LEFT; h++) {
+			if (t->gunnum[h] >= 0) {
+				held[h] = chrGiveWeapon(chr, t->gunmodel[h], t->gunnum[h], h == HAND_LEFT ? OBJFLAG_WEAPON_LEFTHANDED : 0);
+			}
+		}
+
+		if (t->dual && held[HAND_RIGHT] && held[HAND_LEFT]) {
+			propweaponSetDual(held[HAND_LEFT]->weapon, held[HAND_RIGHT]->weapon);
+		}
+	}
+
+	if ((held[HAND_RIGHT] == NULL || held[HAND_LEFT] == NULL) && gun >= 0
+			&& modIsAkimboForGuards() && modCanAkimbo(gun)) {
+		chrGiveWeaponWithAutoModel(chr, gun, held[HAND_LEFT] ? 0 : OBJFLAG_WEAPON_LEFTHANDED);
+	}
+
+	if (t->hatmodel >= 0) {
+		hatCreateForChr(chr, t->hatmodel, 0);
+	}
+
+	rebuildTeams();
+	rebuildSquadrons();
+
+	return gun;
+}
+#endif
 
 /**
  * What the Villa's func0408_alarm_responder does to a responder, in C.
@@ -2076,7 +2348,7 @@ static struct waypoint *modAlarmFindZoneWaypoint(s32 where)
  * The moment the zone has nowhere left to put one, this is the rule it always
  * was.
  */
-static bool modAlarmSpawnOne(s32 bodynum)
+static bool modAlarmSpawnOne(s32 bodynum, const void *tmpl)
 {
 	// 0 the rooms around a sealed room, to walk in from (Guards Walk In);
 	// 1 the sealed rooms themselves; 2 anywhere, by the ordinary rule
@@ -2154,7 +2426,7 @@ static bool modAlarmSpawnOne(s32 bodynum)
 		rooms[1] = -1;
 		angle = (rngRandom() % 360) * M_BADTAU / 360.0f;
 
-		chr = modAlarmSpawn(bodynum, &pad.pos, rooms, angle);
+		chr = modAlarmSpawn(bodynum, &pad.pos, rooms, angle, tmpl != NULL);
 
 		if (chr == NULL) {
 			refused++;
@@ -2175,7 +2447,14 @@ static bool modAlarmSpawnOne(s32 bodynum)
 			continue;
 		}
 
-		gun = modAlarmArm(chr, playernum);
+#ifndef PLATFORM_N64
+		if (tmpl) {
+			gun = modAlarmArmLike(chr, playernum, tmpl);
+		} else
+#endif
+		{
+			gun = modAlarmArm(chr, playernum);
+		}
 
 		for (i = 0; i < MODALARM_MAXGUARDS; i++) {
 			if (!modAlarmGuardIsValid(&g_ModAlarmGuards[i])) {
@@ -2522,7 +2801,23 @@ void modAlarmTick(void)
 		return;
 	}
 
-	if (modAlarmSpawnOne(modAlarmChooseBody())) {
+#ifndef PLATFORM_N64
+	if (modAlarmUsesTemplates()) {
+		const struct modalarmtemplate *tmpl = modAlarmChooseTemplate();
+
+		if (tmpl == NULL) {
+			g_ModAlarmCountdown60 = modAlarmGetRetry60();
+		} else if (modAlarmSpawnOne(tmpl->bodynum, tmpl)) {
+			g_ModAlarmCountdown60 = interval60;
+		} else {
+			g_ModAlarmCountdown60 = modAlarmGetRetry60();
+		}
+
+		return;
+	}
+#endif
+
+	if (modAlarmSpawnOne(modAlarmChooseBody(), NULL)) {
 		g_ModAlarmCountdown60 = interval60;
 	} else {
 		// No waypoint suited this frame; look again shortly
