@@ -14519,33 +14519,50 @@ other one. `probes/shots2.py` with Bond moved to the tester's spot shows him on
 the runway in base, gone in the fix; all twenty `--cinema-ending` pictures at
 frame 250 are identical base/fix (`endsweep.sh`).
 
-**Answers.** The guard frozen sitting up in a doorway (20261006-023057, Facility,
-Perfect Dark death animations on) is GoldenEye's own stagger-back-to-the-wall
-death: one in twenty from the front with a wall, door, object or chr within 150
-behind (GoldenEye's `chrlvPathingCollisionRelated7F0264B0()` tests doors and
-objects too), anim 25 (Perfect Dark's 0x19 is the same), whole animation, ending
-seated against what is behind him - here the open door leaf.
+**A guard dead on his knees, hunched over the floor (F3 20261010-020011 Control,
+20261006-023057 Facility).** GoldenEye's thigh deaths include death_left_leg
+(its 57), which ends kneeling: its `chrlvTickDie()` runs it on into
+jump_backwards (60) from frame 50 at 0.3/0.5 - the continuation Perfect Dark
+kept as `ANIM_DEATH_STOMACH_LONG` -> `ANIM_003C`. On a converted level the row
+plays under `geChrAnim(57)` (1263 on Control; GoldenEye's animations sit past
+Perfect Dark's numbers, `geChrAnim(24)` is 1232), which `chrTickDie()`'s stock
+test (0x39) never matched, so the guard went `ACT_DEAD` on frame 186 on all
+fours. 79c01203a had done the same for Perfect Dark's own row in the mixed pool
+(`geChrAnimsPlayingPd()`) only. `chrTickDie()` and `chrTickArgh()` (GoldenEye's
+flinch on the same animation ends in a stand merged over 26) now also ask
+`geChrAnim(57)`. Probe `probes/neckdeath.py` (every human death row forced to
+one, the victim moved to the tester's corpse and seen from his spot; `PDNUM=`
+or `GEID=`): 1263 on base ends kneeling as in both reports, fixed lies on its
+back. GoldenEye's neck death held at frame 241 (99 in 100, its own rule) lies
+on the floor.
 
 Aztec's mainframe keyboard "from inside" (20261005-152652, v3.14.0) is
 5f7a7035b's: on b9a21531f the tester's own line of sight to it, 150 and 90 away,
 finds the keyboard and the press slides both mainframes open (frac 0 -> 0.896);
 from the report's spot itself (205 away) nothing is in reach, as it should be.
 
-**Goldfinger 64 Shipyard's climb (20261009-231607, -231724), left for the
-cartridge.** The tester faces a ridge in room 14 at (12600, -2609): tiles 639/640
-are a face 8 across in plan and 328 high (-425 to -97), linked to the floor
-(no climb wall, the face is not flat in plan) and over it to a slope down into
-room 13 (573/574). GoldenEye's move (bondview2.c, `stanTestLocusEdgeAboveY()`)
-blocks only an edge with both ends over Bond's collision y + 175 - here
--258 + 175 = -83, and the ridge's top edge is at -97 - so by its code Bond
-walks up the face and over. Ours stops him 50 short: `geStanFloorAhead()` calls
-the face sheer (`stanTileSheer()`: under 16 across, three times as tall) and
-bondwalk never lifts onto a sheer tile (c7cbe699d, made for Facility's vent lip,
-10 across and 257 up from the toilet seat). The oracle host was down the whole
-pass; what the cartridge does here, and at the vent lip, decides whether the
-sheer rule should take GoldenEye's 175 instead. Probes `probes/walkfwd.py`
-(forward speed forced at `bwalkUpdateSpeedForwards`), `probes/tiles.py`,
-`probes/slope.py`; the cartridge scenario is written
-(`probes/climb_ares.py` in that run dir: copy it under tools/gefidelity and run
+**Goldfinger 64 Shipyard's climb (20261009-231607, -231724): the cartridge
+climbs, we do not - open.** The tester faces a ridge in room 14 at (12600, -2609):
+tiles 639/640 are a face 8 across in plan and 328 high (-425 to -97), linked to
+the floor (no climb wall: the face is not flat in plan) and over it to a slope
+down into room 13 (573/574). On the cartridge (ares; `probes/climb_ares.py` in
+`~/wt/f3-1010a-gemission-run`, copied under tools/gefidelity and run with
 `GF_GAME=gf twin.py ge <it> --oracle ares --mission shipyard --env
-GF_OURS=12600.9,-425,-2609.0 --env GF_OURPAD0=-379.108,-415.000,4395.079`).
+GF_OURS=12600.9,-425,-2609.0 --env GF_OURPAD0=-379.108,-415.000,4395.079 --env
+GF_THETA=237.7` - **GoldenEye's vv_theta is ours + 180**, and GE = ours - (3378,
+-524, 6522) on this map) Bond walking at it is lifted 99 -> 338 and walks down
+the far slope to 99 again (`out/climb2/ge/gdb.log`): GoldenEye's move blocks only
+an edge with both ends over his collision y + 175, and the ridge's top edge is
+14 under that. Ours stops 90 short along the heading (47 in z). That is Perfect
+Dark's own cylinder against the face's near-upright floor triangles, not the
+sheer refusal: taking `!sheer` out of bondwalk's lift (c7cbe699d) changes
+nothing there, since `geStanFloorAhead()`'s walk never reaches the face.
+`geStanClimbFloor()` is the place (it lifts as the circle touches a floor across
+a climb), but it only looks past the conversion's climb walls and a leaning face
+has none. Next pass: treat a sheer tile as the climb there (stanFloodList's
+noclimb test and the candidate loop's upright test), then check Facility's vent
+lip, which that would lift the player over from the toilet seat onto the vent
+floor (331) as the circle touches it, before the force-crouch hold - fuzz from
+the seat with `probes/fuzz.py` (START=-4945,423 Y=61 ROOM=12; the lip is tiles
+2374/2375 at x -4904..-4894). Probes `probes/walkfwd.py` (forward speed forced
+at `bwalkUpdateSpeedForwards`), `probes/tiles.py`, `probes/stopwhy.py`.
