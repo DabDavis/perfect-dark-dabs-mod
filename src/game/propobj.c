@@ -11969,13 +11969,13 @@ void hovercarTick(struct prop *prop)
 			sp1fc = hovercar->rotx;
 		}
 
-		applyRotation(&sp190, sp200, &sp184, HOVVALUE1(), HOVVALUE1() * 2.0f, HOVVALUE2());
+		CHOPPER_APPLYROTATION(&sp190, sp200, &sp184, HOVVALUE1(), HOVVALUE1() * 2.0f, HOVVALUE2());
 
 		if (sp190 == sp200 && HOVVALUE1() * 2.0f >= sp184 && -HOVVALUE1() * 2.0f <= sp184) {
 			sp184 = 0;
 		}
 
-		applyRotation(&sp18c, sp1fc, &sp180, HOVVALUE1(), HOVVALUE1() * 2.0f, HOVVALUE2());
+		CHOPPER_APPLYROTATION(&sp18c, sp1fc, &sp180, HOVVALUE1(), HOVVALUE1() * 2.0f, HOVVALUE2());
 
 		if (sp18c == sp1fc && HOVVALUE1() * 2.0f >= sp180 && -HOVVALUE1() * 2.0f <= sp180) {
 			sp180 = 0;
@@ -11984,6 +11984,18 @@ void hovercarTick(struct prop *prop)
 		if (hovercar->base.flags & OBJFLAG_HOVERCAR_ISHOVERBOT) {
 			sp188 = 0;
 		} else {
+#ifndef PLATFORM_N64
+			// The bank eased a tenth of the way once a frame: per 240th
+			// 1 - 0.9^(1/4) on a frame of a fraction of a 60th
+			if (g_Vars.lvupdate240 & 3) {
+				const f32 ease240 = 1.0f - __builtin_powf(0.9f, 0.25f);
+				s32 i;
+
+				for (i = 0; i < g_Vars.lvupdate240; i++) {
+					sp188 += (-sp184 * 120 - sp188) * ease240;
+				}
+			} else
+#endif
 			sp188 += (-sp184 * 120 - sp188) * 0.1f;
 		}
 
