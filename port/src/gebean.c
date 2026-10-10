@@ -71,8 +71,8 @@
 // again. The tenth (".extracted10") is the menus' two fonts, the eleventh the
 // skydomes, the twelfth the HUD's crosshair, the thirteenth the HUD's
 // ammunition pictures, the fourteenth the monitors' pictures, the bullet holes
-// and the hit puffs.
-#define GEBEAN_DONE_FILE ".extracted14"
+// and the hit puffs, the fifteenth the Cradle helicopter's N64-look copy.
+#define GEBEAN_DONE_FILE ".extracted15"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
@@ -122,6 +122,13 @@
 #define GEBEAN_WANT_MONITORS "files/new/texture/monitors/"
 #define GEBEAN_WANT_BULLETHOLES "files/texture/bulletholes/"
 #define GEBEAN_WANT_HITPUFFS "files/texture/sfx/"
+// and the one N64-look prop read at run time: the Cradle ending's helicopter,
+// whose copy says which of GoldenEye's triangles are its pilot, Natalya, drawn
+// inside the HD aircraft (beanUncoveredVertices()). Not taken until
+// 2026-10-10, so from the archive the HD helicopter flew the ending empty -
+// "original/prop/helicopter/default.bin is missing" (F3 20261004-225823);
+// only a folder of the whole release had her
+#define GEBEAN_WANT_ORIGINAL_HELICOPTER "files/original/prop/helicopter/"
 
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
@@ -2652,7 +2659,8 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 		|| strstr(lower, GEBEAN_WANT_MENU_FONTS) != NULL || strstr(lower, GEBEAN_WANT_HUD_SIGHT) != NULL
 		|| strstr(lower, GEBEAN_WANT_HUD_AMMO) != NULL
 		|| strstr(lower, GEBEAN_WANT_MONITORS) != NULL || strstr(lower, GEBEAN_WANT_BULLETHOLES) != NULL
-		|| strstr(lower, GEBEAN_WANT_HITPUFFS) != NULL;
+		|| strstr(lower, GEBEAN_WANT_HITPUFFS) != NULL
+		|| strstr(lower, GEBEAN_WANT_ORIGINAL_HELICOPTER) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
