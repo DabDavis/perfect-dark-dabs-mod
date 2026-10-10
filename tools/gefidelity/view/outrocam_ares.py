@@ -68,19 +68,29 @@ try:
     # is in no slot of g_ChrSlots: found by the list's address in RDRAM
     # (the setup's own list table aside)
     F = lib.T['ChrRecord']['fields']
-    pat = struct.pack('>I', ptr)
     table = aresge.Rec('stagesetup', lib.SYM['g_CurrentSetup']).ptr('ailists')
-    addr = None
-    for base in range(0x80000000, 0x80800000, 0x10000):
-        b = lib.peek(base, 0x10000)
-        k = b.find(pat)
-        while k >= 0 and addr is None:
-            at = base + k
+    ram = b''.join(lib.peek(base, 0x10000) for base in range(0x80000000, 0x80800000, 0x10000))
+
+    def runner_of(p):
+        pat = struct.pack('>I', p)
+        k = ram.find(pat)
+        while k >= 0:
+            at = 0x80000000 + k
             if k % 4 == 0 and not (table <= at < table + 8 * 512):
-                addr = at - F['ailist']['off']
-            k = b.find(pat, k + 1)
-        if addr is not None:
-            break
+                return at - F['ailist']['off']
+            k = ram.find(pat, k + 1)
+        return None
+
+    addr = runner_of(ptr)
+    if addr is None:
+        # a list nothing runs yet (an ending a chr is handed when the
+        # objectives are done): it goes on the runner of a background list
+        # (0x1000 on), which HideAllChrs does not stop as it stops a chr
+        for p, i in sorted(ids.items(), key=lambda e: e[1]):
+            if i >= 0x1000 and runner_of(p) is not None:
+                addr = runner_of(p)
+                lib.say('list 0x%x has no runner: borrowing list 0x%x\'s' % (LIST, i))
+                break
     if addr is None:
         raise RuntimeError('nothing runs list 0x%x' % LIST)
     c = aresge.Rec('ChrRecord', addr)
