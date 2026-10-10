@@ -41,7 +41,7 @@ game() {
 }
 waitfor() { local n=$3; while [ $n -gt 0 ]; do grep -q -- "$2" "$1" 2>/dev/null && return 0; sleep 1; n=$((n-1)); done; return 1; }
 if [ "${MODE:-mp}" = coop ]; then
-game h 150 "[Mod]\nMissionRespawn=1\n[Net]\nMaxPlayers=12\n" --host $PORT --net-test-host 2 --rng-seed 7 --net-test-coop 0 --skip-cutscenes --net-sim $SIM $TEST &
+game h 150 "[Mod]\nMissionRespawn=1\n[Net]\nMaxPlayers=12\nJoinInProgress=1\n" --host $PORT --net-test-host 2 --rng-seed 7 --net-test-coop 0 --skip-cutscenes --net-sim $SIM $TEST &
 else
 game h 150 "[Mod]\nStartArmed=1\n[Net]\nMaxPlayers=12\nJoinInProgress=1\n" --moddir mod_allinone --dedicated --host $PORT \
 	--net-test-host 2 --net-test-stage $STAGE --net-test-sims $SIMS --net-test-timelimit 2 --net-test-scorelimit 100 --net-test-teamscorelimit 400 --rng-seed 7 \

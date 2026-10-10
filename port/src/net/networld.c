@@ -42,7 +42,8 @@ static s32 s_NumBasic = 0;
 static u32 s_Deforms = 0;    // objDeform calls the host made / a client applied
 static u32 s_WreckAt[NETWORLD_MAXWRECK];
 static s32 s_NumWreck = 0;
-static u32 s_CensusAt = 0;
+static u32 s_CensusAt[NETWORLD_MAXWRECK];
+static s32 s_NumCensus = 0;
 
 static void netWorldFreeLists(void)
 {
@@ -126,7 +127,7 @@ void netWorldStageStart(void)
 	netWorldFreeLists();
 	s_Deforms = 0;
 	s_NumWreck = 0;
-	s_CensusAt = 0;
+	s_NumCensus = 0;
 
 	if (g_NetMode == NETMODE_NONE || !cmd) {
 		return;
@@ -171,9 +172,14 @@ void netWorldStageStart(void)
 		arg = arg ? arg + 1 : NULL;
 	}
 
-	// --net-test-census T: both machines count the world at their tick T
+	// --net-test-census T1[,T2..]: both machines count the world at their tick T
 	arg = sysArgGetString("--net-test-census");
-	s_CensusAt = arg ? (u32)strtoul(arg, NULL, 0) : 0;
+
+	while (arg && *arg && s_NumCensus < NETWORLD_MAXWRECK) {
+		s_CensusAt[s_NumCensus++] = (u32)strtoul(arg, NULL, 0);
+		arg = strchr(arg, ',');
+		arg = arg ? arg + 1 : NULL;
+	}
 }
 
 void netWorldMatchStopped(void)
@@ -312,7 +318,11 @@ void netWorldTickBegin(void)
 // netTickEnd: the census, on both machines
 void netWorldTickEnd(void)
 {
-	if (s_CensusAt && g_NetTick == s_CensusAt && netSessionMatchActive()) {
-		netWorldCensus("at the test's tick");
+	s32 i;
+
+	for (i = 0; i < s_NumCensus; i++) {
+		if (s_CensusAt[i] && g_NetTick == s_CensusAt[i] && netSessionMatchActive()) {
+			netWorldCensus("at the test's tick");
+		}
 	}
 }
