@@ -1442,6 +1442,16 @@ void modloaderApplyStageModels(s32 stagenum)
  */
 s32 modloaderLendRemakeModel(s32 slot)
 {
+	return modloaderLendRemakeModelFrom(slot, -1);
+}
+
+/**
+ * modloaderLendRemakeModel() out of mod dir `modindex`'s block where it has
+ * the slot - a ROM hack's, whose guns Perfect Dark's Combat Simulator plays
+ * with (geguns.c's gegunsLendDir()) - and GoldenEye's own otherwise (-1).
+ */
+s32 modloaderLendRemakeModelFrom(s32 slot, s32 modindex)
+{
 	if (slot < 0 || slot >= NUM_REMAKE_MODELS) {
 		return -1;
 	}
@@ -1452,6 +1462,24 @@ s32 modloaderLendRemakeModel(s32 slot)
 
 	if (modloaderStageIsRemake(g_Vars.stagenum)) {
 		return -1;
+	}
+
+	for (s32 i = 0; modindex >= 0 && i < g_NumModModels; i++) {
+		const struct modmodel *m = &g_ModModels[i];
+
+		if (m->slot == slot && m->modindex == modindex) {
+			const s32 fileid = modloaderRegister(m->modindex, "%s", m->name);
+
+			if (fileid > 0) {
+				g_ModelStates[MODEL_REMAKE_FIRST + slot].fileid = fileid;
+				g_ModelStates[MODEL_REMAKE_FIRST + slot].scale = m->scale;
+				g_ModelStates[MODEL_REMAKE_FIRST + slot].modeldef = NULL;
+				sysLogPrintf(LOG_NOTE, "modloader: stage 0x%02x: %s's %s lent", g_Vars.stagenum,
+						fsGetModDirAt(m->modindex), m->name);
+
+				return MODEL_REMAKE_FIRST + slot;
+			}
+		}
 	}
 
 	for (s32 i = 0; i < g_NumModModels; i++) {
@@ -1473,6 +1501,34 @@ s32 modloaderLendRemakeModel(s32 slot)
 	}
 
 	return -1;
+}
+
+/**
+ * Mod dir `modindex`'s own model for remake slot `slot` - its `models`
+ * block's - registered: the file, and its scale in `scale`; 0 where the block
+ * has none. A ROM hack's gun's prop held and lying off the hack's own stages,
+ * in the gun's own model state (geguns.c's gegunsHackPropsRefresh()), where
+ * the remake slot is GoldenEye's arena's own.
+ */
+s32 modloaderRemakeModelFileOf(s32 modindex, s32 slot, u16 *scale)
+{
+	for (s32 i = 0; modindex >= 0 && i < g_NumModModels; i++) {
+		const struct modmodel *m = &g_ModModels[i];
+
+		if (m->slot == slot && m->modindex == modindex) {
+			const s32 fileid = modloaderRegister(m->modindex, "%s", m->name);
+
+			if (fileid > 0) {
+				if (scale) {
+					*scale = m->scale;
+				}
+
+				return fileid;
+			}
+		}
+	}
+
+	return 0;
 }
 
 static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modloaderScan *scan)

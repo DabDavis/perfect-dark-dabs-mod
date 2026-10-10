@@ -36,6 +36,9 @@ GUNS = [
     ("WEAPON_GE_THROWINGKNIFE", "throwknife"), ("WEAPON_GE_GRENADE", "grenade"),
     ("WEAPON_GE_TIMEDMINE", "timedmine"), ("WEAPON_GE_PROXIMITYMINE", "proximitymine"),
     ("WEAPON_GE_REMOTEMINE", "remotemine"),
+    # the cheat guns, past the hack's own pistols (constants.h)
+    ("WEAPON_GE_SILVERPP7", "silverwppk"), ("WEAPON_GE_GOLDPP7", "goldwppk"),
+    ("WEAPON_GE_TASER", "taser"),
 ]
 
 FIELDS = ["MuzzleFlash", "PosX", "PosY", "PosZ", "PlayX", "PlayY", "PlayZ", "AmmoType",

@@ -352,6 +352,11 @@ struct mpweapon g_MpWeapons[NUM_MPWEAPONS] = {
 	/*0x4b*/ { WEAPON_GE_EXTRA2,          AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + WEAPON_GE_EXTRA2 - WEAPON_GE_FIRST, 256 },
 	/*0x4c*/ { WEAPON_GE_EXTRA3,          AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + WEAPON_GE_EXTRA3 - WEAPON_GE_FIRST, 256 },
 	/*0x4d*/ { WEAPON_GE_EXTRA4,          AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + WEAPON_GE_EXTRA4 - WEAPON_GE_FIRST, 256 },
+	// GoldenEye's own cheat guns, shown by Mod.GePlusCheatGuns (geguns.c); the
+	// pistols' type follows what they load, as every GoldenEye row's does
+	/*0x4e*/ { WEAPON_GE_SILVERPP7,       AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + WEAPON_GE_SILVERPP7 - WEAPON_GE_FIRST, 256 },
+	/*0x4f*/ { WEAPON_GE_GOLDPP7,         AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + WEAPON_GE_GOLDPP7 - WEAPON_GE_FIRST, 256 },
+	/*0x50*/ { WEAPON_GE_TASER,           0,                    0,   0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + WEAPON_GE_TASER - WEAPON_GE_FIRST, 256 },
 #endif
 };
 

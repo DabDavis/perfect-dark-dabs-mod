@@ -5991,6 +5991,10 @@ default"*, *"lets use GE rom weapons and reloads only"*.
   borrowed ones only with no conversion. `MP_MAX_WEAPONSETS` is 64: GE-X's
   fourteen had filled the 32.
 - `Mod.GePlusPdGuns` ("GE Plus: Include Perfect Dark Guns", Missions page), off.
+- `Mod.GePlusCheatGuns` ("GoldenEye: Cheat Guns", and "GoldenEye Cheat Guns" on
+  the Weapons page), off: GoldenEye's Silver PP7, Gold PP7 and taser as weapons
+  0x84-0x86 with Combat Simulator rows and three sets after the fourteen
+  (2026-10-10; weapons.md, "GoldenEye's cheat guns").
 - **Every GoldenEye gun reloads GoldenEye's way** - down off the screen and back
   (`bgunWantsLoweredReload()`), whatever its host or GE-X's definition carries.
 - `files/Igx%03uZ`: all 25 of the ROM's **first person gun models** convert (the

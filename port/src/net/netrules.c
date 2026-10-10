@@ -77,6 +77,12 @@ static const struct {
 	{ "Mod.BodiesDrawn",             NETKEY_SYNC },
 	{ "Mod.Akimbo",                  NETKEY_SYNC },
 	{ "Mod.GePlusPdGuns",            NETKEY_SYNC },
+	// GoldenEye's cheat guns: the host's, put in step before its weapon set's
+	// number is read (netRulesApplyCheatGuns)
+	{ "Mod.GePlusCheatGuns",         NETKEY_SYNC },
+	// a ROM hack's guns in Perfect Dark's Combat Simulator: the host's, put
+	// in step before its weapon set's number is read (netRulesApplyCsHackGuns)
+	{ "Mod.CsHackGuns",              NETKEY_SYNC },
 	{ "Mod.GePlusRegion",            NETKEY_SYNC },
 	{ "Mod.BorrowGoldenEyeGuns",     NETKEY_MUST },
 	// read at a stage load (the setup and portals a conversion wrote both of)
@@ -270,6 +276,58 @@ static void netRulesWriteKey(const struct netkeyvalue *kv)
 
 	// within the range the setting was registered with, whatever was sent
 	configClampEntry(kv->key);
+}
+
+/**
+ * Mod.GePlusCheatGuns out of a list of keys, put in step at once
+ * (gexPlusSetCheatGuns()): GoldenEye's cheat sets are three more in the
+ * weapon set list, which a set's number counts by and Random Five, Random and
+ * Custom follow the end of, so the list must be the host's before its number
+ * is taken - and this machine's own again before its own is. Otherwise a
+ * client with them off would read the host's Silver PP7s (26 after
+ * GoldenEye's fourteen) as its own Random Five, and under Auto Random roll
+ * guns of its own at the match's start. The keys loop after writes the same.
+ */
+static void netRulesApplyCheatGuns(const struct netkeyvalue *keys, s32 nkeys, const char *why)
+{
+	for (s32 i = 0; i < nkeys; i++) {
+		if (strcasecmp(keys[i].key, "Mod.GePlusCheatGuns") == 0 && keys[i].type == CONFIG_TYPE_S32) {
+			if (gexPlusGetCheatGuns() != (keys[i].s ? 1 : 0)) {
+				sysLogPrintf(LOG_NOTE, "net: rules: Mod.GePlusCheatGuns %d -> %d (%s)", gexPlusGetCheatGuns(), keys[i].s ? 1 : 0, why);
+			}
+
+			gexPlusSetCheatGuns(keys[i].s);
+			return;
+		}
+	}
+}
+
+/**
+ * Mod.CsHackGuns out of a list of keys, put in step at once
+ * (gexPlusSetCsHackGuns()): the hack it names puts its weapon sets in the
+ * block GoldenEye's are in, which the set number counts in, and its guns in
+ * GoldenEye's slots at the stage's load. One not mounted here (a guest
+ * mounts or fetches the host's at STAGE_LOAD first:
+ * netContentCsHackGunsFollow()) leaves GoldenEye's own, which is said.
+ */
+static void netRulesApplyCsHackGuns(const struct netkeyvalue *keys, s32 nkeys, const char *why)
+{
+	for (s32 i = 0; i < nkeys; i++) {
+		if (strcasecmp(keys[i].key, "Mod.CsHackGuns") == 0 && keys[i].type == CONFIG_TYPE_STR) {
+			if (strcmp(gexPlusGetCsHackGuns(), keys[i].str) != 0) {
+				sysLogPrintf(LOG_NOTE, "net: rules: Mod.CsHackGuns \"%s\" -> \"%s\" (%s)", gexPlusGetCsHackGuns(), keys[i].str, why);
+			}
+
+			gexPlusSetCsHackGuns(keys[i].str);
+
+			if (keys[i].str[0] && gexPlusCsHackDirIndex() < 0 && !g_GexPlusMode) {
+				sysLogPrintf(LOG_WARNING, "net: rules: Mod.CsHackGuns \"%s\" (%s) is no ROM hack mounted here: GoldenEye's own guns in their place",
+						keys[i].str, why);
+			}
+
+			return;
+		}
+	}
 }
 
 void netRulesWriteValue(struct netbuf *b, const struct netkeyvalue *kv)
@@ -816,6 +874,29 @@ static void netMpRowNote(char *rows, s32 size, const char *who, s32 i, s32 headr
 }
 
 /**
+ * The host's value of a key in the RULES this client holds for its next
+ * STAGE_LOAD, before netRulesApply() writes them (the content a match needs is
+ * followed first: netContentCsHackGunsFollow()); 1 when it sent one. And
+ * whether the host is in GoldenEye's own Combat Simulator.
+ */
+s32 netRulesHostKey(const char *key, struct netkeyvalue *out)
+{
+	for (s32 i = 0; i < s_NetRules.nkeys && i < NET_MAXKEYS; i++) {
+		if (strcasecmp(s_NetRules.keys[i].key, key) == 0) {
+			*out = s_NetRules.keys[i];
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+s32 netRulesHostGexPlusMode(void)
+{
+	return s_NetRules.gexplusmode != 0;
+}
+
+/**
  * Client: how many of the RULES' sims and players wear GoldenEye's
  * characters (rows from GEBEAN_POOL_BASE) this machine's lists lack; rows
  * (if not NULL) names them, and bodies (if not NULL) counts those whose
@@ -1012,6 +1093,13 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 
 	for (k = 0; k < ARRAYCOUNT(s_NetKeys) && nkeys < NET_MAXKEYS; k++) {
 		if (s_NetKeys[k].cls == NETKEY_SYNC && netRulesReadKey(s_NetKeys[k].key, &kv)) {
+			// the ROM hack guns the host plays with, not one its pd.ini
+			// names that is not mounted here (its matches have GoldenEye's
+			// then, and a guest would fetch and play the hack's)
+			if (strcasecmp(kv.key, "Mod.CsHackGuns") == 0 && gexPlusCsHackDirIndex() < 0) {
+				kv.str[0] = '\0';
+			}
+
 			netWriteStr(b, kv.key, NET_MAXKEY);
 			netRulesWriteValue(b, &kv);
 			nkeys++;
@@ -1329,6 +1417,9 @@ static void netRulesPut(const struct netrulesmsg *rules, s32 coop)
 	g_MpSetup.scorelimit = rules->scorelimit;
 	g_MpSetup.teamscorelimit = rules->teamscorelimit;
 
+	netRulesApplyCheatGuns(rules->keys, rules->nkeys, "the host's, for the match");
+	netRulesApplyCsHackGuns(rules->keys, rules->nkeys, "the host's, for the match");
+
 	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
 		g_MpSetup.weapons[i] = rules->weapons[i];
 	}
@@ -1497,6 +1588,8 @@ static void netRulesRestoreFrom(const struct netrulessaved *saved)
 	g_GexPlusVariant = saved->gexplusvariant;
 	mpSetGexPlusMode(saved->gexplusmode != 0);
 	gexPlusSetScenario(saved->gexplusscenario);
+	netRulesApplyCheatGuns(saved->keys, saved->nkeys, "this machine's own again");
+	netRulesApplyCsHackGuns(saved->keys, saved->nkeys, "this machine's own again");
 	g_MpSetup = saved->mpsetup;
 	memcpy(g_BotConfigsArray, saved->bots, sizeof(saved->bots));
 	memcpy(g_MpSimSlots, saved->simslots, sizeof(saved->simslots));

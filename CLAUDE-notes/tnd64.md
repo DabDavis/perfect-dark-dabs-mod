@@ -398,3 +398,14 @@ Rigs: `~/wt/tnd-run/rig` (the game, all three sources in added-content/),
   it by the list's address in RDRAM. Noticed, not chased: on the cartridge
   Bond's hands are empty through this ending (its BondHideWeapons, ours
   00ed); ours shows his gun.
+
+## Its guns in Perfect Dark's Combat Simulator (2026-10-10, feat/cs-hack-guns)
+
+"ROM Hack Guns: Tomorrow Never Dies 64" on the Weapons page
+(`Mod.CsHackGuns` tnd64) plays its guns in GoldenEye's slots on any arena of
+Perfect Dark's or GoldenEye's, with its fourteen sets in the list ([TND]);
+its own maps keep its guns whatever is chosen. weapons.md, "A ROM hack's guns
+in Perfect Dark's Combat Simulator". Its pistols' rows (the H&K P7, the
+Desert Eagle, its Watch Laser and Phone Taser on WEAPON_GE_EXTRA1-4) come
+with it; the last two have no held prop (-1), so they lie as their host's
+pickup.

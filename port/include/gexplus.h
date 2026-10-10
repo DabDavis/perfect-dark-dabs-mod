@@ -126,6 +126,21 @@ s32 gexPlusWeaponSets(s32 *first);
 void gexPlusWeaponSetsAppend(void); // GoldenEye's own sets in the whole list, at boot and after a swap
 s32 gexPlusGetPdGuns(void);
 void gexPlusSetPdGuns(s32 on);
+// Mod.GePlusCheatGuns: GoldenEye's Silver PP7, Gold PP7 and taser offered in
+// the Combat Simulator's weapons and three weapon sets of GoldenEye's (off)
+s32 gexPlusGetCheatGuns(void);
+void gexPlusSetCheatGuns(s32 on);
+// Mod.CsHackGuns: a GoldenEye ROM hack's guns ("gf64", "tnd64"; "" GoldenEye's
+// own) in Perfect Dark's Combat Simulator; the hack's mounted mod dir, -1 none
+const char *gexPlusGetCsHackGuns(void);
+void gexPlusSetCsHackGuns(const char *tag);
+s32 gexPlusCsHackDirIndex(void);
+s32 gexPlusCsHackDirOfTag(const char *tag); // a ROM hack's mounted mod dir by its tag, -1 none
+// the Weapons page's "ROM Hack Guns": 0 Off, then each hack converted here
+s32 gexPlusCsHackNumOptions(void);
+const char *gexPlusCsHackOptionName(s32 option);
+void gexPlusCsHackOptionSet(s32 option);
+s32 gexPlusCsHackOptionSelected(void);
 
 /**
  * The Combat Simulator's dropdowns mark the rows a GoldenEye conversion

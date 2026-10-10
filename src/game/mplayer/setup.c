@@ -27,6 +27,7 @@
 #include "fs.h"
 #include "modloader.h"
 #include "modborrow.h"
+#include "mod.h"
 #include "gexplus.h"
 #include "geguns.h"
 #endif
@@ -1704,6 +1705,57 @@ MenuItemHandlerResult menuhandlerMpAutoRandomWeapon(s32 operation, struct menuit
 
 	return 0;
 }
+
+/**
+ * A GoldenEye ROM hack's guns in Perfect Dark's Combat Simulator, on any
+ * arena (Mod.CsHackGuns, gexplus.c): Off is GoldenEye's own; a hack's name
+ * lists its weapon sets [GF]/[TND] where GoldenEye's were and plays its guns
+ * in GoldenEye's slots. Not in GoldenEye's own Combat Simulator, whose mode
+ * decides, nor where there is no hack converted or GoldenEye's guns are not
+ * offered (a mod with a weapon list of its own).
+ */
+MenuItemHandlerResult menuhandlerMpCsHackGuns(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return g_GexPlusMode || modDataMpWeaponsImported() || gexPlusCsHackNumOptions() == 0
+			|| g_MpWeapons[MPWEAPON_GE_FIRST].unlockfeature == MPFEATURE_NEVER;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = 1 + gexPlusCsHackNumOptions();
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)(data->dropdown.value == 0 ? "Off" : gexPlusCsHackOptionName(data->dropdown.value));
+	case MENUOP_SET:
+		gexPlusCsHackOptionSet(data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = gexPlusCsHackOptionSelected();
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * GoldenEye's cheat guns - the Silver PP7, the Gold PP7 and the taser - in
+ * the weapon lists and three weapon sets of GoldenEye's (Mod.GePlusCheatGuns,
+ * gexplus.c), shown where GoldenEye's guns are offered at all
+ * (gegunsCheatGunsOffered()).
+ */
+MenuItemHandlerResult menuhandlerMpGeCheatGuns(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !gegunsCheatGunsOffered();
+	case MENUOP_GET:
+		return gexPlusGetCheatGuns();
+	case MENUOP_SET:
+		gexPlusSetCheatGuns(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
 #endif
 
 struct menuitem g_MpWeaponsMenuItems[] = {
@@ -1716,6 +1768,14 @@ struct menuitem g_MpWeaponsMenuItems[] = {
 		menuhandlerMpWeaponSetDropdown,
 	},
 #ifndef PLATFORM_N64
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"ROM Hack Guns\n",
+		0,
+		menuhandlerMpCsHackGuns,
+	},
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
@@ -1731,6 +1791,14 @@ struct menuitem g_MpWeaponsMenuItems[] = {
 		(uintptr_t)"Auto Random\n",
 		0,
 		menuhandlerMpAutoRandomWeapon,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GoldenEye Cheat Guns\n",
+		0,
+		menuhandlerMpGeCheatGuns,
 	},
 #endif
 	{

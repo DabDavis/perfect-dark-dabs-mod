@@ -6465,6 +6465,9 @@ struct weapon *g_Weapons[] = {
 	[WEAPON_GE_EXTRA2          ] = &g_GeWeaponDefs[WEAPON_GE_EXTRA2 - WEAPON_GE_FIRST],
 	[WEAPON_GE_EXTRA3          ] = &g_GeWeaponDefs[WEAPON_GE_EXTRA3 - WEAPON_GE_FIRST],
 	[WEAPON_GE_EXTRA4          ] = &g_GeWeaponDefs[WEAPON_GE_EXTRA4 - WEAPON_GE_FIRST],
+	[WEAPON_GE_SILVERPP7       ] = &g_GeWeaponDefs[WEAPON_GE_SILVERPP7 - WEAPON_GE_FIRST],
+	[WEAPON_GE_GOLDPP7         ] = &g_GeWeaponDefs[WEAPON_GE_GOLDPP7 - WEAPON_GE_FIRST],
+	[WEAPON_GE_TASER           ] = &g_GeWeaponDefs[WEAPON_GE_TASER - WEAPON_GE_FIRST],
 #endif
 };
 
@@ -6523,5 +6526,11 @@ u8 g_GeWeaponHosts[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_EXTRA2          - WEAPON_GE_FIRST] = WEAPON_PP9I,
 	[WEAPON_GE_EXTRA3          - WEAPON_GE_FIRST] = WEAPON_PP9I,
 	[WEAPON_GE_EXTRA4          - WEAPON_GE_FIRST] = WEAPON_PP9I,
+	// GoldenEye's silver and gold PP7s are the PP7, and its taser is held
+	// and fired as a pistol is (gunfire.c, taser_stats: one-handed, held as
+	// a gun, no ammunition)
+	[WEAPON_GE_SILVERPP7       - WEAPON_GE_FIRST] = WEAPON_PP9I,
+	[WEAPON_GE_GOLDPP7         - WEAPON_GE_FIRST] = WEAPON_PP9I,
+	[WEAPON_GE_TASER           - WEAPON_GE_FIRST] = WEAPON_PP9I,
 };
 #endif

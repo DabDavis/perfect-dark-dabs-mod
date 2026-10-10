@@ -81,6 +81,7 @@ s32 gegunsOwnModelInUse(s32 weaponnum);
 Gfx *gegunsLightsAndLookAt(Gfx *gdl, s32 weaponnum);
 s32 gegunsOwnModelHidden(s32 weaponnum);
 s32 gegunsTriggerDelay60(s32 weaponnum);
+s32 gegunsOnePerPress(s32 weaponnum); // the taser: fires once a press, held lowered till let go
 // Ticks between the clicks of one of GoldenEye's guns held empty, or 0 for any other
 s32 gegunsDryFireInterval60(s32 weaponnum);
 // 1 if one of GoldenEye's guns clicks held empty, 0 if it reloads, -1 not GoldenEye's
@@ -169,6 +170,7 @@ void gegunsOwnMeleeTick(struct hand *hand, s32 handnum, f32 lvupdate60);
 // the draw back and, once the knife has gone, the follow-through
 void gegunsOwnThrowStart(struct hand *hand, s32 handnum);
 void gegunsOwnThrowTick(struct hand *hand, s32 handnum, f32 lvupdate60);
+void gegunsOwnTaserTick(struct hand *hand, s32 handnum, f32 lvupdate60); // the taser's lower and raise
 s32 gegunsOwnThrowHidesHand(const struct hand *hand);
 // F3: a player's hand's knife slash (-1 none) and throw step, and how far into each
 void gegunsOwnSwingTrace(s32 playernum, s32 handnum, s32 *slash, f32 *slashtime, s32 *throwstep, f32 *throwtime);
@@ -201,6 +203,11 @@ s32 gegunsHackSetIn(void); // a ROM hack's own gun set is in: its stage is loade
 const char *gegunsMenuTagAtOption(s32 option); // a weapon dropdown row's game tag ("GE", "GF", "TND") or NULL
 u16 gegunsMenuNameId(s32 weaponnum); // the menus' name of a GoldenEye gun: a hack's mode's, or 0
 void gegunsExtraRowsRefresh(void); // a hack's own pistols' Combat Simulator rows shown or hidden
+void gegunsCheatRowsRefresh(void); // GoldenEye's cheat guns' rows, by Mod.GePlusCheatGuns
+void gegunsExtraModelsRefresh(void); // the models in the hand of the guns gebean.c has no rows for
+void gegunsHackPropsRefresh(void); // a ROM hack's guns' own props off its stages
+s32 gegunsSetAvailable(s32 moddir); // a gun set of the mod dir's can be put in
+s32 gegunsCheatGunsOffered(void); // whether the Weapons page offers them at all
 
 /** Weapon `index`'s own name (its text id), the gun set's. */
 u16 gegunsNameId(s32 index);

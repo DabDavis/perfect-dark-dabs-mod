@@ -299,6 +299,7 @@ s32 netContentVariantApply(const char *tag);
 const struct netcontentneed *netRulesContent(void); // netrules.c: the block the RULES received carry
 s32 netRulesGeCharsMissing(char *rows, s32 size, s32 *bodies); // netrules.c, client: the RULES' sims and players in GoldenEye characters not listed here
 s32 netContentGeCharsFollow(void);             // client, at STAGE_LOAD: GoldenEye's characters mounted or fetched; 1 fetching (the STAGE_LOAD waits)
+s32 netContentCsHackGunsFollow(void);         // client, at STAGE_LOAD: the host's ROM hack guns' conversion mounted or fetched; 1 fetching
 // Content served by the host (protocol 14): a conversion or map mod a stage key named that a client lacks
 void netContentServeRequest(s32 peer, struct netbuf *b); // host: CONTENT_REQ
 void netContentServeTick(void);                          // host: a few parts to each client served, every tick
@@ -419,6 +420,10 @@ struct netkeyvalue {
 	u32 u;
 	char str[NET_MAXSTRVAL + 1];
 };
+
+// the pending RULES' value of a key, before netRulesApply() writes them; the host in GoldenEye's mode
+s32 netRulesHostKey(const char *key, struct netkeyvalue *out);
+s32 netRulesHostGexPlusMode(void);
 
 #define NETKEY_SYNC       0
 #define NETKEY_MUST       1 // always

@@ -14,6 +14,8 @@
 #include "modloader.h"
 #include "modmode.h"
 #include "gexplusrom.h"
+#include "gexplus.h"
+#include "config.h"
 #include "geconvert.h"
 #include "gebean.h"
 #include "game/mplayer/mplayer.h"
@@ -521,6 +523,56 @@ s32 netContentGeCharsFollow(void)
 }
 
 /**
+ * Client, at STAGE_LOAD: the GoldenEye ROM hack whose guns the host's Perfect
+ * Dark match plays with (Mod.CsHackGuns, written from its RULES: gexplus.c).
+ * Its gun set, models and props come out of its conversion when the stage
+ * loads (geguns.c's gegunsStageSet()), whatever the map: mounted now when it
+ * is installed here and Mod.MapMods left it out, else fetched from the host
+ * as a map's conversion is (only the host needs the ROM hack). Read out of the
+ * RULES before they are applied, which puts its weapon sets in the block. 1
+ * while a fetch runs (the STAGE_LOAD is kept and tried again); 0 to go on,
+ * with GoldenEye's own guns here where the hack could not be had.
+ */
+s32 netContentCsHackGunsFollow(void)
+{
+	struct netkeyvalue kv;
+	const char *tag;
+	const char *dir;
+
+	// the host's, out of the RULES netRulesApply() writes after this
+	if (netRulesHostGexPlusMode() || !netRulesHostKey("Mod.CsHackGuns", &kv) || kv.type != CONFIG_TYPE_STR || !kv.str[0]) {
+		return 0;
+	}
+
+	tag = kv.str;
+
+	if (gexPlusCsHackDirOfTag(tag) >= 0) {
+		return 0;
+	}
+
+	dir = gexPlusRomDirOfTag(tag);
+
+	if (!dir) {
+		sysLogPrintf(LOG_WARNING, "net: content: the host's ROM hack guns \"%s\" are no conversion this game knows: GoldenEye's own in their place", tag);
+		return 0;
+	}
+
+	// (its weapon sets go in the block when the RULES are applied)
+	if (netContentMountMaps(dir) && gexPlusCsHackDirOfTag(tag) >= 0) {
+		sysLogPrintf(LOG_NOTE, "net: content: %s mounted for the host's ROM hack guns", dir);
+		return 0;
+	}
+
+	if (netContentFetchStart(dir)) {
+		sysLogPrintf(LOG_NOTE, "net: content: the host's matches play with %s's guns; fetching %s first", dir, dir);
+		return 1;
+	}
+
+	sysLogPrintf(LOG_WARNING, "net: content: the host's matches play with %s's guns, which are not here: GoldenEye's own in their place", dir);
+	return 0;
+}
+
+/**
  * The text of a NOSTAGE: what the host chose and what this machine needs
  * for it (the conversion's source file in added-content/, or the mod in
  * mods/)
@@ -910,12 +962,19 @@ void netContentHostStageDir(const char *dirbase)
 }
 
 // a folder this session's content needs: a stage's (the map's conversion or
-// map mod, a migrated host's "$N/" copy by its name), or GoldenEye's own
+// map mod, a migrated host's "$N/" copy by its name), GoldenEye's own
 // conversion while this machine's lists hold its characters (a guest without
-// them fetches it: netContentGeCharsFollow)
+// them fetches it: netContentGeCharsFollow), or the ROM hack whose guns its
+// Perfect Dark matches play with (Mod.CsHackGuns: netContentCsHackGunsFollow)
 static s32 netContentSessionNeeds(const char *dir)
 {
+	const s32 hack = gexPlusCsHackDirIndex();
+	char hackbase[NET_MAXMAPDIR + 1];
 	s32 i;
+
+	if (hack >= 0 && strcasecmp(contentBasename(fsGetModDirAt(hack), hackbase, sizeof(hackbase)), dir) == 0) {
+		return 1;
+	}
 
 	for (i = 0; i < NETCONTENT_MAXSESSIONDIRS; i++) {
 		if (s_SessionDirs[i][0] && strcasecmp(s_SessionDirs[i], dir) == 0) {

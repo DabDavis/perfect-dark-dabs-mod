@@ -2857,6 +2857,13 @@ static s32 netClientBeginStage(struct netbuf *b)
 		return 1;
 	}
 
+	// and the ROM hack whose guns a Perfect Dark match plays with
+	// (Mod.CsHackGuns, the host's from RULES): this machine's copy or the
+	// host's, before the stage's gun set is put in
+	if (id >= 0 && netContentCsHackGunsFollow()) {
+		return 1;
+	}
+
 	if (swapping) {
 		// resolved again after the swap; until then the stage is a
 		// stand-in (the Institute) the swap's own boundary never loads
