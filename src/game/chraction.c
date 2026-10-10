@@ -15741,7 +15741,10 @@ void chraTick(struct chrdata *chr)
 	// Facility's Doak (spawned as 5000-odd, renamed 0x4f by his first command)
 	// read as dead to the background list one tick behind him, failing
 	// "Contact double agent" on 00 Agent the moment Bond left the duct.
-	if (firsttick && chr->sleep == 0 && modloaderStageIsMission(g_Vars.stagenum)) {
+	// Every new chr's, not only a converted mission's: at 60 FPS each one's
+	// list runs on its first tick (sleep 0 less a 60th), and above 60 a
+	// stock chr that waited a few frames is the framerate showing through.
+	if (firsttick && chr->sleep == 0) {
 		chr->sleep = -1;
 	}
 #endif
@@ -15760,11 +15763,13 @@ void chraTick(struct chrdata *chr)
 		// (their sleep only goes negative on those). The action tick below
 		// still runs every frame, so the chr moves, turns and aims smoothly.
 		// A frame of a 60th or more (60 and 30 FPS, an online sim tick) runs
-		// it as before.
+		// it as before, and so does a chr's first tick, as at 60: a new chr's
+		// list runs on the frame it is made (a converted mission's lists rely
+		// on it - Facility's Doak, above).
 		// The two flags cleared after the list (heard the target, consider
 		// proximity mines) wait with it for the next run, so a shot heard on
 		// a frame between runs is still seen.
-		bool runlist = g_Vars.diffframe240 >= 4 || g_Vars.lvupdate60 > 0;
+		bool runlist = firsttick || g_Vars.diffframe240 >= 4 || g_Vars.lvupdate60 > 0;
 #endif
 		chr->sleep = 0;
 
