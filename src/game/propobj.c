@@ -16853,6 +16853,52 @@ void cctvHandleLensShot(struct defaultobj *obj)
 	rwdata->toggle.visible = false;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * A shot on a camera drawn from the XBLA release (the HD look's GoldenEye
+ * cameras): whether it went through the lens, which objHit() makes a one-shot
+ * kill as GoldenEye does (propobj.c: a hit on Switches[1], the lens's list).
+ * The release draws the camera in one piece, and its hit names the list that
+ * piece was drawn for - the mount's - so no shot in the HD look was ever on the
+ * lens and a camera took four PP7 rounds (F3 20261006-025257 and
+ * 20261004-224327, Bunker; the N64 look was right). The ROM model the mesh is
+ * posed on still has the lens: the shot counts as the lens's when it passes
+ * through the ROM lens no deeper than the drawn surface it hit (not out of the
+ * camera's front after entering its back), while the glass is still there.
+ */
+static void cctvMeshHitLens(struct model *model, struct shotdata *shotdata, struct hitthing *meshhit,
+		s32 meshmtx, struct modelnode **dlnode)
+{
+	struct modelnode *lens = modelGetPart(model->definition, MODELPART_CCTV_LENS);
+	struct modelnode *toggle = modelGetPart(model->definition, MODELPART_CCTV_0003);
+	struct hitthing lensthing;
+	struct modelnode *lensnode = NULL;
+	struct coord meshpos;
+	struct coord lenspos;
+	s32 lensmtx = -1;
+
+	if (lens == NULL || (lens->type & 0xff) != MODELNODETYPE_DL
+			|| (toggle && !((union modelrwdata *) modelGetNodeRwData(model, toggle))->toggle.visible)) {
+		return;
+	}
+
+	if (!func0f0849dc(model, lens, &shotdata->gunpos2d, &shotdata->gundir2d, &lensthing, &lensmtx, &lensnode)
+			|| lensmtx < 0 || lensmtx >= model->definition->nummatrices
+			|| meshmtx < 0 || meshmtx >= model->definition->nummatrices) {
+		return;
+	}
+
+	mtx4TransformVec(&model->matrices[meshmtx], &meshhit->pos, &meshpos);
+	mtx4TransformVec(&model->matrices[lensmtx], &lensthing.pos, &lenspos);
+
+	// both in the camera's space: the lens no more than a little behind the
+	// release's front face (the two are modelled within a couple of units)
+	if (-lenspos.z <= -meshpos.z + 6.0f) {
+		*dlnode = lens;
+	}
+}
+#endif
+
 void func0f085050(struct prop *prop, f32 damage, struct coord *pos, s32 arg3, s32 playernum)
 {
 	struct defaultobj *obj = prop->obj;
@@ -17256,6 +17302,8 @@ void func0f0859a0(struct prop *prop, struct shotdata *shotdata)
 		if (meshhit >= 0) {
 			if (meshhit == 0) {
 				hitpart = 0;
+			} else if (obj->type == OBJTYPE_CCTV && model->definition->skel == &g_SkelCctv) {
+				cctvMeshHitLens(model, shotdata, &hitthing1, spe4, &node2);
 			}
 		} else if (doorIsGeWholeModel(obj, false)) {
 			hitpart = doorGeTestWholeModel(obj, &shotdata->gunpos2d, &shotdata->gundir2d, &hitthing1, &spe4, &node1, &node2);
