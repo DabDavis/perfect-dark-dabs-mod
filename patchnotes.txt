@@ -31,6 +31,9 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 53 2026-10-10
+Above 60 FPS: enemies and simulants out of view also make their decisions and take their steps at the same rate as at 60
+
 notes 52 2026-10-10
 CamSpy: launched beside a wall it no longer gets stuck there, unable to fly on or go up and down; it comes out where it fits, so its objectives can be done again
 Above 60 FPS: alerted enemies make their decisions at the same rate as at 60, and new characters act on the frame they appear, as at 60
