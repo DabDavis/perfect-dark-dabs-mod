@@ -6215,7 +6215,7 @@ void hovTick(struct defaultobj *obj, struct hov *hov)
 			f32 f12;
 			f32 f2;
 
-			hov->groundpitch +=(groundangle - hov->groundpitch) * (PAL ? 0.0893f : 0.075f);
+			hov->groundpitch += (groundangle - hov->groundpitch) * (PAL ? 0.0893f : 0.075f);
 
 			f0 = ground - hov->y;
 			f12 = (PAL ? 0.102000005f : 0.085f);
