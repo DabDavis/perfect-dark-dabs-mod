@@ -53,7 +53,7 @@ release as it shipped (`.xbla-work/ge-bean/Bean/default.xex`). The guest
 addresses below hold for both (checked on Dam 2026-10-01: same frame counter,
 players[0], g_CurrentSetup, propDefs, pads); CE's Bond spawns on the N64's
 exact spot, retail's 0.1 unit off. **Our side in the HD look runs with
-`Mod.GeXblaCommunityEdition=1` and `added-content/CommunityEditionUpdaterV6.zip`**
+`Mod.GeXblaCommunityEditionArt=1` and `added-content/CommunityEditionUpdaterV6.zip`**
 (`xenia-out/hd-run`'s `hd-pd.ini` and added-content), as a GE Plus player has it.
 
 ## Reaching a solo mission (this profile has all 20 open)

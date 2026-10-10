@@ -31,7 +31,7 @@ colour.
 Edition** (user 2026-10-01: "use Community edition, since that is what we use
 for ge plus"): Bean's CE build (`.xbla-work/ge-bean/BeanCE/defaultCE.xex`,
 unless the rig's own default already is a CE build) and ours with
-`Mod.GeXblaCommunityEdition=1`, the updater in `added-content/`, the HD keys on
+`Mod.GeXblaCommunityEditionArt=1`, the updater in `added-content/`, the HD keys on
 (`view-hd-rundir-{0,1}`). Never retail against CE. Out:
 `~/wt/gefidelity-run/view-xenia`.
 
