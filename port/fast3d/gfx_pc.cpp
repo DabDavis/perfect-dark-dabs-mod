@@ -1021,6 +1021,21 @@ static void gfx_texture_cache_drop_texnum(int32_t texturenum) {
 
 static struct GfxTraceStats g_GfxLastFrame;
 
+/*
+ * Whether a display list word is a segmented address: SEGADDR() marks one by
+ * its lowest bit, and it is a segment number in bits 24-27 over a 24-bit
+ * offset, so it is always below 0x10000000. A real pointer can be odd too -
+ * the stage pool (memp.c) handed out odd addresses after an allocation of an
+ * odd size, and Goldfinger 64's Cartel had every wall hit's vertices at one -
+ * and then its bits 24-27 were taken for a segment: where that segment was in
+ * use, the load read that segment's memory, every hole's corners came out at
+ * one point and nothing was drawn (F3 20261004-230444). Only a value that can
+ * be one is a segmented address.
+ */
+static inline bool gfx_seg_marked(uintptr_t w1) {
+    return (w1 & 1) && w1 < 0x10000000u;
+}
+
 static inline void *seg_addr(uintptr_t w1);
 
 extern "C" int gfx_trace_texture_entries(const void *addr, struct GfxTraceTexEntry *out, int max) {
@@ -4692,7 +4707,7 @@ static GfxMeshRun gfx_mesh_read_run(const Gfx* cmd) {
         }
 
         if (op == G_COL) {
-            const uint8_t seg = (w1 & 1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
+            const uint8_t seg = gfx_seg_marked(w1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
 
             if (!seg || (r.colseg && seg != r.colseg)) {
                 r.ok = false;
@@ -4708,7 +4723,7 @@ static GfxMeshRun gfx_mesh_read_run(const Gfx* cmd) {
             const Vtx* src = (const Vtx*)seg_addr(w1);
             const size_t count = (c->words.w0 & 0xffff) / sizeof(Vtx);
             const size_t dest = (c->words.w0 >> 16) & 0xf;
-            const uint8_t seg = (w1 & 1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
+            const uint8_t seg = gfx_seg_marked(w1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
 
             if (!seg || (r.vtxsegno && seg != r.vtxsegno) || dest != 0 || count == 0 || count > MAX_VERTICES ||
                 src < m->vertices || src + count > m->vertices + m->numvertices) {
@@ -5239,7 +5254,7 @@ static GfxRoomRun gfx_room_read_run(const Gfx* cmd) {
         }
 
         if (op == G_COL) {
-            const uint8_t seg = (w1 & 1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
+            const uint8_t seg = gfx_seg_marked(w1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
 
             if (!seg || !segmentPointers[seg] || (r.colseg && seg != r.colseg)) {
                 r.ok = false;
@@ -5265,7 +5280,7 @@ static GfxRoomRun gfx_room_read_run(const Gfx* cmd) {
             const Vtx* src = (const Vtx*)seg_addr(w1);
             const size_t count = (c->words.w0 & 0xffff) / sizeof(Vtx);
             const size_t dest = (c->words.w0 >> 16) & 0xf;
-            const uint8_t seg = (w1 & 1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
+            const uint8_t seg = gfx_seg_marked(w1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
 
             if (!seg || (r.vtxsegno && seg != r.vtxsegno) || count == 0 || dest + count > 16 ||
                 src < m->vertices || src + count > m->vertices + m->numvertices) {
@@ -5753,7 +5768,7 @@ static inline int32_t gfx_model_mtx_bone(const Gfx* cmd) {
     const uint32_t params = (cmd->words.w0 >> 16) & 0xff;
     const uint32_t ofs = (uint32_t)(w1 & 0x00fffffe);
 
-    if (!(w1 & 1) || ((w1 >> 24) & 0x0f) != 3 || !segmentPointers[3] ||
+    if (!gfx_seg_marked(w1) || ((w1 >> 24) & 0x0f) != 3 || !segmentPointers[3] ||
         (params & (G_MTX_PROJECTION | G_MTX_PUSH | G_MTX_FLOATS)) || !(params & G_MTX_LOAD) ||
         ofs % GFX_MODEL_MTX_BYTES) {
         return -1;
@@ -5773,7 +5788,7 @@ static inline void gfx_model_note_mtx(const Gfx* cmd) {
 static inline void gfx_model_note_col(uintptr_t w1) {
     model_colseg = (uint8_t)((w1 >> 24) & 0x0f);
     model_colofs = (uint32_t)(w1 & 0x00fffffe);
-    model_col_ok = (w1 & 1) && model_colseg && segmentPointers[model_colseg] && (model_colofs & 3) == 0;
+    model_col_ok = gfx_seg_marked(w1) && model_colseg && segmentPointers[model_colseg] && (model_colofs & 3) == 0;
 }
 
 static inline void gfx_model_note_segment(uint32_t seg) {
@@ -6219,7 +6234,7 @@ static GfxModelRun gfx_model_read_run(const Gfx* cmd) {
         }
 
         if (op == G_COL) {
-            const uint8_t seg = (w1 & 1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
+            const uint8_t seg = gfx_seg_marked(w1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
             const uint32_t ofs = (uint32_t)(w1 & 0x00fffffe);
 
             if (!seg || !segmentPointers[seg] || (ofs & 3)) {
@@ -6243,7 +6258,7 @@ static GfxModelRun gfx_model_read_run(const Gfx* cmd) {
             const Vtx* src = (const Vtx*)seg_addr(w1);
             const size_t count = (c->words.w0 & 0xffff) / sizeof(Vtx);
             const size_t dest = (c->words.w0 >> 16) & 0xf;
-            const uint8_t seg = (w1 & 1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
+            const uint8_t seg = gfx_seg_marked(w1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
 
             if (!seg || (r.vtxsegno && seg != r.vtxsegno) || count == 0 || dest + count > 16 || src < verts ||
                 src + count > verts + n) {
@@ -7814,7 +7829,7 @@ static void gfx_taa_marker(bool begin, int slot, const float *mtx) {
 
 static inline void *seg_addr(uintptr_t w1) {
     // all segmented addresses have the least significant bit set
-    if (w1 & 1) {
+    if (gfx_seg_marked(w1)) {
         // seg 0 is reserved and doesn't count here
         const uintptr_t seg = (w1 & 0x0f000000) >> 24;
         if (seg && segmentPointers[seg]) {
