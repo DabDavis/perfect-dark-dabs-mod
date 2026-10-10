@@ -117,15 +117,17 @@ gdb -p $(pgrep -x pd.x86_64) -batch -ex "thread 1" -ex "bt 14"
 
 **A Windows crash dialog** gives `PC` and `MAIN MODULE: [base]`, and a
 backtrace of `[base]+offset` lines. The offset is from the image base, which
-the release exe has at `0x140000000`. Releases built after 2026-10-10 ship the
-DWARF beside the exe rather than in it (`pd.x86_64-windows.exe.debug`,
-`pd.x86_64-linux.debug`: two thirds of each binary, which Check for Updates no
-longer downloads); addr2line on the `.debug` gives exactly what it gave on the
-whole exe. Older releases keep it inside the exe, so `-e` the exe for those:
+the release exe has at `0x140000000`. Releases from 82b7a71 (2026-10-10) on
+ship the DWARF beside the exe rather than in it (`pd.x86_64-windows.exe.debug`,
+`pd.x86_64-linux.debug`: most of each binary, which Check for Updates no
+longer downloads - Windows 66 MB to 26, Linux 53 to 21), so `-e` the `.debug`:
+it gives exactly what the whole exe gave. Older releases, v3.1.2 here, keep it
+inside the exe, so `-e` the exe for those:
 
 ```sh
 gh release download v3.1.2 -p 'pd.x86_64-windows.exe*' -D <scratch>/v3.1.2
-x86_64-w64-mingw32-addr2line -f -C -i -e <scratch>/v3.1.2/pd.x86_64-windows.exe.debug 0x1401ba7a3   # 0x140000000 + offset
+x86_64-w64-mingw32-addr2line -f -C -i -e <scratch>/v3.1.2/pd.x86_64-windows.exe 0x1401ba7a3   # 0x140000000 + offset
+# from 82b7a71 on:                           -e <scratch>/<tag>/pd.x86_64-windows.exe.debug
 ```
 
 A CI run's own copies are the `pd-dabs-mod-x86_64-windows-debug` and

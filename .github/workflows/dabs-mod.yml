@@ -96,12 +96,12 @@ jobs:
           # that a DLL was copied.
           objdump -p bin/pd.x86_64.exe | grep -qi 'DLL Name: WINHTTP' \
             || { echo "::error::built without WinHTTP - ghost server support is missing"; exit 1; }
-          # The DWARF is two thirds of the exe and nothing in the game reads
+          # The DWARF is most of the exe and nothing in the game reads
           # it: dbghelp cannot read mingw's DWARF, so a crash report already
           # says [base]+offset, and turning that into a line is addr2line's
           # job on our side. So it ships beside the release as
           # pd.x86_64-windows.exe.debug, not inside what Check for Updates
-          # downloads (66 MB, about 16 without). addr2line -e on the .debug
+          # downloads (66 MB, 26 without). addr2line -e on the .debug
           # gives the same function and line as on the whole exe; the exe
           # keeps its symbol table.
           mkdir -p debug
