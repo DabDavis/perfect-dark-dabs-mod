@@ -635,6 +635,29 @@ void psSetVolume(struct prop *prop, s32 volpercentage)
 	}
 }
 
+#ifndef PLATFORM_N64
+s32 g_PsShootReplaces = 0;
+
+/** Whether psStopOneShootChannel() would stop one of prop's shot sounds now. */
+static bool psShootChannelToStop(struct prop *prop)
+{
+	s32 count = 0;
+
+	for (s32 i = 0; i < CHANNELCOUNT(); i++) {
+		struct pschannel *channel = &g_PsChannels[i];
+
+		if ((channel->flags & PSFLAG_FREE) == 0
+				&& (channel->flags2 & PSFLAG2_STOPPED) == 0
+				&& prop == channel->prop
+				&& channel->type == PSTYPE_CHRSHOOT) {
+			count++;
+		}
+	}
+
+	return count >= 2;
+}
+#endif
+
 #if VERSION >= VERSION_NTSC_1_0
 void psStopOneShootChannel(struct prop *prop)
 {
@@ -712,6 +735,27 @@ s16 psCreate(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 pad
 
 	osSyncPrintf("AISOUND: aisoundnewtypeflags - Channel %d -> Playing sound number id=%d(%x)\n", channel, soundnum, soundnum);
 
+#ifndef PLATFORM_N64
+	// A chr's next shot sound stops its oldest of two (above), and then the
+	// cap on sounds playing refused the new one: a gun firing on was cut to
+	// silence. GoldenEye's automatics start their shot every few ticks
+	// (gegunsShootSoundRate()) among many sounds of a busy fight - its hits'
+	// delayed ricochets count too - so a simulant's AR33 or RC-P90 went quiet
+	// mid-burst (F3 20261010-024209, 044901). Where g_PsShootReplaces says so
+	// (a GoldenEye gun, or any on a converted level), the new shot takes the
+	// stopped one's place past the cap, and one over the cap that stops
+	// nothing is refused before anything is cut.
+	bool shootreplaced = false;
+
+	if (type == PSTYPE_CHRSHOOT && g_PsShootReplaces) {
+		if (channel == NULL && g_SndNumPlaying > 12 && !psShootChannelToStop(prop)) {
+			return -1;
+		}
+
+		shootreplaced = psShootChannelToStop(prop);
+		psStopOneShootChannel(prop);
+	} else
+#endif
 	if (type == PSTYPE_CHRSHOOT) {
 		psStopOneShootChannel(prop);
 	}
@@ -719,9 +763,15 @@ s16 psCreate(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 pad
 	spac.packed = soundnum;
 
 	if (channel == NULL) {
+#ifndef PLATFORM_N64
+		if (type != PSTYPE_FOOTSTEP && g_SndNumPlaying > 12 && !shootreplaced) {
+			return -1;
+		}
+#else
 		if (type != PSTYPE_FOOTSTEP && g_SndNumPlaying > 12) {
 			return -1;
 		}
+#endif
 
 		for (i = CHANNEL_HEAP_FIRST; i < CHANNELCOUNT(); i++) {
 			if (g_PsChannels[i].flags & PSFLAG_FREE) {

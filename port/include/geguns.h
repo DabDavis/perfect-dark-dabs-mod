@@ -44,6 +44,11 @@ s32 gegunsWatchLaserShot(s32 weaponnum);
 // start of its shot sound and the next while the trigger is held, 0 for a
 // sound with every shot. -1 for any other weapon.
 s32 gegunsShootSoundRate(s32 weaponnum);
+
+// The mod dir of a ROM hack whose gun set is in off its own stages (Perfect
+// Dark's Combat Simulator with Mod.CsHackGuns), -1 otherwise: its shots come
+// out of its own sound bank (gesfx.c geSfxGunShot())
+s32 gegunsLentDir(void);
 s32 gegunsBorrowedPickup(s32 index, u16 *fileid, u16 *scale);
 // WEAPONFLAG_HASHANDS as the gun's own definition has it
 u32 gegunsHandsFlag(s32 index);

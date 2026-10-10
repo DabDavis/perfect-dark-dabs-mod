@@ -3600,6 +3600,23 @@ the number they read is `gsetGetFireslotDuration()`, which nothing else
 reads. So `gegunsShootSoundRate()` is handed out there as the shot sound is,
 on a converted level only (`build/gexrom/rate.py` prints all eighteen).
 
+**A simulant's automatic went silent mid-burst (F3 20261010-024209, 044901,
+dblaney1, AR33 and RC-P90 on GE Arenas maps).** `psCreate()` for a
+`PSTYPE_CHRSHOOT` first stops the chr's oldest of two shot channels
+(`psStopOneShootChannel()`), then refuses any new sound while more than 12
+are playing (`g_SndNumPlaying`, counted in `sndTick()`, which includes states
+still waiting for their PLAY: GoldenEye's ricochets 23-25, 32 and 37 have key
+map `velocityMax` 7, a 233 ms delay). With GoldenEye's rates restarting the
+shot every 2-5 ticks the cap is often reached, and then the playing shot was
+cut and nothing replaced it: every refused shot sound in a 40 s seeded match
+(gdb, `--boot-map Caverns --mpsims 4 --mp-weapons 58,...`) was one right after
+such a stop. Stock code (the cap and the stop are Rare's), not a recent
+regression; v3.14.0 (90c8622) does the same. Now (`g_PsShootReplaces`, set by
+`chrUpdateFireslot()` for a GoldenEye gun or any gun on a converted level) a
+shot that stops one takes its place past the cap, and one over the cap that
+would stop nothing is refused before anything is cut. Perfect Dark's own guns
+on its own stages are untouched.
+
 **The tank had no sounds to give because there was no tank**: every tank sound
 GoldenEye has is in the code that *drives* it, and Perfect Dark built none.
 It is built now - see "GoldenEye's tank" below.

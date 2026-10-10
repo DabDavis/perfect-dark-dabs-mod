@@ -10822,8 +10822,14 @@ void chrUpdateFireslot(struct chrdata *chr, s32 handnum, bool withsound, bool wi
 
 			if (playsound) {
 #if VERSION >= VERSION_NTSC_1_0
+#ifndef PLATFORM_N64
+				g_PsShootReplaces = WEAPON_IS_GE(weaponnum) || modloaderStageIsRemake(g_Vars.stagenum);
+#endif
 				psCreate(NULL, chr->prop, soundnum, -1, -1,
 						PSFLAG_0400, PSFLAG2_PRINTABLE, PSTYPE_CHRSHOOT, NULL, -1, NULL, -1, -1, -1, -1);
+#ifndef PLATFORM_N64
+				g_PsShootReplaces = 0;
+#endif
 				fireslot->endlvframe = (u32)g_Vars.lvframe60 + duration;
 				chr->hidden2 |= CHRH2FLAG_FIRESOUNDDONE;
 #else
