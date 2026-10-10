@@ -399,6 +399,8 @@
  *   u8      nkeys                 <= NET_MAXKEYS SYNC ini keys
  *     str(47) key, VALUE
  *   str(15) tickratediv           unused, ""
+ *   u32     cheats0, cheats1      (protocol 28) the host's g_CheatsEnabledBank0/1,
+ *                                 the cheats every machine plays the match by
  *
  * STAGE_LOAD (host -> client, BULK, after its RULES)
  *   u8      NETMSG_STAGE_LOAD
@@ -732,7 +734,8 @@
  *   delta   localplayer           NETLP_SIZE (720) bytes, full precision:
  *     u8 flags (1 dead, 2 invincible), u8 respawns, u8 teleports (counters),
  *     u8 dualwielding, f32 pos[3], s16 rooms[8], f32 theta, f32 verta,
- *     f32 health, f32 shield, s16 weaponnum, s16 0, s32 loadedammo[4]
+ *     f32 health, f32 shield, s16 weaponnum, s16 weaponleft (protocol 28: the
+ *     left hand's gun, 0 for none; was 0), s32 loadedammo[4]
  *     (right 0, 1, left 0, 1), u16 ammoheld[33], u16 0, u8 weapons[32]
  *     (a bit per weapon number), u8 dualweapons[32], u16 blurdrug (protocol
  *     20: the chr's blurdrugamount, a tranquilizer's drugged screen), u8 0[6],

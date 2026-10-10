@@ -2758,3 +2758,38 @@ in their own sections' notes.
   2 and nothing of the host's own; pd.ini byte-identical before any room,
   written inside one and after; the Combat Simulator setup its own again; a
   second Create Room at stock again.
+- **"Left hand keeps reloading", "my gun keeps cycling and reloading"**
+  (034434, 050642; netreload). Two ways the local-player block and a
+  client's own run disagreed for good. (1) The block carried the right
+  hand's gun only. Its stable-stretch equip was `bgunEquipWeapon(right)`,
+  and under Akimbo the switch carries the old right-hand gun into the left
+  (`bgunAkimboCarries`): the client held DY357 + Golden Gun where the host's
+  player held the DY357 alone, and the host's left magazine (an unused
+  hand's 0) went into the Golden Gun at every stretch - a reload, 30 ticks,
+  another. The block now carries the left hand's gun (bytes 50-51,
+  `weaponleft`, `netLpLeftWeapon`), magazines go in hand by hand and only
+  into the host's gun, and the stretch equips both hands
+  (`bgunEquipHands`). (2) Cheats were each machine's own (`cheatsReset`
+  copies the save's enabled bank): a client with All Guns and Unlimited
+  Ammo had its inventory "given" (a no-op under All Guns) and its ammo put
+  back at every stretch, the trace's inventory changes and ammo sets rising
+  together about 8 per 300 ticks. RULES ends in the host's enabled banks;
+  a client plays them (`netCheatsEnabled`), F3 prints "cheats in force".
+  The block now logs what it changes by item and hand (first 24, then
+  every 64th): "the host's 0x.. given here", "ammo type 0x.. N here, the
+  host's M", "left hand's 0x.. magazine", "hands R/L here, the host's R/L".
+  Test args: host `--net-test-give TICK,RIGHT[,LEFT][/...]` (a negative
+  LEFT given, not held; `--net-test-give-host` the host's own player too,
+  and every 300 ticks "slot N at tick T holds R/L"), `--net-test-cheats
+  HEX` (this machine's own bank 0). netpredicttest `hands` and `cheats`.
+- **Explosions online (030750)**: measured on a host with gdb on
+  `chrDamage(explosion)`: the same rocket blast 100 units from the host's
+  player and from a client's gives 18.0 on the first frame and 110-114 in
+  all for either, whoever owns it; a rocket fired point-blank does 25.9
+  from a client and 27.1 from the host. No damage path differs online. What
+  does differ is time: a client's rockets, grenades and mines are the
+  host's projectiles from its commands, so a moving target is where the
+  host has it, not where the client drew it (projectiles are not lag
+  compensated; only hitscan is, `netlagcomp.c`), and a Phoenix round's
+  blast is lag-compensated in place but hurts chrs where they are now.
+  A projectile "nudge" (Unlagged's) would be a design change.
