@@ -26,6 +26,8 @@
  */
 
 extern struct nbomb g_Nbombs[6];
+extern struct fogenvironment *g_EnvTransitionFrom;
+extern struct fogenvironment *g_EnvTransitionTo;
 
 #define NETWORLD_MAXLIST 4096
 #define NETWORLD_MAXWRECK 4
@@ -107,7 +109,10 @@ void netWorldStageStart(void)
 			s_Glass[s_NumGlass++] = obj;
 		} else if (type == OBJTYPE_DOOR && s_NumDoors < NETWORLD_MAXLIST) {
 			s_Doors[s_NumDoors++] = (struct doorobj *)obj;
-		} else if (type == OBJTYPE_BASIC && s_NumBasic < NETWORLD_MAXLIST) {
+		} else if ((type == OBJTYPE_BASIC || type == OBJTYPE_ALARM || type == OBJTYPE_CCTV || type == OBJTYPE_SINGLEMONITOR
+					|| type == OBJTYPE_MULTIMONITOR || type == OBJTYPE_HANGINGMONITORS || type == OBJTYPE_GASBOTTLE
+					|| type == OBJTYPE_SAFE || type == OBJTYPE_DEBRIS || type == OBJTYPE_AMMOCRATE
+					|| type == OBJTYPE_MULTIAMMOCRATE) && s_NumBasic < NETWORLD_MAXLIST) {
 			s_Basic[s_NumBasic++] = obj;
 		}
 
@@ -196,13 +201,14 @@ static void netWorldWreck(s32 phase)
 	if (haveat) {
 		nbombCreateStorm(&at, NULL);
 
-		if (phase == 0) {
+		// only where the stage has the gas's second sky (gasTick reads it)
+		if (phase == 0 && g_EnvTransitionFrom && g_EnvTransitionTo) {
 			gasReleaseFromPos(&at);
 		}
 	}
 
 	sysLogPrintf(LOG_NOTE, "net: world wreck %d at tick %u: glass %d broken, windowed doors %d, objects crumpled %d, storm %d, gas %d",
-			phase, g_NetTick, broke, doors, deformed, haveat, haveat && phase == 0);
+			phase, g_NetTick, broke, doors, deformed, haveat, haveat && phase == 0 && g_EnvTransitionFrom && g_EnvTransitionTo);
 }
 
 void netWorldCensus(const char *why)
