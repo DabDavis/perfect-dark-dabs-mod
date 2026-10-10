@@ -134,10 +134,21 @@ def install_hooks():
         Hook('bgunCreateFiredProjectile', 'launch', lambda: 1)
 
 
+def joy_sample_line():
+    """joy.c's line just after osContGetReadData() wrote the newest sample, found
+    by its text: a fixed number went stale when netplay moved it (613 -> 728)."""
+    src = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'src', 'lib', 'joy.c')
+    with open(src) as f:
+        for num, line in enumerate(f, 1):
+            if 'g_JoyData[0].nextsecondlast = (g_JoyData[0].nextlast' in line:
+                return num
+    raise RuntimeError('gunscen: the sample line is gone from ' + src)
+
+
 class PdInput(gdb.Breakpoint):
     """Our controller: OR the trigger into the sample osContGetReadData() just wrote."""
     def __init__(self):
-        super().__init__('joy.c:613', internal=True)
+        super().__init__('joy.c:%d' % joy_sample_line(), internal=True)
 
     def stop(self):
         if REC['trigger']:
