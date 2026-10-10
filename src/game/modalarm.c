@@ -575,20 +575,19 @@ static bool modAlarmLinkWalkable(struct coord *from, RoomNum fromroom, struct co
 
 /**
  * Whether a place on a floor is MODALARM_FLOORSPACE from every place already
- * taken in the same room, or on another level of it. `haverooms` is read
- * every `stride` entries.
+ * taken in its room (`taken`, all of them that room's), or on another level
+ * of it.
  */
-static bool modAlarmFloorSpotFree(const struct coord *spot, RoomNum room, const struct coord *have, const RoomNum *haverooms, s32 stride, s32 numhave, f32 space)
+static bool modAlarmFloorSpotFree(const struct coord *spot, const struct coord *taken, s32 numtaken, f32 space)
 {
 	s32 i;
 
-	for (i = 0; i < numhave; i++) {
-		const struct coord *h = &have[i];
+	for (i = 0; i < numtaken; i++) {
+		const struct coord *h = &taken[i];
 		f32 dx = h->x - spot->x;
 		f32 dz = h->z - spot->z;
 
-		if (haverooms[i * stride] == room
-				&& dx * dx + dz * dz < space * space
+		if (dx * dx + dz * dz < space * space
 				&& fabsf(h->y - spot->y) <= 100.0f) {
 			return false;
 		}
@@ -623,6 +622,18 @@ static s32 modAlarmSampleFloors(const struct coord *have, const RoomNum (*havero
 	s32 count = 0;
 	s32 pass;
 	s32 r;
+	// The places a new one is kept apart from are its own room's alone, so
+	// each room's are gathered before the room is searched. Testing every
+	// place on the stage instead was most of a big map's load with
+	// simulants: GF64 Prison's 3491 waypoints took 2.6 s, its search tried
+	// tens of thousands of grid points against thousands of places each
+	// (F3 20261005-153507). The places found are the same.
+	struct coord *taken = malloc((numhave + max) * sizeof(*taken));
+	s32 numtaken;
+
+	if (taken == NULL) {
+		return 0;
+	}
 
 	for (pass = 0; pass < ARRAYCOUNT(clearances); pass++) {
 		// a pad's room is a signed ten bit field (padUnpack())
@@ -642,12 +653,20 @@ static s32 modAlarmSampleFloors(const struct coord *have, const RoomNum (*havero
 			}
 
 			// The room's waypoints are counted in a u8 (struct room)
+			numtaken = 0;
+
 			for (ix = 0; ix < numhave; ix++) {
-				inroom += haverooms[ix][0] == r;
+				if (haverooms[ix][0] == r) {
+					taken[numtaken++] = have[ix];
+					inroom++;
+				}
 			}
 
 			for (ix = 0; ix < count; ix++) {
-				inroom += outrooms[ix] == r;
+				if (outrooms[ix] == r) {
+					taken[numtaken++] = out[ix];
+					inroom++;
+				}
 			}
 
 			while ((w / grid) * (d / grid) > MODALARM_FLOORCELLS) {
@@ -703,8 +722,7 @@ static s32 modAlarmSampleFloors(const struct coord *have, const RoomNum (*havero
 							continue;
 						}
 
-						if (!modAlarmFloorSpotFree(&spot, r, have, &haverooms[0][0], 2, numhave, space)
-								|| !modAlarmFloorSpotFree(&spot, r, out, outrooms, 1, count, space)) {
+						if (!modAlarmFloorSpotFree(&spot, taken, numtaken, space)) {
 							continue;
 						}
 
@@ -719,11 +737,14 @@ static s32 modAlarmSampleFloors(const struct coord *have, const RoomNum (*havero
 						outrooms[count] = r;
 						count++;
 						inroom++;
+						taken[numtaken++] = spot;
 					}
 				}
 			}
 		}
 	}
+
+	free(taken);
 
 	return count;
 }

@@ -429,3 +429,34 @@ name kept the old picture's smaller mip levels (now `GL_TEXTURE_MAX_LEVEL`
 entries hashed away from their address's bucket and survived
 `gfx_texture_cache_delete()`; an evicted entry could be left in
 `rendering_state.textures`.
+
+## A GF64/TND64 arena with simulants, and the F3 that looked like lag (2026-10-10, F3 pass 35)
+
+F3 20261005-153507 ("multiplayer for GF64 and TND64 is very laggy") had nine
+frames of 1-4.7 s in its last 600, `>=9 x9` in the game step. They were its
+**stage loads**: the `[recent switches]` list has nine loads in that window
+(four TND64 missions and the menu between them, then Temple), and the 263
+frames on Temple before the report ran at 60 (the counter in the picture
+reads 60.00). **Read the switches before calling a trace's long frames
+gameplay**: a load is one frame of the ring.
+
+Measured the other way (`perf/sweep.sh`-style: seeded fixed-step, 8 sims,
+the player in the match, 2000 frames, game thread): all eleven TND64 arenas
+3.0-5.9 M instructions a frame, all eleven GF64 arenas 4.1-12.1 M (Offices
+the top, 3796 tris), GoldenEye Arenas' Temple/Dam/Complex 7.1/9.8/6.5 M - a
+converted ROM hack's arena costs no more to play than GoldenEye's; 3600
+real-time frames on TND Temple with the tester's pd.ini (pack, model packs,
+dumping on, sound) never left 60.
+
+What a hack's arena does cost is **its load with simulants**: none has
+waypoints, so `modAlarmBuildPadWaypoints()` (modalarm.c) builds the graph at
+the setup load - 3000-3500 places on GF64's Junkyard, Offices, Prison, Hideout
+and Island, 0.8-2.1 s of it here (Prison with 8 sims loaded in 5.3 s against
+2.3 s without). A quarter of that was `modAlarmFloorSpotFree()` testing each
+of tens of thousands of grid points against every place on the stage, when
+only the same room's can be too near; each room's places are gathered once
+now and the graphs are identical (counts and links on all of them, the replay
+cases' Complex and Randomizer runs unchanged): 2.1 -> 1.5 s on Prison and
+Island, 0.84 -> 0.54 s on Junkyard. What is left is the collision queries of
+the floor search (`cdCollectGeoForCylFromList`, 30%) and the links' tile
+walks (`stanWallFind`, 12%).
