@@ -5051,8 +5051,24 @@ void weaponTick(struct prop *prop)
 			// empty
 		}
 	} else if (weaponHasFlag3(weapon->weaponnum, WEAPONFLAG3_REMOTEDETONATED)) {
+#ifndef PLATFORM_N64
+		// A remote mine in a hand is no mine thrown. The body third person
+		// shows (and a split-screen player's or a simulant's) holds one as a
+		// weapon prop, and weaponCreateForChr() leaves its owner bits clear,
+		// which read as player 1's: the detonator blew up the mine in the
+		// hand, and the player with it, whether or not one had been thrown
+		// (F3 20261006-021755, the Institute's firing range; GoldenEye's own
+		// remote mine the same since its held prop is GoldenEye's)
+		struct prop *holder = prop->parent;
+		const bool held = holder && (holder->type == PROPTYPE_CHR || holder->type == PROPTYPE_PLAYER)
+			&& holder->chr
+			&& (holder->chr->weapons_held[HAND_RIGHT] == prop || holder->chr->weapons_held[HAND_LEFT] == prop);
+#else
+		const bool held = false;
+#endif
+
 		// Handle remote mines
-		if (g_PlayersDetonatingMines != 0) {
+		if (g_PlayersDetonatingMines != 0 && !held) {
 			s32 ownerplayernum = OBJ_OWNER(obj);
 			struct chrdata *parentchr = prop->parent ? prop->parent->chr : NULL;
 
