@@ -494,6 +494,17 @@ void mpReset(void)
 		g_Vars.lvmpbotlevel = true;
 	}
 
+#ifndef PLATFORM_N64
+	// netplay: an online co-op (or counter-op) mission has no simulants - the
+	// host's Combat Simulator setup still lists its own in g_MpSimSlots (and
+	// RULES carry them), which co-op's chrslots mask does not clear, and
+	// lvmpbotlevel made every object of the mission regenerate (setup.c) and
+	// a guard's dropped gun fade away (crash 20261009-233623 had it up)
+	if (g_NetMode != NETMODE_NONE && (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)) {
+		g_Vars.lvmpbotlevel = 0;
+	}
+#endif
+
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		struct mpplayerconfig tmp;
 
@@ -643,6 +654,15 @@ void mpCalculateTeamIsOnlyAi(void)
 		if (!g_MpAllChrPtrs[i]) {
 			continue;
 		}
+
+#ifndef PLATFORM_N64
+		// only a simulant has an aibot (botmgr.c lists none without one); a
+		// player's chr here is a match's left over on a stage that skipped
+		// mpReset() (crash 20261009-233623)
+		if (!g_MpAllChrPtrs[i]->aibot) {
+			continue;
+		}
+#endif
 
 		g_MpAllChrPtrs[i]->aibot->teamisonlyai = true;
 

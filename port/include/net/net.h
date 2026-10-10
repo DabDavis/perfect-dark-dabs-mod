@@ -422,6 +422,9 @@ void netCoopHostFade(u32 colour, s16 frames);
 // pdmain.c mainEndStage's co-op branch: out of the mission at once, as the end
 // screen's close goes (a GoldenEye mission's report is the folder's, gexfront.c)
 void netCoopLeaveMission(void);
+// gexfront.c gexFrontGoBack online: no match's flags (or, on the host, match)
+// outlive a stage that goes back to the folder that way
+void netCoopFolderBack(void);
 // objectives.c objectiveCheck on a client: the host's status, 1 when known
 s32 netCoopObjectiveStatus(s32 index, s32 *status);
 // lv.c lvTickPlayer, the host: a client's own settings (NETKEY_PLAYER: the

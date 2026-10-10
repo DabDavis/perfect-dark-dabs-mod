@@ -544,6 +544,19 @@ s32 netCoopAcceptMission(void)
 	// the session's next co-op match, with the seats as the players
 	if (s_Campaign.on) {
 		const char *game = "";
+
+		// but what the folder's Cinema page plays (a mission's opening or
+		// ending, the credits) is watched, not played: the host's own, as
+		// offline, while the room waits for its next mission - its start
+		// made a match the guests stood in on the mission's spawn, which the
+		// cinema's end (back to the folder, never mainEndStage) left running
+		// with its flags up, and the Institute loaded under them read the
+		// cinema's players as simulants (crash 20261009-233623)
+		if (gexFrontStartingCinema()) {
+			sysLogPrintf(LOG_NOTE, "net: co-op: campaign: the Cinema page's stage 0x%02x is the host's own to watch, not a match",
+					g_MissionConfig.stagenum);
+			return 0;
+		}
 		const char *dir = modloaderStageIsMission(g_MissionConfig.stagenum) ? modloaderGetStageModDir(g_MissionConfig.stagenum) : NULL;
 		const char *tag = dir ? gexPlusRomDirTag(dir) : NULL;
 
@@ -742,6 +755,32 @@ void netCoopLeaveMission(void)
 	setNumPlayers(1);
 	titleSetNextMode(TITLEMODE_SKIP);
 	mainChangeToStage(STAGE_CITRAINING);
+}
+
+/**
+ * gexfront.c gexFrontGoBack online: whatever goes back to the folder that way
+ * leaves no match behind. The Institute it loads is the menus: a stage left
+ * with a match's flags up (mplayerisrunning, lvmpbotlevel) skips mpReset() and
+ * plays the menus as that match, its chr pointers the last stage's
+ * (crash 20261009-233623: a campaign host's Cinema-page ending). A match the
+ * host's session still runs there ends for its clients as a mission does.
+ */
+void netCoopFolderBack(void)
+{
+	if (g_NetMode == NETMODE_SERVER && netSessionMatchActive()) {
+		sysLogPrintf(LOG_NOTE, "net: co-op: the match's stage goes back to the folder: the match ends");
+		netHostMatchEnded();
+	}
+
+	if (g_Vars.mplayerisrunning || g_Vars.lvmpbotlevel) {
+		sysLogPrintf(LOG_NOTE, "net: back to the folder: the match's flags off (mplayer %d, bots %d)",
+				g_Vars.mplayerisrunning, g_Vars.lvmpbotlevel);
+	}
+
+	mpSetPaused(MPPAUSEMODE_UNPAUSED);
+	g_Vars.mplayerisrunning = false;
+	g_Vars.normmplayerisrunning = false;
+	g_Vars.lvmpbotlevel = 0;
 }
 
 // H12: the match's flags off

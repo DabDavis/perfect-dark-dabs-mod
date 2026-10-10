@@ -84,6 +84,9 @@ s32 gexFrontOpenAtMission(s32 mission);
 s32 gexFrontOpenAfterCredits(void);
 // Whether the credits playing were picked on the Cinema page
 s32 gexFrontCreditsAreCinema(void);
+// The Cinema page is starting its stage (a cinema, or its credits) through
+// Accept Mission: online that is the host's own to watch, not a match
+s32 gexFrontStartingCinema(void);
 // The Cinema page's credits, left early: back to the page with no cast reel
 void gexFrontLeaveCredits(void);
 void gexFrontTick(void);
