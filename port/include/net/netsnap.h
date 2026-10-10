@@ -38,7 +38,7 @@
 
 #define NETREC_CHRSIZE  48
 #define NETREC_OBJSIZE  24
-#define NETREC_DOORSIZE 6
+#define NETREC_DOORSIZE 17 // (protocol 28) was 6: + where the door stands (a fall-away door falls)
 #define NETREC_LIFTSIZE 14
 #define NETREC_MAX      48
 
@@ -114,6 +114,7 @@ static inline void netStoreSetTick(u8 *s, u32 t) { s[4] = (u8)t; s[5] = (u8)(t >
 #define NETOBJ_PROJECTILE 0x08
 #define NETOBJ_EMBEDDED   0x10
 #define NETOBJ_DELISTED   0x20 // (protocol 24) a setup object out of the world (disable_object)
+#define NETOBJ_MOUNTED    0x40 // (protocol 28) somebody is in it: GoldenEye's tank driven
 
 // DOOR record byte 4
 #define NETDOOR_ENABLED   0x01

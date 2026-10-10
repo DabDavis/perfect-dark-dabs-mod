@@ -106,6 +106,7 @@
 #define NETPRED_POSEPS  0.5f
 #define NETPRED_ANGEPS  0.05f
 #define NETPRED_SNAP    64.f      // a correction past this is taken at once, not eased
+#define NETPRED_TANKREFUSED 6     // blocks in a row with the player out of a tank it is in here
 #define NETPRED_ANGSNAP 20.f      // ... and a turn past this many degrees
 #define NETPRED_EASE    0.8465f   // exp(-16.67 ms / 100 ms): the eased offset left after a tick
 #define NETPRED_EXTMAX  40.f      // a move between ticks past this is a respawn or warp, not a lift
@@ -229,6 +230,8 @@ static u32 s_WatchLeft = 0;    // ... and while GoldenEye's watch is up here (ge
 static s32 s_ForceSnap = 0;    // the next block is taken outright (a cutscene ended: the host's place from here)
 static u32 s_Missing = 0;     // no state in the ring for the block's command
 static u32 s_Refused = 0;     // a block with no place or bad floats: not taken
+static u32 s_TankRefused = 0; // blocks in a row the host had this player out of the tank it is in here
+static u32 s_TankLeft = 0;    // ... and left it for
 static u32 s_Replayed = 0;    // ticks played again
 static u32 s_Overrun = 0;     // the block's command older than the ring
 static u32 s_DiscreteOff = 0; // corrections for the discrete state alone
@@ -312,6 +315,7 @@ void netPredictStageStart(void)
 	s_ShiftSum = 0;
 	s_ShiftMax = 0;
 	s_Snaps = s_AbsSnaps = s_Missing = s_Refused = s_Replayed = s_Overrun = 0;
+	s_TankRefused = s_TankLeft = 0;
 	s_CutsceneLeft = 0;
 	s_WatchLeft = 0;
 	s_ForceSnap = 0;
@@ -1521,6 +1525,22 @@ s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, 
 			|| lp->mv.isfalling != e->mv.isfalling || lp->mv.crouchpos != e->mv.crouchpos
 			|| lp->mv.autocrouchpos != e->mv.autocrouchpos || lp->mv.insightaimmode != e->mv.insightaimmode
 			|| netPredTankOff(&lp->tank, &e->tank);
+
+		// GoldenEye's tank: climbing in is this machine's own press, and the
+		// host may not have let the player in (somebody else is in it, F3
+		// 20261010-050254): the host's blocks go on saying out for commands
+		// it was in here, which no replay undoes (geTankNetLoad takes no
+		// "out"). Out here too, once they have said it a while
+		if (lp->tank.state == 0 && e->tank.state != 0) {
+			if (++s_TankRefused >= NETPRED_TANKREFUSED) {
+				geTankNetLeave(g_NetLocalSlot);
+				s_TankRefused = 0;
+				s_TankLeft++;
+				sysLogPrintf(LOG_NOTE, "net: prediction: the host has this player out of the tank it climbed into here (command %u): out", cmd);
+			}
+		} else {
+			s_TankRefused = 0;
+		}
 
 		s_Compared++;
 

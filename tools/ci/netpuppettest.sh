@@ -23,6 +23,13 @@
 #           tick, and doors did move.
 #   two     host + two clients: on each client the other client's player is a
 #           puppet that walks where the host has it.
+#   alarm   (Ravine, 0x17, no sims, Guards Alerted! on the host: 4 at once,
+#           fast) the host spawns its guards (--chr-trace's "alarm: guard"
+#           lines); the client spawns none of its own (it had: chrs of its
+#           own in the T pose, F3 20261010-034140) and makes each of the
+#           host's from its descriptor, head and all (its puppets' "Guards
+#           Alerted! guards" count; they had been missing unless a chr there
+#           wore the same body and head, F3 20261010-034414).
 #
 # Side-by-side screenshots (shots: host and client a moment apart, the
 # host's player stood just behind the client's, both looking at the same
@@ -31,7 +38,7 @@
 #   netpuppettest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: OUT (build/netpuppet-out), PORT (27200; uses PORT..PORT+4), MODDIR
-# (mod_allinone), CASES (skedar lossy doors two shots; shots only takes the
+# (mod_allinone), CASES (skedar lossy doors two alarm shots; shots only takes the
 # screenshots, its players invincible and moved, so it gates on nothing but a
 # clean run).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
@@ -40,7 +47,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpuppet-out}; PORT=${PORT:-27200}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-skedar lossy doors two shots}
+CASES=${CASES:-skedar lossy doors two alarm shots}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -96,6 +103,7 @@ game() {
 	local save=$OUT/save-$label
 	rm -rf "$save"; mkdir -p "$save"
 	printf '%b' "$INI" > "$save/pd.ini"
+	case $label in alarm-*) printf 'GuardsAlerted=1\nAlertedGuards=4\nGuardSpawnSpeed=16\n' >> "$save/pd.ini" ;; esac
 	cd "$BUILD" || exit 2
 	exec timeout -k 5 "$t" stdbuf -oL -eL "$BIN" --savedir "$save" --skip-intro --no-sound "$@" > "$OUT/$label.log" 2>&1
 }
@@ -443,6 +451,7 @@ check_run() {
 		doors)  run doors $((PORT + i)) 0x3b 8 1 2400 ;;
 		two)    run two $((PORT + i)) 0x32 4 2 2000 ;;
 		shots)  run shots $((PORT + i)) 0x32 8 1 1300 ;;
+		alarm)  run alarm $((PORT + i)) 0x17 0 1 2400 --chr-trace ;;
 		esac
 		i=$((i + 1))
 	done
@@ -458,6 +467,15 @@ for c in $CASES; do
 	        s2=$(sed -n 's/.*into slot \([0-9]*\).*/\1/p' "$OUT/two-client2.log" | head -1)
 	        compare two two-client "${s1:-1}" 0.5 player || status=1
 	        compare two two-client2 "${s2:-2}" 0.5 player || status=1 ;;
+	alarm)  check_run alarm client
+	        hs=$(grep -c "alarm: guard body" "$OUT/alarm-host.log")
+	        cs=$(grep -c "alarm: guard body" "$OUT/alarm-client.log")
+	        cb=$(grep "net: puppets " "$OUT/alarm-client.log" | tail -1 | sed -n 's/.*Guards Alerted! guards \([0-9]*\)).*/\1/p')
+	        if [ "$hs" -ge 2 ] && [ "$cs" = 0 ] && [ "${cb:-0}" -ge 2 ]; then
+	        	pass "alarm: the host spawned $hs guard(s), the client none of its own, and made $cb of the host's"
+	        else
+	        	fail "alarm: host spawns $hs, client's own spawns $cs (want 0), host's guards made on the client '${cb:-?}' (want 2 or more)"
+	        fi ;;
 	shots)  check_run shots client
 	        for f in host client; do [ -s "$SHOTDIR/shots-$f.png" ] || fail "shots: no $f screenshot"; done ;;
 	esac

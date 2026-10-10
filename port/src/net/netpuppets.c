@@ -21,6 +21,8 @@
 #include "game/gunfx.h"
 #include "game/timing.h"
 #include "game/modelmgr.h"
+#include "game/modalarm.h"
+#include "game/modoptions.h"
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/prop.h"
@@ -130,6 +132,7 @@ static u32 s_HeldDrops = 0;  // a chr's setup object let go of before its own re
 static u32 s_Snaps = 0;      // teleport counters seen moving
 static u32 s_DoorMoves = 0;
 static u32 s_DoorSounds = 0;
+static u32 s_DoorFalls = 0;  // fall-away doors moved where the host's fell
 static u32 s_Regens = 0;
 static u32 s_Unpaused = 0;
 static u32 s_LetGo = 0;      // objects this machine held as a child that the host has free (netPupObjLetGo)
@@ -145,6 +148,7 @@ static u32 s_Restitched = 0; // records posed from snapshots other than the brac
 static u32 s_HeldFails = 0;  // held guns that could not be made (no model)
 static u32 s_BodyLoads = 0;  // corpses whose body and head no chr here wore (not made)
 static u32 s_BodyBuilt = 0;  // a mission's runtime chrs no chr here wore, built from the tables
+static u32 s_AlarmBuilt = 0; // a match's Guards Alerted! guards, their heads out of modalarm.c's table
 static u32 s_GeGunsMade = 0; // GoldenEye guns made from descriptors (dropped, thrown, a pickup)
 static u32 s_GoldenGuns = 0; // ... of them the Golden Gun (its scenario's one gun)
 static u32 s_GoldenHands = 0;  // the Golden Gun put in a puppet's hand
@@ -269,9 +273,9 @@ void netPuppetsStageStart(void)
 	s_Serial = 0;
 	s_Poses = s_Interp = s_Extrap = s_Held = s_Behind = 0;
 	s_CreateFail = s_Freed = s_Stolen = s_NoDesc = s_HeldSwaps = s_HeldDrops = s_Snaps = 0;
-	s_DoorMoves = s_DoorSounds = s_Regens = s_Unpaused = s_LetGo = s_TakenOut = s_PutBack = s_Trails = s_Deaths = s_FirstRecords = s_BadAnims = s_Resyncs = 0;
+	s_DoorMoves = s_DoorSounds = s_DoorFalls = s_Regens = s_Unpaused = s_LetGo = s_TakenOut = s_PutBack = s_Trails = s_Deaths = s_FirstRecords = s_BadAnims = s_Resyncs = 0;
 	s_PlayerDeaths = 0;
-	s_LiftMoves = s_HatsWorn = s_GeGunsHeld = s_BodyLoads = s_BodyBuilt = s_GeGunsMade = s_GoldenGuns = s_HeldFails = 0;
+	s_LiftMoves = s_HatsWorn = s_GeGunsHeld = s_BodyLoads = s_BodyBuilt = s_AlarmBuilt = s_GeGunsMade = s_GoldenGuns = s_HeldFails = 0;
 	s_GoldenHands = s_GoldenHolders = 0;
 	s_GoldenHolder = NULL;
 	memset(s_Created, 0, sizeof(s_Created));
@@ -1233,6 +1237,14 @@ static void netPupObj(struct netpup *u, struct prop *prop, const struct netentst
 			return;
 		}
 
+		// (protocol 28) somebody else is in it: this machine's player may
+		// not climb in too (tankNear), as on the host (F3 20261010-050254)
+		if (s->flags & NETOBJ_MOUNTED) {
+			obj->hidden |= OBJHFLAG_MOUNTED;
+		} else {
+			obj->hidden &= ~OBJHFLAG_MOUNTED;
+		}
+
 		tank->turretyaw = s->extra[1] * (f32)M_BADTAU / 256.f;
 		tank->turretpitch = (s8)s->extra[2] * (f32)M_BADTAU / (360.f * 4.f);
 
@@ -1373,6 +1385,32 @@ static void netPupDoor(struct netpup *u, struct prop *prop, const struct netents
 			if (shut) {
 				doorDeactivatePortal(door);
 			}
+		}
+	}
+
+	// (protocol 28) GoldenEye's fall-away door (Surface's vent hatch): let
+	// go, it is a projectile on the host and falls out of its frame, which
+	// the door's frac never said - it had stood over the hole here,
+	// twitching, while it lay at the bottom on the host (F3 20261010-043643).
+	// Out of the way as doorStartOpen() puts it on the host, and where the
+	// host has it
+	if (door->doortype == DOORTYPE_FALLAWAY && door->frac > 0) {
+		if (door->perimfrac != 0) {
+			struct geocyl *cyl = door->base.geocyl;
+
+			door->base.flags |= OBJFLAG_CANNOT_ACTIVATE;
+			door->perimfrac = 0;
+
+			if (cyl && (door->base.flags & OBJFLAG_00000100)) {
+				cyl->header.numvertices = 0;
+				door->base.flags &= ~OBJFLAG_00000100;
+			}
+		}
+
+		if (fabsf(prop->pos.x - s->pos[0]) > 1.f || fabsf(prop->pos.y - s->pos[1]) > 1.f
+				|| fabsf(prop->pos.z - s->pos[2]) > 1.f) {
+			netPupPlaceObjScaled(&door->base, s, NULL);
+			s_DoorFalls++;
 		}
 	}
 
@@ -1672,6 +1710,7 @@ static struct prop *netPupMakeBody(const struct netdesc *d, const struct netents
 {
 	struct chrdata *src = NULL;
 	struct model *model = NULL;
+	struct modeldef *headdef = NULL;
 	struct chrdata *chr;
 	struct prop *prop;
 	struct coord pos;
@@ -1727,6 +1766,17 @@ static struct prop *netPupMakeBody(const struct netdesc *d, const struct netents
 		// its sims', whose pairs a chr here wears.
 		model = body0f02d338(d->bodynum, d->headnum, NULL, NULL, false, false);
 		s_BodyBuilt++;
+	} else if (g_Vars.normmplayerisrunning && modIsGuardsAlertedOn()
+			&& d->bodynum >= 0 && d->bodynum < NUM_HEADSANDBODIES && g_HeadsAndBodies[d->bodynum].filenum
+			&& (headdef = modAlarmNetHead(d->headnum, d->bodynum)) != NULL) {
+		// A Guards Alerted! guard in a match (modalarm.c): the host loads one
+		// head per head number for them, offset for the body, and shares it;
+		// this takes the same out of the same bounded table. It had not been
+		// made at all unless some chr here happened to wear the pair: the
+		// host's guards were missing on a client, and a client's own spawns
+		// stood in their place (F3 20261010-034414)
+		model = body0f02d338(d->bodynum, d->headnum, NULL, headdef, false, false);
+		s_AlarmBuilt++;
 	} else {
 		// No chr here wears the pair, in a match: never load one from the
 		// wire's numbers. Those are the host's to choose, and a per-corpse
@@ -2714,9 +2764,9 @@ s32 netClientInMatch(void)
 
 void netPuppetsLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u (setup objects dropped before their record %u), bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, let go %u, taken out %u, put back %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u, built from the tables %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u",
+	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u (setup objects dropped before their record %u), bad anims %u; doors moved %u, door sounds %u, fall-away doors placed %u, regens %u, unpaused %u, let go %u, taken out %u, put back %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u, built from the tables %u, Guards Alerted! guards %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u",
 			why, g_NetTick, s_Poses, s_Interp, s_Extrap, s_Held, s_Behind, s_DelayLast, s_Jit, s_Resyncs,
 			s_FirstRecords, s_Snaps, s_Deaths, s_Created[NETDESC_DYNWEAPON], s_Created[NETDESC_HAT], s_Created[NETDESC_AMMOCRATE], s_Created[NETDESC_SCENOBJ],
-			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_HeldDrops, s_BadAnims, s_DoorMoves, s_DoorSounds, s_Regens, s_Unpaused, s_LetGo, s_TakenOut, s_PutBack, s_Trails, s_PlayerDeaths,
-			s_Created[NETDESC_BODY], s_BodyLoads, s_BodyBuilt, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves, s_Backsteps, s_StaleAfter, s_Restitched);
+			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_HeldDrops, s_BadAnims, s_DoorMoves, s_DoorSounds, s_DoorFalls, s_Regens, s_Unpaused, s_LetGo, s_TakenOut, s_PutBack, s_Trails, s_PlayerDeaths,
+			s_Created[NETDESC_BODY], s_BodyLoads, s_BodyBuilt, s_AlarmBuilt, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves, s_Backsteps, s_StaleAfter, s_Restitched);
 }

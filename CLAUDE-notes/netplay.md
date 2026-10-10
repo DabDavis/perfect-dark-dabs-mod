@@ -2654,3 +2654,29 @@ in their own sections' notes.
   crates by the line; prop placement on Train matches the cartridge (the
   gefidelity world gate), the solo mission just never goes outside.
   randomizer-run.md, "Wider spacing left pieces", has the pad-graph side.
+- **Guards Alerted!, the tank, the boost and the vent hatch online (F3
+  pass 36, 2026-10-10, protocol 28 wire changes).** A client ran
+  `modAlarmTick()` and spawned guards of its own, never ticked (no list
+  runs on a client): T-posed chrs where nobody else had a guard, while the
+  host's guards (NETDESC_BODY in a match) were made only if some chr there
+  happened to wear the same body and head - so one machine saw a T pose and
+  another nothing (20261010-034140/-034414/-034931). Now a client never
+  spawns (`NET_CLIENT` in `modAlarmTick`), and `netPupMakeBody` builds a
+  match's living guard with its head out of modalarm.c's bounded per-head
+  table (`modAlarmNetHead`; puppets log "Guards Alerted! guards N");
+  netpuppettest `alarm` checks both. GoldenEye's tank took a second driver
+  (050254): `tankNear()` skips a tank whose OBJHFLAG_MOUNTED is set, the
+  OBJ record carries it to clients (NETOBJ_MOUNTED 0x40), and a client the
+  host kept out (its blocks saying out for 6 compared commands it was in
+  here) is let out (`geTankNetLeave`), since `geTankNetLoad` takes no "out".
+  Combat boost never ended on a client (071659): lv.c's boost transition
+  advanced only on player 0's pass, which a client never draws, so
+  speedpillon never came on and `bgunTickBoost` never ran the clock down;
+  it is the local player's pass online (`NET_LOCAL_UI`). Surface's vent
+  hatch (a fall-away door) fell on the host as a projectile, but a DOOR
+  record had no position: it stood over the hole on clients (043643); the
+  record now carries the door's place (17 bytes) and `netPupDoor` moves a
+  let-go fall-away door there and clears its column as `doorStartOpen()`
+  does. The local-player block's guns and ammo now look for this machine's
+  own changes before putting the host's in (they were looked for only
+  after, so a shot fired between two blocks could be undone by the next).

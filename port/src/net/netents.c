@@ -768,6 +768,7 @@ static void netCaptureObj(struct netcap *c, struct prop *prop)
 		if (obj->flags2 & OBJFLAG2_INVISIBLE) flags |= NETOBJ_INVISIBLE;
 		if (obj->hidden & OBJHFLAG_PROJECTILE) flags |= NETOBJ_PROJECTILE;
 		if (obj->hidden & OBJHFLAG_EMBEDDED) flags |= NETOBJ_EMBEDDED;
+		if (obj->type == OBJTYPE_TANK && (obj->hidden & OBJHFLAG_MOUNTED)) flags |= NETOBJ_MOUNTED;
 
 		st->flags = flags;
 		netCaptureRot(obj->realrot, st->quat);
@@ -1871,6 +1872,21 @@ void netEntsClientApplyLocal(void)
 
 	s_LpCorrAbs = 0;
 
+	// what this machine itself changed since the last block (a shot, a
+	// reload, a switch): the host's block has not seen it yet, so it waits
+	// another stable stretch. Looked at only after the block had been put
+	// in, a shot fired between two blocks was undone by the next whenever
+	// the host's had held still for the stretch before it: the magazine
+	// full again, then emptied by the host's play of that shot, and the gun
+	// reloading over and over (F3 20261010-034434, -050642)
+	netLpLocalSig(p, &sig);
+
+	if (!s_LpHaveSig || memcmp(&sig, &s_LpLocalSig, sizeof(sig)) != 0) {
+		s_LpLocalSig = sig;
+		s_LpHaveSig = 1;
+		s_LpStableSince = g_NetTick;
+	}
+
 	// inventory, ammo and the gun in hand: once the host's have held still
 	// long enough that this machine's own commands are in them
 	if (!p->isdead && g_NetTick - s_LpStableSince >= NET_LPSTABLE) {
@@ -1914,8 +1930,8 @@ void netEntsClientApplyLocal(void)
 		s_LpStableSince = g_NetTick;
 	}
 
-	// what this machine itself changed since: the host's block has not
-	// seen it yet, so it waits another stable stretch
+	// and what the block itself just changed, so that it is not taken
+	// for this machine's own change at the next
 	netLpLocalSig(p, &sig);
 
 	if (!s_LpHaveSig || memcmp(&sig, &s_LpLocalSig, sizeof(sig)) != 0) {

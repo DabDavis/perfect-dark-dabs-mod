@@ -715,7 +715,8 @@
  *                                 (one sent while the baseline was in
  *                                 flight, or left out of the baseline)
  *   records, for each updated id rising: its record (CHR 48, OBJ 24, DOOR
- *     6, LIFT 14 bytes; layouts in netsnap.c netRecPack) XOR'd against its
+ *     17 (6 before protocol 28), LIFT 14 bytes; layouts in netsnap.c
+ *     netRecPack) XOR'd against its
  *     base record (the baseline's, or the rebase list's snapshot's), or
  *     against zeros when there is none or it holds another generation, rec
  *     or kind (then a descriptor came too)
@@ -723,6 +724,10 @@
  *     changes, by any amount; a toggled bit would lose two in one gap)
  *     (protocol 24: OBJ byte 0 bit 0x20 / DOOR byte 4 bit 2: a setup object
  *     out of the world, in no prop list on the host - taken out here too)
+ *     (protocol 28: OBJ byte 0 bit 0x40, NETOBJ_MOUNTED: GoldenEye's tank
+ *     with somebody in it, which nobody else may climb into; DOOR bytes
+ *     6-14 where the door stands (3 x 24-bit eighths, as OBJ's) and 15-16
+ *     its first room: a fall-away door, Surface's vent hatch, falls)
  *   u8      haslp                 0 none, 1 keyframe, 2 against the baseline's
  *   delta   localplayer           NETLP_SIZE (720) bytes, full precision:
  *     u8 flags (1 dead, 2 invincible), u8 respawns, u8 teleports (counters),
