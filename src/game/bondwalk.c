@@ -2400,6 +2400,36 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 				bwalk0f0c4d98();
 			}
 
+#ifndef PLATFORM_N64
+			// In a corner of two walls where the body already touches both,
+			// the slide along the first fails against the second and the
+			// second is never tried (the quarter step above moves nothing and
+			// so names no edge). A converted level has such corners where
+			// GoldenEye has none to stop Bond: the conversion's climb wall
+			// meets a raised floor's end, and GoldenEye slid Bond along the
+			// climb and up it - Surface 2's ladder building, at either end of
+			// the lip over the roof (F3 report 20261010-052108). So on a
+			// converted stage the slide is also tried along the wall that
+			// stopped the first one.
+			if (arg1 && geRoomActive()) {
+				const s32 slid = bwalk0f0c494c(arg0, &sp100, &sp88, types);
+
+				if (slid <= CDRESULT_COLLISION) {
+					struct coord sp24;
+					struct coord sp12;
+					bool other = false;
+
+					if (slid == CDRESULT_COLLISION) {
+						cdGetEdge(&sp24, &sp12, 0, "bondwalk.c");
+						other = sp24.x != sp100.x || sp24.z != sp100.z || sp12.x != sp88.x || sp12.z != sp88.z;
+					}
+
+					if (bwalk0f0c4a5c(arg0, &sp100, &sp88, types) <= CDRESULT_COLLISION && other) {
+						bwalk0f0c494c(arg0, &sp24, &sp12, types);
+					}
+				}
+			} else
+#endif
 			if (arg1
 					&& bwalk0f0c494c(arg0, &sp100, &sp88, types) <= CDRESULT_COLLISION
 					&& bwalk0f0c4a5c(arg0, &sp100, &sp88, types) <= CDRESULT_COLLISION) {
