@@ -3327,6 +3327,19 @@ static void bgunQuickSwapLoad(void)
 }
 
 /**
+ * The gun asked for by bgunSetGunMemWeapon() loaded now, on the same terms:
+ * the look switched under a GoldenEye gun in the hand (gebeanMeshesSwitched()),
+ * which reloads it on the other look's model, and a step a tick left the hand
+ * empty for the dozen ticks the load takes (F3 20261008-014239). The switch
+ * comes between frames or in a menu's tick, never with the old gun's lists
+ * still to be drawn.
+ */
+void bgunLoadGunNow(void)
+{
+	bgunQuickSwapLoad();
+}
+
+/**
  * Quick Weapon Swap: the new gun's equip animation is not played, but it is
  * still put on the pose that animation leaves it in, because that pose is
  * how the gun is held. Without an animation the gun model sits in its rest

@@ -79,6 +79,7 @@ the long form.
 - **GE Plus in third person, and a converted pane's tail** — ge-bean.md, "Third person is broken sometimes" (converter 49): the solo converter carried no tail for tinted glass, so every pane was opaque at any distance and shut **portal 0** of its level every frame (Aztec's start doorway: nothing drawn from a camera beyond it), and the opening swirl's fade-out of Bond's body stays on the chr, so third person after a fully watched opening drew him at alpha 0; third-person.md, "The player's own tracers": the hand beams are drawn by `propsRenderBeams()` in third person and start at the body's gun
 - **HD light shafts, monitor recesses, cut-out rims and magenta placeholders** — ge-bean.md, "HD effects: Archives' shafts, Dam's modem screen, Jungle's vines and magenta fronds" (2026-09-26): a blended Bean level draw faded by its vertices is translucent whatever its picture, as the release draws it (Egyptian's pool included); Bean recess backs coplanar with a GoldenEye screen are pushed behind it only on lone-quad screens of basic-skeleton props with all four corners matched; binary-alpha pictures bleed colour into clear texels and 0..1 prop cut-out cards clamp; flat 16x16 magenta pictures are Rare's missing-art stand-ins, given a neighbouring cut-out's picture (else its colour)
 - **HD decal corners behind their wall, and GoldenEye's overlapping rooms** — ge-bean.md, "Train's plates and Aztec's vent: decal corners and faces over another room's space" (25th F3 pass): a decal kept in its mesh has its corners moved along its face just far enough that their whole-unit rounding is not behind its (rounded) base (`markDecalCorners()`), a shared corner only along the sharer's own plane; Bean faces lying on a GoldenEye face with a closed space of another room within 8-64 units behind are drawn culled (`markOverlaps()`), as GoldenEye relies on culling where its rooms overlap
+- **Which of two HD faces in one plane is seen, and the gun at F6** — ge-bean.md, "Surface's snowy rock behind its own snow, the gun gone at F6, the far plane's flood; five answers" (35th F3 pass, HDCACHE 22): the release draws its blended pass after the opaque one whatever the stream order, so `decalPick()` breaks a tie by pass first (`decalLater()`; a `blendpic`/`decalpic` twin is its opaque draw's) - Surface's snowy rock had been hidden behind the bank's snow; a GoldenEye gun reloaded by F6 loads at once (`bgunLoadGunNow()`); `--savedir NAME` is under `data/`, and `PD_HDPICK` writes its build to the disk cache
 - **The N64 look's fog, Frigate's sea and the portal walk against the cartridge** — ge-bean.md, "Fog per vertex, the sea through the palette, GoldenEye's portal walk and the GE Plus timer" (2026-10-01, fid-look): a converted level in the N64 look is fogged per vertex as the RSP does it (`G_FOG_VERTEX_EXT`, set by `envStartFog()`; `gfx_emit_tri3()` clips at the eye plane and the FRUSTRATIO_2 guard band and works the new corners' fog out - not at the near plane, the cartridge draws nearer things); GoldenEye's `texSelect()` loads a picture in the texture's own format, so Frigate's sea is CI8 indices looked up in the TLUT by each 16-bit texel's upper byte; `bgTickPortalsWalkGe()` is GoldenEye's queue walk, which re-enters rooms and raises their draw order (Surface's fence under the trees); the mission timer sits under the bottom-message line and never moves the messages
 - **GoldenEye arenas made from a solo setup** — ge-bean.md, "Arenas from a level's solo setup: keys, the dish, the vent hatch, Streets' jeeps; GoldenEye's MP eye and team score" (35th F3 pass, 2026-10-10): the thirteen arenas GoldenEye has no MP setup for carry the level's own objects (`objects()`, `fromsolo`): a door the level's own keys open is unlocked, a door no key opens stays shut; a never-aiming autogun (Surface's dish) and a lock on a fall-away door (Surface 2's vent hatch) are carried; vehicles carried as plain objects take the vehicle box and GoldenEye's first-tick height at run time (`gexPlusVehicleArenaPlace()`); the arena eye is GoldenEye's `headpos.y * pov + 7`; GoldenEye mode ignores the team score in a free-for-all; the folder's Simulants rows read the setup's own roster
 - **GoldenEye's mines dropped and held, the detonator's draw, a knife on a degenerate tile, wreckage, the HD camera's lens** — ge-bean.md, "Mines, the detonator, a spinning knife, wreckage and the HD lens" (35th F3 pass, 2026-10-10): a simulant's crate throwables are GoldenEye's (`botactGetWeaponByAmmoType()` asks `ammotypeGeWeaponFor()` with the bot's own inventory); the thrown ones hold and drop as their own props (`gegunsOwnPropModel()`); a held remote mine never detonates; the detonator has no host draw/put-away; `cdGetGeoNormal()` sums the polygon on a converted tile whose first three points are in line; later destroyed levels blow GoldenEye's debris row 16; an HD camera's hit asks the ROM lens (`cctvMeshHitLens()`)
@@ -14713,3 +14714,86 @@ GF_OURS=12600.9,-425,-2609.0 --env GF_OURPAD0=-379.108,-415.000,4395.079`).
   since at `videoEndFrame` they are the next frame's garbage). Output printed from a breakpoint's
   `stop()` while gdb runs a `call ...` with `to_string=True` is swallowed: log to a list and print
   after the call.
+## Surface's snowy rock behind its own snow, the gun gone at F6, the far plane's flood; five answers (35th F3 pass, 2026-10-10, fix/f3-1010a-gehd)
+
+**Snow where Surface's banks are stone (F3 20261006-024556, retail Bean,
+"instead of snow textures, it must be stone").** The snow banks by the cabins
+are three of Bean's draws in one plane: 207 (opaque: the soft snow `_0x0ED95BC5`
+with the crusty snow `_0x0E4FDD85` blended over it by the blend word, a
+`blendpic` pair), and 206 (the release's *blended pass*: the snowy rock
+`_0x03A42535`, faded in by vertex alpha from 0 at the bank's foot to 255 at
+its crest). `decalPick()` broke a tie between two faces lying wholly on each
+other by the stream's order (`i > o`), so 207's opaque snow, later in the
+stream, was made the decal - pulled towards the camera - and the rock overlay
+behind it was never drawn but where no snow face lay (the patch on the far
+crest the tester saw). The release draws its blended pass after the opaque
+one whatever the stream order, so the rock is painted over the snow. Now
+`decalLater()`: a blended-pass face is later than any opaque one, the stream
+decides within a pass, and a twin (an opaque draw's second picture that
+`gebeanLevelTriangles()` lays over its first as a blended triangle,
+`gebeanlevelvtx.twin`/`stri.twin`) counts as its opaque draw's. Checked
+against Bean in Xenia (retail, Surface pad 106 heading 10, ours at
+1280x720 with the eye 130 over the bank's foot; the pair in
+`~/wt/f3-1010a-gehd-run/out/surfm3_mound.png`: Bean | before | after). A
+probe counting changed picks over all 20 missions' HD levels: Surface 36
+(the banks' rock and Surface's crusty-snow overlays), Surface 2 36 (the same
+mesh), Bunker 2 13, Streets 1, Control 1, every other level 0; the 20
+missions' spawn views (four headings each) are pixel-identical before and
+after. HDCACHE_VERSION 22. Coordinates: Surface's Bean (release) = ours -
+(5604, ?, 10382), the same scale; Bean's eye at pad 105 reads 167.3.
+
+**Tools of this pass (in `~/wt/f3-1010a-gehd-run`).** `rig.py`/`rig.sh`: a gdb
+rig taking a Python step file (`at(frame)`, `cam(x, y, z, th, va, hold, room)`
+- it sets `vv_ground`/`vv_manground` 160 under the eye and the prop's room,
+or a far teleport falls through a floor and draws from the wrong room -,
+`shot()`, `look(v)`, `opendoors(x, z, r)`, `diff(d)` for the difficulty);
+`xscn/multi_scene.py`: several Bean pictures in one Xenia session
+(`MULTI='pad,theta,verta;...'` through `xenia/run_scenario.py`). **A
+`--savedir NAME` is under `data/`** (`save dir: ./data/NAME` in the log): a
+pd.ini put in `./NAME` is never read, and the defaults have the XBLA look off.
+**`PD_HDPICK` builds afresh and writes the cache**: a probe build made with a
+patched rule stays on disk for the next run - delete
+`cache/xbla/goldeneye/levels/<key>_<level>[_ce].bin` after one.
+
+**The gun gone for a moment at every F6 (F3 20261008-014239).** A GoldenEye
+gun is reloaded on the other look's model at the switch
+(`gebeanMeshesSwitched()` -> `bgunSetGunMemWeapon()`), and the load is
+Perfect Dark's dozen-tick state machine (hands, gun, casings, a few textures
+a tick) behind a three-tick lock, with nothing drawn in the hand meanwhile.
+`bgunLoadGunNow()` (bondgun.c, Quick Weapon Swap's `bgunQuickSwapLoad()`)
+runs it to the end at once: the switch comes between frames
+(`xblaSwitchTick()` in `schedEndFrame()`, after the frame was drawn) or in a
+menu's tick, so the old gun's lists are never still to be drawn; with
+another owner of gunmem (a menu's model) the stock path is left to it.
+Checked frame by frame both ways on Dam.
+
+**One far-plane line a frame (agent gemission's find in F3 20261005-035913,
+20261005-040004).** `gebeanStageTickFar()` logged the HD far plane whenever
+the level's own plane changed, and Facility's gas slides it a unit a frame
+from 5000 to 1000: the whole 200-line log of both reports was that line. It
+is logged when the plane raised to changes, and otherwise when the level's
+own has moved by a quarter since the last line (a 5000 -> 1430 slide: 5
+lines, was 120).
+
+**Answers.** Dam's fog in the HD look (F3 20261008-005041, "can't see it"):
+it is the release's own - Dam's row is whole at 15000 plus 65000 below
+GoldenEye height 2782, and every pad of Dam stands under 450, so the release
+has next to no fog anywhere a player stands; Bean in Xenia at Dam pad 9
+heading 215 (the report's tunnel) shows none either
+(`~/wt/f3-1010a-gehd-run/xp/dam9`, `out/dam9_pair.png`). Control's windows
+(224821): the release draws them lighter and see-through, the HD look the
+cartridge's reflective pane at a distance since pass 31 - still the owner's
+call offered there (see "Control's windows a black wall in HD"), not built.
+Cradle's and Aztec's "green/red triangles" (225633, 230011, echoremastered,
+RTX 4080, OpenGL, GPU Vertex Shading on - the tester whose Runway/Depot
+slivers pass 32 could not reproduce): at both report cameras on the RX 580
+nothing of the kind; Cradle's 256 untextured-draw triangles are all grey;
+Aztec's red and green in the shot are GoldenEye's monitor programmes.
+Facility's "polygon thrashing" (042555, Steam Deck, Vulkan, MSAA 4, Glass
+See-Through 50, 00 Agent): at the report camera with all of those, nothing
+fights; the report's grey streaked band over the balcony beyond the doors
+is not drawn here (the far wall is dark) - needs a recording. Frigate's text
+as squares after F6 (060612, DumpTextures on): F6 back and forth with dumps
+on and a 64-entry texture cache keeps every glyph whole. Aztec's ending
+(033052): the gold band round the shuttle's body is GoldenEye's own - the
+N64 look draws it too, reflections on or off change nothing.
