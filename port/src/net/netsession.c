@@ -715,7 +715,18 @@ void netWriteSlotCfg(struct netbuf *b)
 
 	netWriteMpChar(b, p->base.mpheadnum, p->base.mpbodynum);
 	netBufWriteU8(b, p->controlmode);
-	netBufWriteU16(b, p->options);
+	{
+		// in GoldenEye mode the Reverse Pitch sent is GoldenEye's look for
+		// this player (their own LOOK UP/DOWN row, or the solo watch's while
+		// they have not touched it: gexfront.c), so the host plays them by it
+		u16 options = p->options;
+
+		if (g_GexPlusMode) {
+			options = gexPlusMpOwnLookUpright() ? (options | OPTION_FORWARDPITCH) : (options & ~OPTION_FORWARDPITCH);
+		}
+
+		netBufWriteU16(b, options);
+	}
 	netBufWriteF32(b, ext->fovy);
 	netBufWriteF32(b, ext->fovzoommult);
 	netBufWriteS32(b, ext->fovzoom);

@@ -60,6 +60,7 @@ static struct controllercfg {
 	s32 swapSticks;
 	s32 deviceIndex;
 	s32 cancelCButtons;
+	s32 invertR[2];   // Invert Right Stick X/Y: the physical right stick's axes, as a negative RStickScaleX/Y
 } padsCfg[INPUT_MAX_CONTROLLERS] = {
 	CONTROLLERCFG_DEFAULT,
 	CONTROLLERCFG_DEFAULT,
@@ -1202,6 +1203,25 @@ static inline s32 inputAxisScale(s32 x, const s32 deadzone, const f32 scale)
 	}
 }
 
+/**
+ * A physical axis's scale (SDL's axis number: 0/1 the left stick, 2/3 the
+ * right), the Invert Right Stick X/Y toggles turning the right stick's round
+ * as a negative RStickScaleX/Y does. They act on the stick, not the look: the
+ * stick Swap Sticks gives the look to is the one they turn round, in every
+ * mode, before anything is sent online; with Reverse Pitch (or GoldenEye's
+ * LOOK UP/DOWN REVERSE) Invert Y cancels it out.
+ */
+static inline f32 inputAxisSens(const struct controllercfg *cfg, u32 axis)
+{
+	const f32 sens = cfg->sens[axis & 3];
+
+	if (axis == 2 || axis == 3) {
+		return cfg->invertR[axis - 2] ? -sens : sens;
+	}
+
+	return sens;
+}
+
 s32 inputReadController(s32 idx, OSContPad *npad)
 {
 	if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS  || !npad) {
@@ -1260,10 +1280,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 	s32 rightX = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][0]);
 	s32 rightY = SDL_GameControllerGetAxis(pads[idx], cfg->axisMap[1][1]);
 
-	leftX = inputAxisScale(leftX, cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]);
-	leftY = inputAxisScale(leftY, cfg->deadzone[cfg->axisMap[0][1]], cfg->sens[cfg->axisMap[0][1]]);
-	rightX = inputAxisScale(rightX, cfg->deadzone[cfg->axisMap[1][0]], cfg->sens[cfg->axisMap[1][0]]);
-	rightY = inputAxisScale(rightY, cfg->deadzone[cfg->axisMap[1][1]], cfg->sens[cfg->axisMap[1][1]]);
+	leftX = inputAxisScale(leftX, cfg->deadzone[cfg->axisMap[0][0]], inputAxisSens(cfg, cfg->axisMap[0][0]));
+	leftY = inputAxisScale(leftY, cfg->deadzone[cfg->axisMap[0][1]], inputAxisSens(cfg, cfg->axisMap[0][1]));
+	rightX = inputAxisScale(rightX, cfg->deadzone[cfg->axisMap[1][0]], inputAxisSens(cfg, cfg->axisMap[1][0]));
+	rightY = inputAxisScale(rightY, cfg->deadzone[cfg->axisMap[1][1]], inputAxisSens(cfg, cfg->axisMap[1][1]));
 
 	if (!npad->stick_x && leftX) {
 		npad->stick_x = leftX / 0x100;
@@ -1504,6 +1524,16 @@ f32 inputControllerGetAxisScale(s32 cidx, s32 stick, s32 axis)
 void inputControllerSetAxisScale(s32 cidx, s32 stick, s32 axis, f32 value)
 {
 	padsCfg[cidx].sens[stick * 2 + axis] = value;
+}
+
+s32 inputControllerGetRightStickInverted(s32 cidx, s32 axis)
+{
+	return padsCfg[cidx].invertR[axis & 1];
+}
+
+void inputControllerSetRightStickInverted(s32 cidx, s32 axis, s32 inverted)
+{
+	padsCfg[cidx].invertR[axis & 1] = inverted ? 1 : 0;
 }
 
 f32 inputControllerGetAxisDeadzone(s32 cidx, s32 stick, s32 axis)
@@ -2081,6 +2111,8 @@ PD_CONSTRUCTOR static void inputConfigInit(void)
 		configRegisterFloat(strFmt("%s.LStickScaleY", secname), &padsCfg[c].sens[1], -10.f, 10.f);
 		configRegisterFloat(strFmt("%s.RStickScaleX", secname), &padsCfg[c].sens[2], -10.f, 10.f);
 		configRegisterFloat(strFmt("%s.RStickScaleY", secname), &padsCfg[c].sens[3], -10.f, 10.f);
+		configRegisterInt(strFmt("%s.InvertRStickX", secname), &padsCfg[c].invertR[0], 0, 1);
+		configRegisterInt(strFmt("%s.InvertRStickY", secname), &padsCfg[c].invertR[1], 0, 1);
 		configRegisterInt(strFmt("%s.StickCButtons", secname), &padsCfg[c].stickCButtons, 0, 1);
 		configRegisterInt(strFmt("%s.CancelCButtons", secname), &padsCfg[c].cancelCButtons, 0, 1);
 		configRegisterInt(strFmt("%s.SwapSticks", secname), &padsCfg[c].swapSticks, 0, 1);

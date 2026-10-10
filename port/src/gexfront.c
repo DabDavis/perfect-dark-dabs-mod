@@ -478,6 +478,10 @@ static struct {
 	s32 handicap[MAX_LOCAL_PLAYERS];  // MP_handicap_table index a player
 	s32 chosen[MAX_LOCAL_PLAYERS];    // a player has chosen on a per-player page
 	s32 stickarmed[MAX_LOCAL_PLAYERS];
+	s32 ctrlrow[MAX_LOCAL_PLAYERS];        // the control style page's row: 0 the style, 1 LOOK UP/DOWN
+	s32 ystickarmed[MAX_LOCAL_PLAYERS];
+	u8 *options;        // LoptionsE, for the LOOK UP/DOWN row's words
+	u32 optionslen;
 
 	s32 characters[MAX_CHARACTERS]; // mpbodynums the Characters page lists
 	s32 numcharacters;
@@ -608,6 +612,54 @@ static const char *frontString(s32 index)
 
 	return langpackNoted(at && at < g_Front.titlelen ? (const char *)g_Front.title + at : "");
 }
+
+/**
+ * A string of the watch's bank, LoptionsE (gewatch.c's STR_ numbers): the
+ * control style page's LOOK UP/DOWN row, in GoldenEye's own words.
+ */
+static const char *frontOptionString(s32 index, const char *english)
+{
+	u32 at;
+
+	if (langpackActive() && g_Missions == g_GeMissionRows) {
+		const char *tr = langpackGeFile("LoptionsE", index);
+
+		if (tr) {
+			return tr;
+		}
+	}
+
+	if (!g_Front.options || (u32)(index + 1) * 4 > g_Front.optionslen) {
+		return english;
+	}
+
+	at = be32(g_Front.options + index * 4);
+
+	return langpackNoted(at && at < g_Front.optionslen ? (const char *)g_Front.options + at : english);
+}
+
+/** The watch's words in the folder's case: "look up/down" as "Look Up/Down", as the folder's own rows are. */
+static const char *frontTitleCase(const char *src, char *buf, s32 len)
+{
+	s32 i = 0;
+	s32 start = 1;
+
+	for (; src[i] && i < len - 1; i++) {
+		const char c = src[i];
+
+		buf[i] = start && c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c;
+		start = c == ' ' || c == '/';
+	}
+
+	buf[i] = '\0';
+
+	return buf;
+}
+
+// LoptionsE's: "LOOK UP/DOWN", "UPRIGHT", "REVERSE" (gewatch.c's STR_LOOKUPDOWN, STR_UPRIGHT, STR_REVERSE)
+#define OPTSTR_LOOKUPDOWN 0x11
+#define OPTSTR_UPRIGHT    0x1b
+#define OPTSTR_REVERSE    0x1c
 
 /**
  * A string of the mission's own text bank, which every id in its briefing file
@@ -1281,6 +1333,9 @@ static void frontUnload(void)
 	sysMemFree(g_Front.zurich.data);
 	sysMemFree(g_Front.gothic.data);
 	sysMemFree(g_Front.title);
+	sysMemFree(g_Front.options);
+	g_Front.options = NULL;
+	g_Front.optionslen = 0;
 	g_Front.zurich.data = NULL;
 	g_Front.gothic.data = NULL;
 	g_Front.zurich.hd = NULL;
@@ -1474,6 +1529,10 @@ static s32 frontLoadText(void)
 	}
 
 	frontLoadMissionRows();
+
+	// the watch's bank, for the control style page's LOOK UP/DOWN row; a
+	// conversion without it has the row in English (frontOptionString())
+	g_Front.options = frontLoad("LoptionsE", &g_Front.optionslen);
 
 	return 1;
 }
@@ -2076,6 +2135,8 @@ static void frontSelectRow(s32 row)
 			g_Front.chosen[i] = 0;
 			g_Front.stickarmed[i] = 0;
 			g_Front.handicap[i] = frontHandicapIndex(g_PlayerConfigsArray[i].handicap);
+			g_Front.ctrlrow[i] = 0;
+			g_Front.ystickarmed[i] = 0;
 		}
 
 		g_Front.screen = row == ROW_HEALTH ? SCREEN_HEALTH : SCREEN_CONTROLSTYLE;
@@ -3088,6 +3149,62 @@ static void frontTickScenario(s32 pick, s32 back)
 	}
 }
 
+s32 netPlayersLocalPad(void);
+
+/**
+ * GoldenEye multiplayer's look direction. The cartridge has one LOOK UP/DOWN,
+ * the solo watch's (game_options_entries[PLAYER_OPTION_LOOK], read by every
+ * player of a match too); here each player also has a row of their own on the
+ * control style page. A row left alone follows the watch (MPINDEX_SOLO's
+ * Reverse Pitch); a row changed is the player's own (g_PlayerExtCfg[].gemplook,
+ * kept in pd.ini as Game.PlayerN.GoldenEyeMpLook, and written through to their
+ * Reverse Pitch). Online each machine answers for its own player only, and
+ * sends the answer as its Reverse Pitch (gexPlusMpOwnLookUpright()); the
+ * others' are what they sent.
+ */
+static s32 frontMpLookUpright(s32 local)
+{
+	switch (g_PlayerExtCfg[local].gemplook) {
+	case 1: return 1;
+	case 2: return 0;
+	}
+
+	return optionsGetForwardPitch(MPINDEX_SOLO);
+}
+
+s32 gexPlusMpLook(s32 mpindex, s32 *upright)
+{
+	s32 local;
+
+	if (!g_GexPlusMode || !g_Vars.normmplayerisrunning || mpindex < 0 || mpindex >= MAX_PLAYERS) {
+		return 0;
+	}
+
+	if (g_NetMode == NETMODE_NONE) {
+		local = LOCALPLAYER(mpindex);
+	} else if (!g_NetDedicated && mpindex == netPlayersLocalPad()) {
+		local = 0;
+	} else {
+		return 0;
+	}
+
+	*upright = frontMpLookUpright(local);
+
+	return 1;
+}
+
+s32 gexPlusMpOwnLookUpright(void)
+{
+	return frontMpLookUpright(0);
+}
+
+static void frontSetMpLook(s32 player, s32 upright)
+{
+	g_PlayerExtCfg[player & 3].gemplook = upright ? 1 : 2;
+	optionsSetForwardPitch(player & 3, upright);
+	g_Vars.modifiedfiles |= MODFILE_GAME;
+}
+
 static void frontSetControlStyle(s32 player, s32 style)
 {
 	optionsSetControlMode(player, style);
@@ -3115,14 +3232,27 @@ static void frontTickPlayerPanels(void)
 			|| (i == 0 && inputKeyPressedThisFrame(VK_MOUSE_LEFT));
 		const s32 unpick = joyGetButtonsPressedThisFrame(i, B_BUTTON | (i == 0 ? BUTTON_UI_CANCEL : 0))
 			|| (i == 0 && inputKeyPressedThisFrame(VK_ESCAPE));
+		const s32 sticky = gexMenuStickY(i);
+		const s32 updown = g_Front.screen == SCREEN_CONTROLSTYLE
+			&& (joyGetButtonsPressedThisFrame(i, U_JPAD | U_CBUTTONS | D_JPAD | D_CBUTTONS)
+				|| ((sticky > 30 || sticky < -30) && g_Front.ystickarmed[i]));
+
+		g_Front.ystickarmed[i] = sticky >= -10 && sticky <= 10;
 
 		if (g_Front.chosen[i]) {
 			if (unpick) {
 				g_Front.chosen[i] = 0;
 				frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
 			}
+		} else if (updown) {
+			// the page's second row, LOOK UP/DOWN: two rows, so up and down both move to the other
+			g_Front.ctrlrow[i] ^= 1;
+			frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_FOCUS);
 		} else if (left || right) {
-			if (g_Front.screen == SCREEN_HEALTH) {
+			if (g_Front.screen == SCREEN_CONTROLSTYLE && g_Front.ctrlrow[i] == 1) {
+				// the watch's two words, UPRIGHT and REVERSE, either way round
+				frontSetMpLook(i, !frontMpLookUpright(i));
+			} else if (g_Front.screen == SCREEN_HEALTH) {
 				const s32 next = g_Front.handicap[i] + (right ? 1 : -1);
 
 				if (next >= 0 && next < NUM_HANDICAPS) {
@@ -6296,6 +6426,33 @@ static Gfx *frontDrawPlayerPanels(Gfx *gdl)
 				snprintf(valuebuf, sizeof(valuebuf), "%s", langTr("Ext\n"));
 				value = valuebuf;
 			}
+		}
+
+		if (g_Front.screen == SCREEN_CONTROLSTYLE) {
+			// and under the style, LOOK UP/DOWN: the row the player is on in
+			// full, the other faded, as GoldenEye's own lists are drawn
+			const s32 row = g_Front.chosen[i] ? -1 : g_Front.ctrlrow[i];
+			char lookbuf[48];
+			char lookvaluebuf[48];
+			const char *look = frontTitleCase(frontOptionString(OPTSTR_LOOKUPDOWN, "look up/down"), lookbuf, sizeof(lookbuf));
+			const char *lookvalue = frontTitleCase(frontMpLookUpright(i)
+				? frontOptionString(OPTSTR_UPRIGHT, "upright") : frontOptionString(OPTSTR_REVERSE, "reverse"),
+				lookvaluebuf, sizeof(lookvaluebuf));
+
+			if (!g_Front.chosen[i]) {
+				frontMeasure(&g_Front.zurich, prompt, 0, &w, &h);
+				gdl = frontPrint(gdl, midx - (w >> 1), midy - (h >> 1) - 0x2a, prompt, COLOUR_ON);
+			}
+
+			frontMeasure(&g_Front.zurich, value, 0, &w, &h);
+			gdl = frontPrint(gdl, midx - (w >> 1), midy - (h >> 1) - 0xc, value, row == 0 || row < 0 ? COLOUR_ON : COLOUR_OFF);
+
+			frontMeasure(&g_Front.zurich, look, 0, &w, &h);
+			gdl = frontPrint(gdl, midx - (w >> 1), midy - (h >> 1) + 0x12, look, row == 1 || row < 0 ? COLOUR_ON : COLOUR_OFF);
+
+			frontMeasure(&g_Front.zurich, lookvalue, 0, &w, &h);
+			gdl = frontPrint(gdl, midx - (w >> 1), midy - (h >> 1) + 0x24, lookvalue, row == 1 || row < 0 ? COLOUR_ON : COLOUR_OFF);
+			continue;
 		}
 
 		if (!g_Front.chosen[i]) {

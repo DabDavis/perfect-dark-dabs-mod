@@ -435,6 +435,7 @@ struct menudialogdef g_ExtendedMouseMenuDialog = {
 
 static MenuItemHandlerResult menuhandlerStickSpeed(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerStickDeadzone(s32 operation, struct menuitem *item, union handlerdata *data);
+static MenuItemHandlerResult menuhandlerInvertRightStick(s32 operation, struct menuitem *item, union handlerdata *data);
 
 struct menuitem g_ExtendedStickMenuItems[] = {
 	{
@@ -510,6 +511,22 @@ struct menuitem g_ExtendedStickMenuItems[] = {
 		menuhandlerStickDeadzone,
 	},
 	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Invert Right Stick X",
+		0,
+		menuhandlerInvertRightStick,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		1,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Invert Right Stick Y",
+		0,
+		menuhandlerInvertRightStick,
+	},
+	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
 		0,
@@ -558,6 +575,24 @@ static MenuItemHandlerResult menuhandlerStickDeadzone(s32 operation, struct menu
 		break;
 	case MENUOP_SET:
 		inputControllerSetAxisDeadzone(g_ExtMenuPlayer, stick, axis, (f32)data->slider.value / 32.f);
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Invert Right Stick X/Y (the item's param: 0 X, 1 Y): the physical right
+ * stick's axis turned round, as a negative RStickScaleX/Y in pd.ini does,
+ * in every mode. Reverse Pitch and Invert Y together cancel out.
+ */
+static MenuItemHandlerResult menuhandlerInvertRightStick(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return inputControllerGetRightStickInverted(g_ExtMenuPlayer, item->param);
+	case MENUOP_SET:
+		inputControllerSetRightStickInverted(g_ExtMenuPlayer, item->param, data->checkbox.value);
 		break;
 	}
 

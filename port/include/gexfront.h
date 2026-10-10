@@ -22,6 +22,13 @@ s32 gexFrontIsActive(void);
 // the stick GoldenEye's screens read: the further pushed of a pad's two
 s32 gexMenuStickX(s32 player);
 s32 gexMenuStickY(s32 player);
+// GoldenEye multiplayer's look direction for a player (optionsGetForwardPitch()):
+// true, with *upright, in a GoldenEye match for a player of this machine - their
+// own LOOK UP/DOWN row, or the solo watch's while they have not touched it
+s32 gexPlusMpLook(s32 mpindex, s32 *upright);
+// the same for this machine's first player, outside a match too: what it
+// sends online as its Reverse Pitch while in GoldenEye mode (netsession.c)
+s32 gexPlusMpOwnLookUpright(void);
 // Opens the folder at Multiplayer Options after a GE Plus match. False when
 // it cannot be drawn, and the caller keeps Perfect Dark's Combat Simulator.
 s32 gexFrontOpenAfterMatch(void);
