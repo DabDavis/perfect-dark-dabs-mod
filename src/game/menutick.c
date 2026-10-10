@@ -152,7 +152,17 @@ void menuTick(void)
 		if (g_MenuData.unk66f > bVar12 || !bVar11) {
 			func0f0f3220(g_MenuData.unk66e - 1);
 		} else {
+#ifndef PLATFORM_N64
+			// The wait for the end screens to open before the queued saves
+			// run is 50 60ths (40 in a match), counted by the frame clock's
+			// 60ths (diffframe60, carried). Counted in frames it ran out after
+			// about 12 60ths at 240 FPS. At 60 FPS it is the old one a frame.
+			s32 waited = g_MenuData.unk66f + g_Vars.diffframe60;
+
+			g_MenuData.unk66f = waited > 255 ? 255 : waited;
+#else
 			g_MenuData.unk66f++;
+#endif
 		}
 	}
 
