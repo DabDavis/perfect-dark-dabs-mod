@@ -49,6 +49,8 @@ s32 modBorrowStageTrack(s32 stagenum);
 
 // The borrowed mod's arenas take its stage rows, skies and props (after modloaderInit()).
 void modBorrowArenas(void);
+// The same again after a mod was mounted for its maps on request (modMapsMountIndex()).
+void modBorrowArenasRefresh(void);
 // The borrowed GoldenEye weapon sets: how many, and the first one's list index.
 s32 modBorrowWeaponSets(s32 *first);
 // Before a stage's setup loads: the mod's model states for its arena, the game's otherwise.

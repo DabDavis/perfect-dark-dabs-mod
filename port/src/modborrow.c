@@ -1310,6 +1310,29 @@ void modBorrowArenas(void)
 }
 
 /**
+ * The arenas again after a mod was mounted for its maps on request - a net
+ * client following the host to a map of a mod its own Mod.MapMods left out
+ * (modMapsMountIndex()) - so that mod's maps take their own rows, skies and
+ * props there as they do on the host, which mounted it at boot. A borrowed
+ * arena's model states go back first: modBorrowArenas() expects a swap to
+ * have put them back.
+ */
+void modBorrowArenasRefresh(void)
+{
+	if (arenas.swapped) {
+		for (s32 i = 0; i < NUM_MODELS; i++) {
+			if (!arenas.keep[i]) {
+				g_ModelStates[i] = arenas.saved[i];
+			}
+		}
+
+		arenas.swapped = 0;
+	}
+
+	modBorrowArenas();
+}
+
+/**
  * Before a stage loads its setup: the borrowed mod's model states in for one
  * of its arenas - a setup names its props by the mod's model numbers - and
  * the game's back for any other stage. The weapons' own states are left alone
