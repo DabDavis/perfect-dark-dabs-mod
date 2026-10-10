@@ -12017,6 +12017,18 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 		if (tickspershot <= 0) {
 			shotdue = true;
 			makebeam = true;
+#ifndef PLATFORM_N64
+			// A gun with no automatic rate fires each time this is called
+			// with the hand's firing flag up. Every other action drops the
+			// flag after the shot (func0f041a74()) and its tick raises it
+			// again, but a burst (ACT_ATTACKAMOUNT) keeps it up, so the shots
+			// came once a frame: four times as many above 60 FPS at 240, for
+			// a chr that is not alert as well as one that is. A burst's shot
+			// now comes once a 60th, which is once a frame at 60 FPS.
+			if (chr->actiontype == ACT_ATTACKAMOUNT && g_Vars.lvupdate60 == 0) {
+				shotdue = false;
+			}
+#endif
 		} else {
 			if (chr->aibot
 					&& weaponHasFlag2(chr->aibot->weaponnum, WEAPONFLAG2_MINIGUN)
@@ -12983,7 +12995,20 @@ void chrTickAttackAmount(struct chrdata *chr)
 	}
 
 	if (chr->act_attack.dooneburst) {
+#ifndef PLATFORM_N64
+		// The burst's count (maxshots) goes up one a frame, which at 60 FPS
+		// is one a 60th: so above 60 FPS a guard's burst (the combat
+		// lists' try_attack_amount) was over in a quarter of the time at 240
+		// and fired a quarter of the shots, since the gun itself fires on the
+		// 60 Hz step (chrTickShoot()'s firecount). A frame that holds no
+		// whole 60th keeps firing without counting. At 60 FPS lvupdate60 is
+		// 1 every frame and at 30 it is 2, so the count is as before there.
+		if (g_Vars.lvupdate60 == 0
+				? chr->act_attack.numshots < chr->act_attack.maxshots
+				: chr->act_attack.numshots++ < chr->act_attack.maxshots) {
+#else
 		if (chr->act_attack.numshots++ < chr->act_attack.maxshots) {
+#endif
 			chrSetHandFiring(chr, HAND_RIGHT, true);
 		} else {
 			chrAttackAmountUpdateAnimation(chr);
