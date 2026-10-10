@@ -653,6 +653,39 @@ void bgun0f098030(struct hand *hand, struct modeldef *modeldef)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Above 60 FPS the gun model's animation runs in 240ths. The hand's
+ * animframeinc was the frame's whole 60ths (lvupdate60), so the gun and arms
+ * animated only on every fourth frame at 240 FPS. Off the 60 FPS path
+ * (lvupdate240 != 4 * lvupdate60) bgunTickHand() puts the frame's 240ths in
+ * it instead, bgun0f0981e8() ticks the model with modelTickAnimQuarterSpeed()
+ * and the keyframe tests read it as a quarter of a frame each. The hand's
+ * states still step in 60ths; the animation's keyframes, sounds and part
+ * switches all compare whole frames, which a quarter step crosses once.
+ */
+#define BGUN_OFF60() (g_Vars.lvupdate240 != g_Vars.lvupdate60 * 4)
+
+/**
+ * The arm's dip on a switch or reload is set from the state's 60ths
+ * (stateframes, count60), which above 60 FPS hold for three frames in four.
+ * Off the 60 FPS path the dip reads them plus the time since that 60th
+ * (lvupdate240rem, the 240ths carried past it), so it moves every frame.
+ * At 60 FPS the remainder is 0 and the stock expression is used.
+ */
+static f32 bgunArmTicks(s32 ticks60)
+{
+	if (BGUN_OFF60()) {
+		return ticks60 + g_Vars.lvupdate240rem * 0.25f;
+	}
+
+	return ticks60;
+}
+#define BGUN_ARMTICKS(ticks60) bgunArmTicks(ticks60)
+#else
+#define BGUN_ARMTICKS(ticks60) (ticks60)
+#endif
+
 f32 bgun0f09815c(struct hand *hand)
 {
 	if (hand->animmode == HANDANIMMODE_BUSY && hand->unk0ce8 != NULL) {
@@ -735,6 +768,11 @@ void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 #if VERSION >= VERSION_PAL_BETA
 		s2 = hand->animframeincfreal + s4;
 #else
+#ifndef PLATFORM_N64
+		if (BGUN_OFF60()) {
+			s2 = bgun0f09815c(hand) + hand->animframeinc * 0.25f;
+		} else
+#endif
 		s2 = hand->animframeinc + s4;
 #endif
 
@@ -798,6 +836,19 @@ void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 
 									s2 = hand->animframeincfreal + s4;
 #else
+#ifndef PLATFORM_N64
+									if (BGUN_OFF60()) {
+										// in 240ths: half the way to the keyframe
+										s32 tmp = (s32) ((cmd->unk02 - bgun0f09815c(hand)) * 4.0f) / 2;
+
+										if (hand->animframeinc > tmp) {
+											hand->animframeinc = tmp;
+										}
+
+										s2 = bgun0f09815c(hand) + hand->animframeinc * 0.25f;
+									} else
+#endif
+									{
 									s32 tmp = cmd->unk02 - (s32) bgun0f09815c(hand);
 									tmp /= 2;
 
@@ -806,6 +857,7 @@ void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 									}
 
 									s2 = hand->animframeinc + s4;
+									}
 #endif
 								}
 							}
@@ -853,6 +905,11 @@ void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 		modelSetAnimPlaySpeed(&hand->gunmodel, PALUPF(4.0f), 0);
 		modelTickAnimQuarterSpeed(&hand->gunmodel, hand->animframeinc, true);
 #else
+#ifndef PLATFORM_N64
+		if (BGUN_OFF60()) {
+			modelTickAnimQuarterSpeed(&hand->gunmodel, hand->animframeinc, true);
+		} else
+#endif
 		modelTickAnim(&hand->gunmodel, hand->animframeinc, true);
 #endif
 
@@ -1006,6 +1063,12 @@ bool bgun0f098a44(struct hand *hand, s32 time)
 		if (hand->unk0cc8_01 && (s32)bgun0f09815c(hand) <= zreleasekeyframe) {
 			return false;
 		}
+
+#ifndef PLATFORM_N64
+		if (BGUN_OFF60()) {
+			return (bgun0f09815c(hand) + hand->animframeinc * 0.25f >= waittimekeyframe);
+		}
+#endif
 
 		return (bgun0f09815c(hand) + hand->animframeinc >= waittimekeyframe);
 #endif
@@ -1580,7 +1643,7 @@ s32 bgunTickIncAutoSwitch(struct handweaponinfo *info, s32 handnum, struct hand 
 		if (hand->stateframes >= delay) {
 			hand->stateminor++; // to HANDSTATEMINOR_AUTOSWITCH_DELETE
 		} else {
-			bgunSetArmPitch(hand, hand->stateframes * MAX_PITCH / delay);
+			bgunSetArmPitch(hand, BGUN_ARMTICKS(hand->stateframes) * MAX_PITCH / delay);
 		}
 	}
 
@@ -1853,7 +1916,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 			}
 #endif
 		} else {
-			bgunSetArmPitch(hand, lowered60 * MAX_PITCH / TICKS(16));
+			bgunSetArmPitch(hand, BGUN_ARMTICKS(lowered60) * MAX_PITCH / TICKS(16));
 		}
 	}
 
@@ -1933,7 +1996,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 				return lvupdate;
 			}
 		} else {
-			bgunSetArmPitch(hand, (TICKS(23) - hand->count60) * MAX_PITCH / TICKS(23));
+			bgunSetArmPitch(hand, (TICKS(23) - BGUN_ARMTICKS(hand->count60)) * MAX_PITCH / TICKS(23));
 		}
 	}
 
@@ -2373,7 +2436,9 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 
 		if (hand->stateflags & HANDSTATEFLAG_00000040) {
 			if (unk27 > frames - hand->statevar1) {
-				mult1 = cosf((f32)(unk27 - frames + hand->statevar1) * 1.5707963705063f / (f32)unk27) * 0.5f + 0.5f;
+				// (the recoil's curve read off the 60th and the time since
+				// it, BGUN_ARMTICKS(), so it moves every frame above 60 FPS)
+				mult1 = cosf((unk27 - BGUN_ARMTICKS(frames) + hand->statevar1) * 1.5707963705063f / (f32)unk27) * 0.5f + 0.5f;
 
 				hand->rotxoffset = modelTweenRotAxis(hand->rotxstart, hand->rotxend, mult1);
 				hand->useposrot = true;
@@ -2409,10 +2474,10 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 			hand->posend.y = 0;
 			hand->posend.z = (weapondef->posz - hand->aimpos.z) * recoildist / 1000.0f;
 
-			if (frames < unk24) {
-				mult2 = sinf(frames * 1.5707963705063f / (f32)unk24);
+			if (BGUN_ARMTICKS(frames) < unk24) {
+				mult2 = sinf(BGUN_ARMTICKS(frames) * 1.5707963705063f / (f32)unk24);
 			} else {
-				mult2 = cosf((f32)(frames - unk24) * M_PI / (f32)unk25) * 0.5f + 0.5f;
+				mult2 = cosf((BGUN_ARMTICKS(frames) - unk24) * M_PI / (f32)unk25) * 0.5f + 0.5f;
 			}
 
 			hand->rotxoffset = modelTweenRotAxis(hand->rotxstart, hand->rotxend, mult2);
@@ -3569,7 +3634,7 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 				}
 			}
 		} else {
-			bgunSetArmPitch(hand, hand->stateframes * MAX_PITCH / delay);
+			bgunSetArmPitch(hand, BGUN_ARMTICKS(hand->stateframes) * MAX_PITCH / delay);
 		}
 	}
 
@@ -3841,7 +3906,7 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 			hand->count60 = 0;
 			hand->count = 0;
 		} else {
-			bgunSetArmPitch(hand, (delay - hand->count60) * MAX_PITCH / delay);
+			bgunSetArmPitch(hand, (delay - BGUN_ARMTICKS(hand->count60)) * MAX_PITCH / delay);
 		}
 	}
 
@@ -3888,6 +3953,16 @@ s32 bgunTickInc(struct handweaponinfo *info, s32 handnum, s32 lvupdate)
 
 	if (g_Vars.lvupdate240 > 0) {
 		hand->count60 += g_Vars.lvupdate60;
+#ifndef PLATFORM_N64
+		if (BGUN_OFF60()) {
+			// count is the state's ticks: one a frame at 60 FPS, four a
+			// tick at 240, where the reload's two-tick floor and GoldenEye's
+			// raise wait (11 ticks) went by four times as fast. Off 60 FPS
+			// it moves by the 60ths, and to 1 on the first frame so the
+			// states' count == 0 entry blocks still run once.
+			hand->count += hand->count == 0 && g_Vars.lvupdate60 == 0 ? 1 : g_Vars.lvupdate60;
+		} else
+#endif
 		hand->count++;
 	}
 
@@ -3975,6 +4050,12 @@ void bgunTickHand(s32 handnum)
 	lvupdate = g_Vars.lvupdate60;
 
 	hand->animframeinc = g_Vars.lvupdate60;
+#if !defined(PLATFORM_N64) && VERSION < VERSION_PAL_BETA
+	// (PAL and JPN tick it through animframeincfreal; not done there)
+	if (BGUN_OFF60()) {
+		hand->animframeinc = g_Vars.lvupdate240;
+	}
+#endif
 #if VERSION >= VERSION_PAL_BETA
 	hand->animframeincfreal = modelGetAbsAnimSpeed(&hand->gunmodel) * PALUPF(hand->animframeinc);
 #else
@@ -5269,6 +5350,19 @@ void bgunTickMasterLoad(void)
 void bgunTickLoad(void)
 {
 	s32 i;
+
+#ifndef PLATFORM_N64
+	// One load step a frame up to 30 FPS (lvupdate240 8) - a 60th's at 60
+	// FPS, but four a 60th at 240, where a switch drew the new gun 18 ticks
+	// in instead of 38. Off the 60 FPS path a step a 60th.
+	if (BGUN_OFF60()) {
+		for (i = 0; i < g_Vars.lvupdate60; i++) {
+			bgunTickMasterLoad();
+		}
+
+		return;
+	}
+#endif
 
 	for (i = 0; i < g_Vars.lvupdate240; i += 8) {
 		bgunTickMasterLoad();
