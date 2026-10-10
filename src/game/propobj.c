@@ -5333,7 +5333,15 @@ void weaponTick(struct prop *prop)
 	} else if (weaponHost(weapon->weaponnum) == WEAPON_BOLT) {
 		// Handle crossbow bolts
 		// Note that the timer240 value doesn't act like a timer at all
+#ifndef PLATFORM_N64
+		// The wobble of a landed bolt flips side once per step, a step a
+		// frame: twelve 240ths at 240 FPS, too fast to see. A frame of a
+		// fraction of a 60th steps it only when a 60th comes round, so each
+		// side shows for a 60th as at 60 FPS.
+		if (weapon->timer240 >= 2 && ((g_Vars.lvupdate240 & 3) == 0 || g_Vars.lvupdate60 > 0)) {
+#else
 		if (weapon->timer240 >= 2) {
+#endif
 			// Bolt is travelling
 			struct modelrodata_bbox *bbox = modelFindBboxRodata(obj->model);
 			s32 ival = weapon->timer240 - 1;
