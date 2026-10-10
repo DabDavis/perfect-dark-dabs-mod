@@ -80,6 +80,7 @@ the long form.
 - **HD light shafts, monitor recesses, cut-out rims and magenta placeholders** — ge-bean.md, "HD effects: Archives' shafts, Dam's modem screen, Jungle's vines and magenta fronds" (2026-09-26): a blended Bean level draw faded by its vertices is translucent whatever its picture, as the release draws it (Egyptian's pool included); Bean recess backs coplanar with a GoldenEye screen are pushed behind it only on lone-quad screens of basic-skeleton props with all four corners matched; binary-alpha pictures bleed colour into clear texels and 0..1 prop cut-out cards clamp; flat 16x16 magenta pictures are Rare's missing-art stand-ins, given a neighbouring cut-out's picture (else its colour)
 - **HD decal corners behind their wall, and GoldenEye's overlapping rooms** — ge-bean.md, "Train's plates and Aztec's vent: decal corners and faces over another room's space" (25th F3 pass): a decal kept in its mesh has its corners moved along its face just far enough that their whole-unit rounding is not behind its (rounded) base (`markDecalCorners()`), a shared corner only along the sharer's own plane; Bean faces lying on a GoldenEye face with a closed space of another room within 8-64 units behind are drawn culled (`markOverlaps()`), as GoldenEye relies on culling where its rooms overlap
 - **The N64 look's fog, Frigate's sea and the portal walk against the cartridge** — ge-bean.md, "Fog per vertex, the sea through the palette, GoldenEye's portal walk and the GE Plus timer" (2026-10-01, fid-look): a converted level in the N64 look is fogged per vertex as the RSP does it (`G_FOG_VERTEX_EXT`, set by `envStartFog()`; `gfx_emit_tri3()` clips at the eye plane and the FRUSTRATIO_2 guard band and works the new corners' fog out - not at the near plane, the cartridge draws nearer things); GoldenEye's `texSelect()` loads a picture in the texture's own format, so Frigate's sea is CI8 indices looked up in the TLUT by each 16-bit texel's upper byte; `bgTickPortalsWalkGe()` is GoldenEye's queue walk, which re-enters rooms and raises their draw order (Surface's fence under the trees); the mission timer sits under the bottom-message line and never moves the messages
+- **GoldenEye arenas made from a solo setup** — ge-bean.md, "Arenas from a level's solo setup: keys, the dish, the vent hatch, Streets' jeeps; GoldenEye's MP eye and team score" (35th F3 pass, 2026-10-10): the thirteen arenas GoldenEye has no MP setup for carry the level's own objects (`objects()`, `fromsolo`): a door the level's own keys open is unlocked, a door no key opens stays shut; a never-aiming autogun (Surface's dish) and a lock on a fall-away door (Surface 2's vent hatch) are carried; vehicles carried as plain objects take the vehicle box and GoldenEye's first-tick height at run time (`gexPlusVehicleArenaPlace()`); the arena eye is GoldenEye's `headpos.y * pov + 7`; GoldenEye mode ignores the team score in a free-for-all; the folder's Simulants rows read the setup's own roster
 
 
 > **2026-09-21:** the checkbox and `Mod.XblaGoldenEye` are gone; everything
@@ -14462,3 +14463,104 @@ the grate. Dam roller door (023842/023858, HD): matches the release frame for
 frame (Xenia pair, Dam pad 110 heading 117). Streets' floating props: cars,
 jeeps and sawhorse barricades checked in both looks at a dozen spots, all
 grounded; needs the tester's spot. Coordinates: Dam ours = GE + (-3390, 13219, 8584).
+
+## Arenas from a level's solo setup: keys, the dish, the vent hatch, Streets' jeeps; GoldenEye's MP eye and team score (35th F3 pass, 2026-10-10, fix/f3-1010a-gearenas)
+
+Tester dick's GoldenEye Arenas list (1421a8d), dblaney1's and ElmoBear's. The
+thirteen arenas GoldenEye has no multiplayer setup for (Dam, Runway, Train,
+Jungle, Surface, Surface 2, Silo, Frigate, Depot, Control, Bunker 1, Aztec,
+Streets) take their objects from the level's **solo** setup (`writeMpSetup()`
+with `mp == NULL`, `objects(..., fromsolo)`), carrying only `g_Carry`'s types.
+What that dropped, found by dumping the arena's and the mission's props side
+by side (`dumpprops.py`-style gdb walks of `g_StageSetup.props`):
+
+- **Keys** (F3 20261007-052016, Silo "door is locked"): a door keeps the
+  record's key flags (GoldenEye 0x9c = ours 0x74) and an arena has no keys.
+  Now a door whose flags the level's own key records (type 4, flags at 0x80)
+  cover is unlocked; one no key of the level opens stays shut, as GoldenEye
+  keeps it (Frigate's and Dam's 0x80 doors, Runway's back doors, Control's six
+  key-1 doors, Train's carriage doors, Surface 2's key-4 row, Depot's 4 and 8,
+  Aztec's 2). Rare's own arenas open nearly every door (MP Facility keeps one,
+  pad 418, key 1).
+- **The dish** (F3 20261007-052311, Surface 2 "doesn't render radar in
+  multi" - the player was looking at the tower top): `PROP_SEVDISH` is a type
+  13 autogun with flags2 0x80000000 (`OBJFLAG2_AUTOGUN_MALFUNCTIONING1`: turns
+  at random, never aims). Carried as the mission carries it (autogunobj tails
+  0x88/0x8c/0xa4/0xa8 to 0x64/0x68/0x80/0x84, the pad an s16 at 0x5c); an
+  autogun that aims (Runway's guns, Jungle's drone guns, Control's, Aztec's,
+  Depot's) is still left out - it would shoot players.
+- **The vent hatch** (F3 20261007-052927, Surface 2 "fall down here and not get
+  back up"): GoldenEye's tile graph does drop from the rim (room 14, y 441) to
+  the shaft's floor (room 34, y -1313) through tiles 895-902, and that room has
+  no way out. On the mission the fall-away hatch (`PROP_HATCHSEVX`, door type
+  8, perimFrac 6/65536) is held shut by a lock record (type 38) on an
+  invincible lock object, so its collision column stands over the hole. The
+  arena dropped type 38, so `doorTick()`'s "open fall-away doors if padlock
+  free" dropped the hatch as the match began (frac = maxfrac, perimfrac 0, no
+  geo vertices). Lock records whose door is a fall-away door are carried now
+  (offsets renumbered for the arena); Surface's hatch comes with its four
+  shootable padlocks, as on the mission. A lock on any other door (Dam's two
+  gates, Train's twenty carriage doors) is still left out. GoldenEye's own
+  arena setups have no lock records at all.
+- **Streets' jeeps** (F3 20261007-053156, "half way in the ground"): a type
+  39/40 record is carried as a plain object, which nothing ticks, so it never
+  got what its type gives it on a mission: the vehicle's own box
+  (`gexPlusVehicleBboxNode()` - Perfect Dark's first box on the jeep is the
+  front left wheel's) and GoldenEye's first tick standing a truck on its wheels
+  (`vehTruckTick()`, PROPFLAG_INMOTION = `OBJFLAG_CHOPPER_INIT`). Both now apply
+  at run time to a plain object on a converted arena whose model is one of
+  GoldenEye's vehicle PROPs (279/280 trucks, 282-284/291 aircraft;
+  `vehArenaProp()`), the height through `gexPlusVehicleArenaPlace()` from
+  `setupCreateProps()`: the jeeps stand at the mission's heights (52.4 and 31.4
+  where they were 5.1 and -15.9), Dam's truck 4 units up; the aircraft
+  unchanged. No conversion needed.
+
+The four converter changes need the next GECONVERT_VERSION bump to reach a
+player's conversion (they change only `Ump_setupgx*` of Depot, Train, Aztec,
+Surface, Surface 2, Bunker 1 and Silo - `convdiff`).
+
+**GoldenEye's multiplayer eye** (F3 20261007-053710, Aztec "my eyes would be
+in my neck"). GoldenEye's eye is `headpos.y * player_perspective_height + 7`
+(bondview2.c), the perspective height `mp_chr_setup[].pov` in multiplayer
+(Oddjob 0.7878 ... Jaws 1.199), which our GoldenEye body rows already carry as
+their height over 160. Missions had GoldenEye's eye (`bwalkGeEye()`); the
+arenas kept Perfect Dark's (`vv_eyeheight` times the bob), 7.3 units under
+GoldenEye's: two players of one character stood eye to chin (measured with
+two local players, `g_NumPlayers = 2` set from gdb at `playermgrReset`, P2
+placed 150 in front, HD and N64 looks). `bwalkGeArenaEye()`: on a converted
+stage that is not a mission the eye is `headpos.y * (vv_eyeheight / 160) + 7`;
+the crouch stays Perfect Dark's.
+
+**The team score in GoldenEye mode** (F3 20261005-175006, dblaney1: matches
+ended early). GoldenEye has no team score - its point limit is a player's own
+(`get_points_for_mp_player()`, the team's only in its team games). With teams
+off Perfect Dark still sums every team number and gives every simulant past
+the eighth team 7 (`mpFindUnusedTeamNum()`), so its default team limit of 20
+ended a 24-simulant GoldenEye match in 13 seconds. `mpApplyLimits()` sets no
+team limit while `g_GexPlusMode` and teams are off. Perfect Dark's own Combat
+Simulator is unchanged (the same sum happens there past eight simulants).
+
+**The folder's Simulants rows** (F3 20261009-043648, ElmoBear: "GE multiplayer
+settings apply to combat sim but not the other way around"). The folder's
+MULTIPLAYER OPTIONS shares the arena, characters, aim, health and (where one
+of GoldenEye's seven fits) the limits with the Combat Simulator's setup, but
+its two Simulants rows were Quick Start's count and difficulty, and START
+removed the setup's simulants and made that many afresh: a roster made on the
+Combat Simulator's pages never showed in the folder and was thrown away.
+`frontReadSimulants()` (from `frontEnterSetup()`) reads the roster into the
+rows when the Combat Simulator owns it (`mpquickteam == MPQUICKTEAM_NONE`,
+which its top dialog sets every tick), and START keeps it untouched when the
+rows still describe it. A Quick Start count waiting to be made is the rows'
+already. Not done: a Perfect Dark scenario or weapon set (the folder has
+GoldenEye's own) and limits no GoldenEye length matches (the folder writes
+its own length). Note `menudialogMpGameSetup()` materialises a pending Quick
+Start roster on top of the slots - harmless only because the Combat
+Simulator's top dialog clears `mpquickteam` first.
+
+**Answers.** Frigate's railing gap on the superstructure roof (F3
+20261007-045859) is GoldenEye's own: the ROM's `bg_dest` rooms have rail
+quads (y 410.3-497.4) on the sea edge x = 670.4 from z -2836 to -2403 and
+-3279 to -3180 and nothing between (a debug build of the standalone converter,
+`-DGECONVERT_MAIN`, dumping every room vertex in a box); the XBLA release
+railed it in. The slap was every local player's (2eaa68a51 already, per-player
+slap clocks). ares was unreachable (10.8.0.3 down) for this pass.

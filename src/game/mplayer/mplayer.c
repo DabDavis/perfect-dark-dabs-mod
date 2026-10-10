@@ -1021,7 +1021,18 @@ void mpApplyLimits(void)
 		lvSetMpScoreLimit(g_MpSetup.scorelimit + 1);
 	}
 
-	if (g_MpSetup.teamscorelimit >= 400) {
+	if (g_MpSetup.teamscorelimit >= 400
+#ifndef PLATFORM_N64
+			// GoldenEye has no team score (its point limit is a player's own,
+			// front.c's get_mp_pointlimit()), and a free-for-all in its mode
+			// is ended by the players' own scores and the clock alone. With
+			// teams off Perfect Dark still sums each team number, and every
+			// simulant past the eighth shares team 7: Perfect Dark's default
+			// limit of 20 ended a GoldenEye match with 24 simulants after
+			// 13 seconds (F3 20261005-175006)
+			|| (g_GexPlusMode && (g_MpSetup.options & MPOPTION_TEAMSENABLED) == 0)
+#endif
+			) {
 		lvSetMpTeamScoreLimit(0);
 	} else {
 		lvSetMpTeamScoreLimit(mpCalculateTeamScoreLimit() + 1);

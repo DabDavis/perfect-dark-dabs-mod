@@ -36,4 +36,9 @@ void gexPlusVehiclePutPart(struct model *model, s32 partnum, Mtxf *rot);
 // when the object is not one of GoldenEye's vehicles or the model has none there.
 struct modelnode *gexPlusVehicleBboxNode(struct defaultobj *obj);
 
+// A truck carried onto a converted arena as a plain object (an arena's setup
+// carries a vehicle record as one), stood on its wheels as GoldenEye's first
+// tick stands it; called once the object is made (setupCreateProps())
+void gexPlusVehicleArenaPlace(struct defaultobj *obj);
+
 #endif

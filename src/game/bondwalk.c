@@ -59,6 +59,20 @@ static bool bwalkGeEye(void)
 	return modloaderStageIsMission(g_Vars.stagenum);
 }
 
+/**
+ * And on a converted arena, GoldenEye's multiplayer eye: the same head height
+ * plus 7, times the character's perspective height (mp_chr_setup's pov, 0.79
+ * for Oddjob to 1.2 for Jaws), which a GoldenEye character's body row carries
+ * as its height over 160 (gebean.c, gexplus.c). Perfect Dark's eye is the row's
+ * height alone, which left every player 7 units under GoldenEye's eye and
+ * looking another player of the same size in the chin (F3 20261007-053710,
+ * Aztec: "my eyes would be in my neck"). The crouch stays Perfect Dark's.
+ */
+static bool bwalkGeArenaEye(void)
+{
+	return !modloaderStageIsMission(g_Vars.stagenum) && modloaderStageIsRemake(g_Vars.stagenum);
+}
+
 #define BWALK_GE_SQUAT -100.0f
 #define BWALK_GE_DUCK  -60.0f
 #define BWALK_GE_EYE   7.0f
@@ -1918,6 +1932,14 @@ void bwalkUpdateVertical(void)
 			eyeheight = g_Vars.currentplayer->vv_height +
 				g_Vars.currentplayer->crouchoffsetrealsmall +
 				g_Vars.currentplayer->crouchheight;
+		} else if (bwalkGeArenaEye()) {
+			g_Vars.currentplayer->vv_height = g_Vars.currentplayer->headpos.y
+				* (g_Vars.currentplayer->vv_eyeheight * (1.0f / 160.0f)) + BWALK_GE_EYE;
+
+			eyeheight = g_Vars.currentplayer->vv_height +
+				g_Vars.currentplayer->crouchoffsetrealsmall +
+				g_Vars.currentplayer->crouchheight *
+				g_Vars.currentplayer->vv_eyeheight * 0.0062893079593778f;
 		}
 #endif
 

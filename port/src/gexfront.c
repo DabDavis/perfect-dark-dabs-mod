@@ -466,6 +466,8 @@ static struct {
 
 	s32 gamelength;     // GoldenEye's multi_game_lengths index
 	s32 aim;            // GoldenEye's mp_sight_adjust_table index
+	s32 setupsims;      // the setup's own simulants as the folder opened (frontReadSimulants()), -1 none to keep
+	s32 setupsimdiff;   // and the difficulty row as it read them (theirs, or as it was for a mix)
 
 	s32 levels[MAX_LEVELS]; // the Level page's stages, STAGE_MP_RANDOM first
 	s32 numlevels;
@@ -2117,6 +2119,48 @@ static void frontApplyMenuCharacter(void)
 		? head : modGhostBodyDefaultHead(body);
 }
 
+/**
+ * The two Simulants rows from the setup's own simulants, when the Combat
+ * Simulator's pages hold them (a roster made on its Simulants page, or the
+ * last match's): the rows are a count and one difficulty, and START used to
+ * make that many afresh whatever the setup held, so a change made on the
+ * Combat Simulator's side never reached the folder and the folder's START
+ * threw it away (F3 20261009-043648, "GE multiplayer settings apply to combat
+ * sim but not the other way around"). A roster the rows describe as it is
+ * goes into the match untouched (frontStartMatch()); one waiting to be made
+ * from a Quick Start count is that count already.
+ */
+static void frontReadSimulants(void)
+{
+	s32 count = 0;
+	s32 diff = -1;
+
+	g_Front.setupsims = -1;
+	g_Front.setupsimdiff = -1;
+
+	if (g_Vars.mpquickteam != MPQUICKTEAM_NONE) {
+		return;
+	}
+
+	for (s32 i = 0; i < MAX_BOTS; i++) {
+		if (mpIsSimSlotOn(i)) {
+			const s32 d = g_BotConfigsArray[i].difficulty;
+
+			diff = count == 0 ? d : (diff == d ? diff : -2);
+			count++;
+		}
+	}
+
+	g_Front.setupsims = count;
+	g_Vars.mpquickteamnumsims = count;
+
+	if (diff >= 0 && diff < NUM_BOTDIFFS) {
+		g_Vars.mpsimdifficulty = diff;
+	}
+
+	g_Front.setupsimdiff = g_Vars.mpsimdifficulty;
+}
+
 static void frontEnterSetup(void)
 {
 	const s32 first = frontFirstArena();
@@ -2156,6 +2200,8 @@ static void frontEnterSetup(void)
 		g_Vars.mpsimdifficulty = BOTDIFF_NORMAL;
 	}
 
+	frontReadSimulants();
+
 	g_Front.gamelength = frontLengthFromSetup();
 	g_Front.aim = ((g_PlayerConfigsArray[0].options & OPTION_SIGHTONSCREEN) ? 1 : 0)
 		| ((g_PlayerConfigsArray[0].options & OPTION_AUTOAIM) ? 2 : 0);
@@ -2187,7 +2233,17 @@ static void frontStartMatch(void)
 	}
 
 	g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
-	g_Vars.mpquickteam = g_Vars.mpquickteamnumsims > 0 ? MPQUICKTEAM_PLAYERSANDSIMS : MPQUICKTEAM_PLAYERSONLY;
+
+	if (g_Front.setupsims >= 0 && g_Vars.mpquickteamnumsims == g_Front.setupsims
+			&& g_Vars.mpsimdifficulty == g_Front.setupsimdiff) {
+		// the setup's own simulants, which the rows show as they are
+		// (frontReadSimulants()): into the match untouched, as a free-for-all
+		g_Vars.mpquickteam = MPQUICKTEAM_NONE;
+		g_MpSetup.options &= ~MPOPTION_TEAMSENABLED;
+	} else {
+		g_Vars.mpquickteam = g_Vars.mpquickteamnumsims > 0 ? MPQUICKTEAM_PLAYERSANDSIMS : MPQUICKTEAM_PLAYERSONLY;
+	}
+
 	mpConfigureQuickTeamPlayers();
 	frontApplyAim();
 
