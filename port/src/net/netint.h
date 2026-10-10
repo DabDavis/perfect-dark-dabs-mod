@@ -302,6 +302,7 @@ void netContentHostStageDir(const char *dirbase);        // host: a STAGE_LOAD n
 void netContentFetchAbort(void);                         // client: a fetch under way dropped (its memory freed)
 void netContentSessionEnd(void);                         // either: the session is over (fetch, transfers, refusals forgotten)
 s32 netContentServingPeer(s32 peer);                     // host: a transfer to that peer under way
+s32 netContentServeProgress(s32 peer, u32 *sent, u32 *total, const char **dir); // host: ... and how far it is
 s32 netContentServing(void);                             // host: any transfer under way (the load deadline waits)
 s32 netContentFetchStart(const char *dir);               // client: ask; 1 asked (the STAGE_LOAD waits)
 void netContentFetchBegin(struct netbuf *b);
@@ -350,6 +351,7 @@ s32 netSessionSeatInfo(s32 seat, struct netseatinfo *out); // 0: the seat is not
 s32 netSessionSpecInfo(s32 k, char *name, s32 size, s32 *ping); // the k-th spectator; 0 none
 void netSessionSeatCounts(s32 *in, s32 *of); // seats played (the host's and taken) and the match's seats
 s32 netSessionHudLive(void);                // a match's stage runs here (GO passed): the HUD draws
+s32 netSessionWaitLine(char *out, s32 size); // what this machine waits on before GO (a load, a download): 1 with a line
 s32 netSessionChatSend(const char *text);   // this machine's player says it; 0 sent
 const char *netSessionHostTitle(void);      // whose match: the host's name ("" unknown)
 void netHudArgs(void);                       // --net-test-chat and friends

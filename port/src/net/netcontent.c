@@ -1072,6 +1072,20 @@ s32 netContentServingPeer(s32 peer)
 	return peer >= 0 && peer < NETCONTENT_MAXPEERS && s_Serve[peer].active;
 }
 
+// host: how far the transfer to that peer is (1 while one is under way)
+s32 netContentServeProgress(s32 peer, u32 *sent, u32 *total, const char **dir)
+{
+	if (!netContentServingPeer(peer)) {
+		return 0;
+	}
+
+	*sent = s_Serve[peer].sentbytes;
+	*total = s_Serve[peer].bytes;
+	*dir = s_Serve[peer].dir;
+
+	return 1;
+}
+
 s32 netContentServing(void)
 {
 	s32 i;

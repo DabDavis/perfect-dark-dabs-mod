@@ -5238,6 +5238,84 @@ s32 netSessionHudLive(void)
 	return s_Role == NETROLE_CLIENT && s_ClientState == NETCS_PLAYING;
 }
 
+/**
+ * What this machine waits on, for the HUD while no match runs here yet: a
+ * host at the barrier (whose load, and how far a download of the stage's
+ * folder it serves has got), a client loaded and waiting with it, a client
+ * getting the stage's folder from the host. The host had sat on the stage's
+ * first frame with nothing on the screen while a guest fetched 18 MB through
+ * the lobby's relay, at 128 KB/s: "frozen with loading custom stage" (F3
+ * 20261009-222518). 1 with a line in out.
+ */
+s32 netSessionWaitLine(char *out, s32 size)
+{
+	char status[NET_MAXTEXT + 64];
+	s32 waiting = 0;
+	s32 first = -1;
+	s32 i;
+
+	out[0] = '\0';
+
+	if (s_Role == NETROLE_CLIENT && netContentFetching()) {
+		netContentFetchStatus(status, sizeof(status));
+		snprintf(out, size, "%s\n", status);
+		return 1;
+	}
+
+	if (!s_MatchActive || !s_MatchLoaded || !s_BarrierHeld || g_StageNum != s_MatchStage) {
+		return 0;
+	}
+
+	if (s_Role == NETROLE_CLIENT) {
+		if (s_ClientState != NETCS_LOADED) {
+			return 0;
+		}
+
+		snprintf(out, size, "Waiting for the other players to load the stage...\n");
+		return 1;
+	}
+
+	if (s_Role != NETROLE_HOST || !s_HostLoaded || g_NetDedicated) {
+		return 0;
+	}
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		if (s_Clients[i].state == NETCL_LOADING && !s_Clients[i].late) {
+			// the one being sent the stage's folder first: it is the wait
+			if (first < 0 || (netContentServingPeer(i) && !netContentServingPeer(first))) {
+				first = i;
+			}
+
+			waiting++;
+		}
+	}
+
+	if (first < 0) {
+		return 0;
+	}
+
+	{
+		const char *name = s_Clients[first].name[0] ? s_Clients[first].name : "a player";
+		const char *dir;
+		u32 sent;
+		u32 total;
+		char more[32] = "";
+
+		if (waiting > 1) {
+			snprintf(more, sizeof(more), " (and %d more)", waiting - 1);
+		}
+
+		if (netContentServeProgress(first, &sent, &total, &dir)) {
+			snprintf(out, size, "Waiting for %s%s: sending %s, %u%% (%.1f of %.1f MB)\n", name, more, dir,
+					(u32)((u64)sent * 100 / (total ? total : 1)), sent / 1048576.0f, total / 1048576.0f);
+		} else {
+			snprintf(out, size, "Waiting for %s%s to load the stage...\n", name, more);
+		}
+	}
+
+	return 1;
+}
+
 // Whose match this is, for the HUD: the host's name
 const char *netSessionHostTitle(void)
 {
