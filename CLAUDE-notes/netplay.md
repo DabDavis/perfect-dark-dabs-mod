@@ -2505,3 +2505,19 @@ in their own sections' notes.
   screen. Shown with a lobby room, the host closing its end screen and the
   joiner keeping its own (`--net-lobby-keep-endscreen`): 1021c6439 stops at
   frame 300, the fix runs to 4800.
+- **GoldenEye Arenas' Train: sims under pads, and the bridge (2026-10-09,
+  F3 20261009-191916 / -191845).** Offline too, not netplay. Train keeps
+  GoldenEye's own solo waypoints (104, one piece), so the pad-graph builder
+  never runs; the ones beside the train (pads 84, 101-104) stand at the
+  carriages' pad height, 345-370 over the ballast, and a simulant's arrival
+  test (`chrGoPosIsArrivingAtPos()`) refused anything over 300: sims stood
+  under pad 104 or 84 on errands for whole matches. On a converted level a
+  pad over 210 is now arrived at when the floor under it (`geRoomGround()`)
+  is the simulant's, as GoldenEye arrives by x and z alone: idle samples
+  158 -> 36 of 944 (8 sims, seed 1, 7200 frames). Left: a few seconds
+  among the freight car's crates (room 7/8, x 14700). The "misplaced
+  models" report is GoldenEye's own scenery: a concrete bridge with a red
+  star spanning the track at x 1000-1500 and its piers (room 53), and
+  crates by the line; prop placement on Train matches the cartridge (the
+  gefidelity world gate), the solo mission just never goes outside.
+  randomizer-run.md, "Wider spacing left pieces", has the pad-graph side.

@@ -7219,6 +7219,28 @@ static bool chrGoPosIsArrivingAtPos(struct chrdata *chr, struct coord *pos)
 
 	dy = pos->y - chr->manground;
 
+#ifndef PLATFORM_N64
+	// A GoldenEye pad is a spot, not a height (GoldenEye arrives by x and z
+	// alone, as above): Train's waypoints beside the train stand at the
+	// carriages' pad height, 345-370 over the ballast, and simulants sent
+	// along that side stood under pad 104 for the rest of the match (F3
+	// 20261009-191916). On a converted level a pad that high is arrived at
+	// as the high ones below are: when the floor under it, found by the
+	// tiles as the chrs' own moves find theirs, is the simulant's floor.
+	if (geRoomActive() && dy > 210.0f) {
+		struct coord padpos = *pos;
+		f32 padground;
+
+		if (!posIsArrivingLaterallyAtPos(&chr->prevpos, &chr->prop->pos, pos, 30)) {
+			return false;
+		}
+
+		padground = geRoomGround(&padpos, chr->radius, chr->prop->rooms, NULL, NULL, NULL, NULL, NULL, NULL);
+
+		return padground > -100000.0f && fabsf(padground - chr->manground) <= 30.0f;
+	}
+#endif
+
 	// Pads stand up to about 190 above their floor. A little over that
 	// and not the 260 first tried, which took a simulant half way up a
 	// ladder as arrived at the pad at its top: it turned for the next pad,
