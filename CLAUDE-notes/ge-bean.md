@@ -14862,3 +14862,37 @@ time a pane touches its portal): a portal behind a far pane is open in the XBLA
 look where the N64 look shuts it, so chrs beyond count as seen (they move with
 collision, `chraction.c`'s off-screen test) - as with Glass See-Through. Not
 part of the built level: no HDCACHE bump.
+
+## F3 pass 36 (2026-10-10, fix/f3-1010c-gemission)
+
+- **Falling through Dam's tower roof at the stairwell (F3 20261010-092009).**
+  Up the room-115 stair with the stick to one side, `geStanClimbFloor()` lifts
+  the player to the roof's height (13540) where his circle meets the stairwell's
+  side (tiles on edge 976-981), his middle still over the top flight; he sinks
+  back towards it, and walking on to the roof's tile (904/905, room 122) he is
+  still settling - the roof is 28 over his feet, so bwalkUpdateVertical()'s
+  "a fall is not caught by a floor over the feet" (Cradle's shaft) refused it and
+  he fell to 13112. That rule now leaves alone a floor that is the surface of
+  the tile his walk is on (`geStanPlayerTileFloor()`): GoldenEye's Bond stands
+  on his tile. Repro: `realwalk.py` up the stair, SIDE=0.6, 60 FPS (path in the
+  results file); clean at 30/60/73/240 and SIDE -1..1 after.
+- **Frigate's speedboat (F3 20261010-095257).** Its seat back (tiles 18/19,
+  room 57) is 9 across and 69 up: `stanTileSheer()` took it for the Facility
+  vent's kind of sliver (rise > 60) and it was a wall between the stern and the
+  deck - the only way out of the boat. ares walks Bond straight over it. Sheer
+  now needs a rise over 2 x GESTAN_RISE (120); over the 26 arenas that frees
+  only Frigate 18/19, Bunker 1 705 (65), Depot 1951 (64) and Statue Park 700/1164
+  (~102); Facility's lip (257) stays sheer.
+- **Statue Park, Natalya failed the moment she appears (F3 20261010-170517 and
+  the needinfo 20261004-172035, both 90c8622 at 240 FPS).** Background list
+  0x1003 reads chr 0 as gone a tick before Natalya's own list renames her -
+  e13fcf026's case (Facility's Doak). Reproduced on 90c8622 + --fixed-fps
+  (flag 0x00400000 on the spawn tick), clean on 50c0c8816.
+- **Statue Park, Janus (F3 20261010-102926).** Spawned only while pad 0x36 is
+  off screen - the cartridge refuses too (ares, Bond facing the pad: neither
+  spawns). His walk: with him on screen ours veers west to about (10600, 900)
+  and comes back (~300 ticks late) while ares walks straight to pad 1; the
+  guard spawned beside him (chr 2, heading for pad 2) and he steer round each
+  other step by step (WAYMODE_NEWOBSTACLE every few ticks, both with
+  CDTYPE_CHRS as on the cartridge). Not fixed; twin scenario
+  tools/gefidelity/scratch/janus.py style (GF_TURNPOS=10962,2003,181).

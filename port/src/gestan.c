@@ -1429,8 +1429,8 @@ static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb)
 
 /**
  * A tile with an area in plan that is a wall all the same: a sliver under half
- * a body across rising more than three times its width, and higher than a
- * body's own reach (GESTAN_RISE). Facility's vent ends in two, a lip leaning 10
+ * a body across rising more than three times its width, and higher than two
+ * of a body's own reaches (2 x GESTAN_RISE). Facility's vent ends in two, a lip leaning 10
  * across and 257 up from the toilet seat to the duct. A stair's riser is the
  * same shape a step high - Control's open metal flights rise 32 over ~10 - and
  * without the height test every other riser of those flights was a wall the
@@ -1459,7 +1459,12 @@ static bool stanTileSheer(s32 i)
 
 	width = fabsf(area) / longest;
 
-	return width < 16.0f && ymax - ymin > 3.0f * width && ymax - ymin > GESTAN_RISE;
+	// and over two of the climb's rises: a low one is a step GoldenEye walks
+	// over like any other. Frigate's speedboat has a seat back 9 across and
+	// 69 up between its stern and its deck; taken for sheer, it was a wall,
+	// and the only way out of the boat was over it (F3 report
+	// 20261010-095257). The cartridge walks Bond straight over it
+	return width < 16.0f && ymax - ymin > 3.0f * width && ymax - ymin > 2.0f * GESTAN_RISE;
 }
 
 static s32 g_StanPlayerTile[MAX_PLAYERS] = { [0 ... MAX_PLAYERS - 1] = -1 };
@@ -1769,6 +1774,25 @@ bool geStanPlayerFloor(s32 playernum, const struct geo *geo, struct coord *pos, 
 	*ground = surface;
 
 	return true;
+}
+
+bool geStanPlayerTileFloor(s32 playernum, struct coord *pos, f32 y)
+{
+	s32 tile;
+
+	if (!g_Stan.active || g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8
+			|| g_StanPlayerTileStage != g_Stan.stagenum || playernum < 0 || playernum >= MAX_PLAYERS) {
+		return false;
+	}
+
+	tile = g_StanPlayerTile[playernum];
+
+	if (tile < 0 || tile >= g_Stan.numtiles || stanTileUpright(tile)
+			|| !stanHolds(&g_Stan.tiles[tile], pos->x, pos->z)) {
+		return false;
+	}
+
+	return fabsf(stanSurface(&g_Stan.tiles[tile], pos->x, pos->z) - y) < 2.0f;
 }
 
 /**
