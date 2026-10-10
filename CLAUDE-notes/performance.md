@@ -481,7 +481,8 @@ The shapes, by kind:
   explosion shake timers, the vi flip): bump by lvupdate60 instead; where `== 0` means "first frame in this
   state", bump to 1 on the first frame. Per-frame amounts on the screen (IR scanner sweep): scale by
   diffframe240/4 and carry the fraction.
+Walk sway catch-up (bondwalk.c `spa8`): the fraction for the frame time, `dist * (1 - 0.9^lvupdate60f)`,
+instead of the loop over lvupdate60; measured by forcing `data->rleanleft` at bwalkApplyMoveData.
 Left: the gun state machine's frame-to-frame transitions (mode 6 -> 7 -> raise each take a frame), so a weapon
 switch at 240 is ~3.5 ticks shorter than at 60 (34.5 vs 38 to the draw); PAL/JPN builds' gun animation
-(animframeincfreal path) still steps; the walk sway catch-up (bondwalk.c `spa8` loop over lvupdate60) still
-comes every fourth frame - unmeasured, as stick input could not be forced from gdb.
+(animframeincfreal path) still steps.
