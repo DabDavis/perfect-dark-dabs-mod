@@ -14890,10 +14890,24 @@ part of the built level: no HDCACHE bump.
   (flag 0x00400000 on the spawn tick), clean on 50c0c8816.
 - **Statue Park, Janus (F3 20261010-102926).** Spawned only while pad 0x36 is
   off screen - the cartridge refuses too (ares, Bond facing the pad: neither
-  spawns). His walk: with him on screen ours veers west to about (10600, 900)
-  and comes back (~300 ticks late) while ares walks straight to pad 1; the
-  guard spawned beside him (chr 2, heading for pad 2) and he steer round each
-  other step by step (WAYMODE_NEWOBSTACLE every few ticks, both with
-  CDTYPE_CHRS as on the cartridge). Not fixed; twin scenario
-  ~/wt/f3-1010c-gemission-run/twin-scenarios/janus.py (copy into tools/gefidelity;
-  GF_TURNPOS=10962,2003,181 puts Bond where the tester stood).
+  spawns). His walk while watched veered west to about (10600, 900) and reached
+  pad 1 ~300 ticks late. Tick by tick against ares (scenario
+  ~/wt/f3-1010c-gemission-run/twin-scenarios/janus2.py): GoldenEye starts his
+  route in WAYMODE_MAGIC (out of sight), which faces him down the route at
+  once; ours never went magic because `chrIsRoomOffScreen()` also asks whether
+  the line from the waypoint to the player crosses the player's room, which
+  outdoors it always does - GoldenEye asks only whether the rooms on the way
+  are drawn (chrlvStanRoomRelated()). He walked off turning from his pad's
+  heading, his escort (chr 2) at his side, and the two steered round each
+  other. And Perfect Dark's first-tick look-ahead (GOPOSFLAG_INIT) cut the
+  escort two waypoints at once; GoldenEye looks ahead only when the age comes
+  round. Both now as GoldenEye's for guards on converted stages (68e0bd4f1):
+  Janus within ~40 of the cartridge's path, arriving the same tick, at 60 and
+  73 FPS. gesolo's replay golden changes from frame 200 (Dam's guards out of
+  sight now move by magic).
+- **Surface 2's lip corner (F3 20261010-052108).** Walking at the 108-high lip
+  near either end jammed the player in the corner of the climb wall and the
+  lip's end; ares slides Bond along and up (scratch roofwalk.py, theta 159).
+  The quarter step moves nothing when the body already touches both walls, so
+  the stock slide tried only the first; on a converted stage it now also tries
+  the wall that stopped that slide (6712c1a5f).
