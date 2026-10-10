@@ -631,6 +631,40 @@ bool envIsPosInFogMaxDistance(struct coord *pos, f32 tolerance)
 
 #ifndef PLATFORM_N64
 /**
+ * Under Disable Fog: whether a prop at pos lies past where the level's own fog
+ * is whole (g_EnvFogMax), by its depth along the line of sight - so drawn now
+ * only because the fog is off. envIsPosInFogMaxDistance() cannot say: it
+ * measures along the world-to-screen matrix's first row, as Perfect Dark
+ * always has, which is not the depth (the matrix's z column is): on Goldfinger
+ * 64's Shipyard a guard 9920 deep scored -7610 against a fog at 4000, so the
+ * 30 on-screen places went to guards a whole dock away and the ones beside the
+ * player came and went (F3 20261010-021859). It stays as it is for the fog-on
+ * game.
+ */
+bool envIsPosPastLevelFog(struct coord *pos, f32 tolerance)
+{
+	struct coord *campos = &g_Vars.currentplayer->cam_pos;
+	struct coord *look = &g_Vars.currentplayer->cam_look;
+	f32 len;
+	f32 z;
+
+	if (!g_FogEnabled || g_EnvFogMax >= MAXFLOAT || g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
+		return false;
+	}
+
+	// cam_look is a unit in play but the look-at offset in a cutscene
+	len = sqrtf(look->x * look->x + look->y * look->y + look->z * look->z);
+
+	if (len <= 0.0f) {
+		return false;
+	}
+
+	z = ((pos->x - campos->x) * look->x + (pos->y - campos->y) * look->y + (pos->z - campos->z) * look->z) / len;
+
+	return z > g_EnvFogMax + tolerance;
+}
+
+/**
  * Whether a prop at pos is near enough to draw. Under an HD level's own fog
  * (gebeanStageFog()) the level is seen out to where that fog is whole, which
  * is further than the level's own fog distance - envIsPosInFogMaxDistance(),
