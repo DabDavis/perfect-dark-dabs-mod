@@ -972,3 +972,13 @@ explosive props and counts explosion props.
   rifle. `probe/aim.py` (NOAUTOAIM=1 patches auto-aim out: Cartel's guards
   pull shots ~2.4 degrees otherwise) and `probe/aimflags.py` (every gun's flag
   against its row's bit).
+- **Shipyard pop-in again (F3 20261010-021859/-022002, on b9a2153).** The
+  fix above leaned on `envIsPosInFogMaxDistance()`, which measures along the
+  world-to-screen matrix's first row (PD's own code), not the depth: from the
+  tester's spot a guard 9920 deep scored -7610 against the fog at 4000, so
+  none of the far guards was flagged and all 30 places went to guards
+  10,000-23,000 off (the trace: exactly 30 DREW, every one past 10,000, the
+  guard 447 in front not reached). `envIsPosPastLevelFog()` (env.c) takes the
+  depth along cam_look; the fog-on test is untouched. Probe:
+  `probe/popin.py` (who is on screen and flagged) and `probe/popin2.py` (a
+  guard held 450 in front: 0/30 frames on screen before, 30/30 after).
