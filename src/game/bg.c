@@ -295,6 +295,11 @@ struct drawslotpointer *g_BgDrawSlotsByRoom;
  * level. See bgRoomIsPortalVisible().
  */
 static u8 *g_BgPortalSeen;
+#define BGPORTALSEEN_DRAW 1 // the walk reached it
+#define BGPORTALSEEN_OWN  2 // within the level's own far plane too
+// the walk's far plane before the HD look takes it out to the release's fog
+static f32 g_BgOwnFar;
+static bool bgRoomIsInLevelView(s32 room);
 
 /**
  * GoldenEye's portal walk on a converted level (bgTickPortalsWalkGe()): per
@@ -3023,7 +3028,7 @@ bool bgRoomIsOnscreen(s32 room)
 		// HD level ROOMFLAG_ONSCREEN is the whole level. Facility's end squad
 		// spawns only off screen, so in HD it never spawned (tester F3
 		// 20260923-002500). See bgRoomIsPortalVisible().
-		return bgRoomIsPortalVisible(room);
+		return bgRoomIsInLevelView(room);
 #else
 		return g_Rooms[room].flags & ROOMFLAG_ONSCREEN;
 #endif
@@ -7039,7 +7044,7 @@ void bgChooseRoomsToLoad(void)
 			// co-op mission there spawned nobody "off screen" and never let a
 			// simulant go cheap. The N64 look's answer is the same as before
 			// (online the host's look decides nothing for the others)
-			if (bgRoomIsPortalVisible(i)) {
+			if (bgRoomIsInLevelView(i)) {
 #else
 			if (g_Rooms[i].flags & ROOMFLAG_ONSCREEN) {
 #endif
@@ -7471,11 +7476,33 @@ static void bgTickPortalsEveryRoom(struct screenbox *box)
 {
 	s32 room;
 
+	const struct coord *campos = &g_Vars.currentplayer->cam_pos;
+	const bool further = g_BgSnake.zrange.far > g_BgOwnFar;
+
 	bgTickPortalsWalk(box);
 
+	// Bit 1: the walk reached it. Bit 2: and within the level's own far
+	// plane, where the walk went further for the HD fog - the room's nearest
+	// point no further than it, which is what the N64 look's walk would see
 	for (room = 0; room < g_Vars.roomcount; room++) {
 		if (g_Rooms[room].flags & ROOMFLAG_ONSCREEN) {
-			g_BgPortalSeen[room] = true;
+			g_BgPortalSeen[room] = BGPORTALSEEN_DRAW | BGPORTALSEEN_OWN;
+
+			if (further) {
+				f32 d2 = 0.0f;
+
+				for (s32 i = 0; i < 3; i++) {
+					const f32 c = campos->f[i];
+					const f32 d = c < g_Rooms[room].bbmin[i] ? g_Rooms[room].bbmin[i] - c
+						: c > g_Rooms[room].bbmax[i] ? c - g_Rooms[room].bbmax[i] : 0.0f;
+
+					d2 += d * d;
+				}
+
+				if (d2 > g_BgOwnFar * g_BgOwnFar) {
+					g_BgPortalSeen[room] = BGPORTALSEEN_DRAW;
+				}
+			}
 		}
 	}
 
@@ -7525,10 +7552,42 @@ bool bgRoomIsPortalVisible(s32 room)
 	if (g_BgPortalSeen && !modSpectateIsOn()
 			&& g_Vars.currentplayer->visionmode != VISIONMODE_XRAY
 			&& xblaStageDrawsEveryRoom()) {
-		return g_BgPortalSeen[room];
+		return g_BgPortalSeen[room] != 0;
 	}
 
 	return true;
+}
+
+/**
+ * The AI's question: whether a room is in view as the level's own far plane
+ * has it. The same as bgRoomIsPortalVisible() but where the HD look's walk
+ * went past that plane for the release's fog (bgTickPortals()).
+ */
+static bool bgRoomIsInLevelView(s32 room)
+{
+	if (!bgRoomIsPortalVisible(room)) {
+		return false;
+	}
+
+	if (g_BgPortalSeen && !modSpectateIsOn()
+			&& g_Vars.currentplayer->visionmode != VISIONMODE_XRAY
+			&& xblaStageDrawsEveryRoom()) {
+		return (g_BgPortalSeen[room] & BGPORTALSEEN_OWN) != 0;
+	}
+
+	return true;
+}
+
+/** Whether any of a prop's rooms is in view by the level's own far plane. */
+bool bgRoomsInLevelView(RoomNum *rooms)
+{
+	for (s32 i = 0; rooms[i] != -1; i++) {
+		if (bgRoomIsInLevelView(rooms[i])) {
+			return true;
+		}
+	}
+
+	return false;
 }
 #endif
 
@@ -7557,6 +7616,22 @@ void bgTickPortals(void)
 	}
 #endif
 	g_BgSnake.zrange.far = g_BgSnake.zrange.far / g_Vars.currentplayerstats->scale_bg2gfx;
+#ifndef PLATFORM_N64
+	// ...and out to the release's fog where that is further, since the HD
+	// look draws chrs as far as the fog lets them be seen (func0f08e8ac()).
+	// The level's own plane is kept for what the AI counts as in view
+	// (bgRoomsInLevelView(), bgTickPortalsEveryRoom())
+	g_BgOwnFar = g_BgSnake.zrange.far;
+
+	if (xblaStageDrawsEveryRoom()) {
+		f32 start, end;
+		u8 rgb[3];
+
+		if (gebeanStageFog(&start, &end, rgb) && end > g_BgSnake.zrange.far) {
+			g_BgSnake.zrange.far = end;
+		}
+	}
+#endif
 
 #ifndef PLATFORM_N64
 	g_BgGePortals = geRoomActive() != 0;

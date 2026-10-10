@@ -22492,10 +22492,32 @@ f32 objCalculateFadeDistOpacityFrac(struct prop *prop, f32 modelscale)
 	return result;
 }
 
+#ifndef PLATFORM_N64
+static bool posIsInObjFadeDistanceBy(struct distfadesettings *settings, struct coord *pos, f32 modelscale);
+
 bool posIsInObjFadeDistance(struct coord *pos, f32 modelscale)
 {
+	return posIsInObjFadeDistanceBy(envGetDistFadeSettings(), pos, modelscale);
+}
+
+/**
+ * The same by the level's own fade, which the HD look moves out
+ * (envGetDistFadeSettings()): whether the N64 look would draw what is there.
+ */
+bool posIsInObjFadeDistanceOwn(struct coord *pos, f32 modelscale)
+{
+	return posIsInObjFadeDistanceBy(envGetDistFadeSettingsOwn(), pos, modelscale);
+}
+
+static bool posIsInObjFadeDistanceBy(struct distfadesettings *settings, struct coord *pos, f32 modelscale)
+#else
+bool posIsInObjFadeDistance(struct coord *pos, f32 modelscale)
+#endif
+{
 	bool result = true;
+#ifdef PLATFORM_N64
 	struct distfadesettings *settings = envGetDistFadeSettings();
+#endif
 	struct coord tmp;
 	f32 sp20;
 
@@ -22548,13 +22570,11 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 		if (g_Rooms[roomnum].flags & ROOMFLAG_ONSCREEN) {
 #endif
 #ifndef PLATFORM_N64
-			// An object on an HD level is drawn out to where the release's
-			// fog is whole (envIsPosInDrawDistance()); a chr keeps the
-			// level's own fog distance, as its portal walk keeps its plane,
-			// unless the fog is off (Disable Fog)
-			if (((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER) && !modIsFogDisabled()
-						? envIsPosInFogMaxDistance(pos, arg2) : envIsPosInDrawDistance(pos, arg2))
-					&& (!arg3 || posIsInObjFadeDistance(pos, arg2))) {
+			// On an HD level chrs and objects alike are drawn out to where
+			// the release's fog is whole (envIsPosInDrawDistance()), and so
+			// is the fade (envGetDistFadeSettings()). What the AI counts as
+			// in view stays the level's own (CHRH2FLAG_PASTLEVELFOG, chr.c)
+			if (envIsPosInDrawDistance(pos, arg2) && (!arg3 || posIsInObjFadeDistance(pos, arg2))) {
 #else
 			if (envIsPosInFogMaxDistance(pos, arg2) && (!arg3 || posIsInObjFadeDistance(pos, arg2))) {
 #endif

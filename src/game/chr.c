@@ -32,6 +32,9 @@
 #include "game/smoke.h"
 #include "game/sparks.h"
 #include "game/bg.h"
+#ifndef PLATFORM_N64
+#include "xblastage.h"
+#endif
 #include "game/file.h"
 #include "game/mplayer/setup.h"
 #include "game/bot.h"
@@ -3270,9 +3273,22 @@ s32 chrTick(struct prop *prop)
 	// seeing by that fog: GoldenEye's Jungle starts Xenia's attack (and her
 	// music) the moment she is on screen, which with the fog off was from
 	// the mission's first frame, 14000 units away (tester F3 20260927-003241)
+	//
+	// The HD look of a GoldenEye level does the same: it draws chrs out to
+	// the release's fog, past GoldenEye's own object fade and far plane
+	// (func0f08e8ac()), and a chr the N64 look would not draw is past the
+	// level's fog for the AI and for the cap of 30 below, so both looks play
+	// alike (F3 20261010-102617)
 	chr->hidden2 &= ~CHRH2FLAG_PASTLEVELFOG;
 
 	if (needsupdate && modIsFogDisabled() && envIsPosPastLevelFog(&prop->pos, modelGetEffectiveScale(model))) {
+		chr->hidden2 |= CHRH2FLAG_PASTLEVELFOG;
+	}
+
+	if (needsupdate && !modIsFogDisabled() && xblaStageDrawsEveryRoom()
+			&& (!envIsPosInFogMaxDistance(&prop->pos, modelGetEffectiveScale(model))
+				|| !posIsInObjFadeDistanceOwn(&prop->pos, modelGetEffectiveScale(model))
+				|| !bgRoomsInLevelView(prop->rooms))) {
 		chr->hidden2 |= CHRH2FLAG_PASTLEVELFOG;
 	}
 #endif

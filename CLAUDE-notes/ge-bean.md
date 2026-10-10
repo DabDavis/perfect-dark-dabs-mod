@@ -14885,3 +14885,16 @@ by 1. With the Community Edition the fog ends at 5000 and the fade moves out by 
 **Doak's HD face (20261010-092900).** The owner kept the release's `head/headdave` for Doak (2026-09-26,
 cb052e42c), which is another man's face; the Community Edition's `new/head/headdave` is Doak's own
 (curly hair, goatee - dumped with cafftool.py), so with the CE on he has his face. Not changed.
+
+**Statue Park's far guards, fixed after all (owner, 2026-10-10: "we can fix this").** In the HD look of a
+GoldenEye level chrs and objects are now drawn as far as the scenery: `envGetDistFadeSettings()` scales the
+level's object fade by `end / refdist` (the release's fog end over the fade's start), so the fade starts no
+nearer than where the fog is whole (scaling all three numbers moves the cut for a prop of any size by the
+same factor); chrs take `envIsPosInDrawDistance()` like objects; and the chrs' portal walk (`bgTickPortals()`)
+runs out to the fog's end where that is past the level's own far plane. What the AI goes by stays the N64
+look's: `g_BgPortalSeen` bit 2 marks rooms whose nearest point is inside the level's own plane
+(`bgRoomsInLevelView()`, used by `bgRoomIsOnscreen()` and the MP room visibility), and a chr the N64 look would
+not draw (own fog max, own fade `posIsInObjFadeDistanceOwn()`, own-plane rooms) gets
+`CHRH2FLAG_PASTLEVELFOG`, which keeps it out of the cap of 30 and of the AI's on-screen tests, as Disable Fog
+already did. Statue Park at the report camera (retail): the guard at 3314 is drawn, the nearer one at 2185
+no longer half-faded. Dam/Surface spawn views and 2400-frame wall times unchanged. N64 look untouched.
