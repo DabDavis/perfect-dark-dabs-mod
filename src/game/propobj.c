@@ -4111,6 +4111,89 @@ void applySpeed(f32 *distdone, f32 maxdist, f32 *speedptr, f32 accel, f32 decel,
 	*speedptr = speed;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * applySpeed for things drawn every frame (doors, lifts): above 60 FPS a frame
+ * is 1-3 ticks of 1/240 s and lvupdate60 is 0 on most frames, so applySpeed
+ * moves them only on every fourth frame. When the frame is not a whole number
+ * of 60ths this takes lvupdate240 quarter steps instead: the speed (per 60th)
+ * changes by a quarter of accel/decel and a quarter of it is travelled per
+ * step, the same rates per second. A frame of whole 60ths (every frame at 60
+ * and 30 FPS, and an online sim tick) takes the original path unchanged.
+ */
+void applySpeedSmooth(f32 *distdone, f32 maxdist, f32 *speedptr, f32 accel, f32 decel, f32 maxspeed)
+{
+	f32 speed;
+	s32 i;
+
+	if ((g_Vars.lvupdate240 & 3) == 0) {
+		applySpeed(distdone, maxdist, speedptr, accel, decel, maxspeed);
+		return;
+	}
+
+	speed = *speedptr;
+
+	for (i = 0; i < g_Vars.lvupdate240; i++) {
+		f32 limit = speed * speed * 0.5f / decel;
+		f32 distremaining = maxdist - *distdone;
+
+		if (distremaining > 0.0f) {
+			if (speed > 0.0f && distremaining <= limit) {
+				speed -= decel * 0.25f;
+
+				if (speed < decel) {
+					speed = decel;
+				}
+			} else if (speed < maxspeed) {
+				if (speed < 0.0f) {
+					speed += decel * 0.25f;
+				} else {
+					speed += accel * 0.25f;
+				}
+
+				if (speed > maxspeed) {
+					speed = maxspeed;
+				}
+			}
+
+			if (speed * 0.25f >= distremaining) {
+				*distdone = maxdist;
+				break;
+			}
+
+			*distdone += speed * 0.25f;
+		} else {
+			if (speed < 0.0f && -distremaining <= limit) {
+				speed += decel * 0.25f;
+
+				if (speed > -decel) {
+					speed = -decel;
+				}
+			} else if (speed > -maxspeed) {
+				if (speed > 0.0f) {
+					speed -= decel * 0.25f;
+				} else {
+					speed -= accel * 0.25f;
+				}
+
+				if (speed < -maxspeed) {
+					speed = -maxspeed;
+				}
+			}
+
+			if (speed * 0.25f <= distremaining) {
+				*distdone = maxdist;
+				break;
+			}
+
+			*distdone += speed * 0.25f;
+		}
+	}
+
+	*speedptr = speed;
+}
+#endif
+
 void applyRotation(f32 *angle, f32 maxrot, f32 *speed, f32 accel, f32 decel, f32 maxspeed)
 {
 	f32 tmp = maxrot - *angle;
@@ -4131,6 +4214,40 @@ void applyRotation(f32 *angle, f32 maxrot, f32 *speed, f32 accel, f32 decel, f32
 		*angle -= M_BADTAU;
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * applyRotation through applySpeedSmooth: unchanged on a frame of whole 60ths,
+ * quarter steps on any other.
+ */
+void applyRotationSmooth(f32 *angle, f32 maxrot, f32 *speed, f32 accel, f32 decel, f32 maxspeed)
+{
+	f32 tmp;
+
+	if ((g_Vars.lvupdate240 & 3) == 0) {
+		applyRotation(angle, maxrot, speed, accel, decel, maxspeed);
+		return;
+	}
+
+	tmp = maxrot - *angle;
+
+	if (tmp < -M_PI) {
+		maxrot += M_BADTAU;
+	} else if (tmp >= M_PI) {
+		maxrot -= M_BADTAU;
+	}
+
+	applySpeedSmooth(angle, maxrot, speed, accel, decel, maxspeed);
+
+	if (*angle < 0) {
+		*angle += M_BADTAU;
+	}
+
+	if (*angle >= M_BADTAU) {
+		*angle -= M_BADTAU;
+	}
+}
+#endif
 
 #define NEXT(i) ((i + 1) % 3)
 #define PREV(i) ((i + 2) % 3)
@@ -5216,7 +5333,15 @@ void weaponTick(struct prop *prop)
 	} else if (weaponHost(weapon->weaponnum) == WEAPON_BOLT) {
 		// Handle crossbow bolts
 		// Note that the timer240 value doesn't act like a timer at all
+#ifndef PLATFORM_N64
+		// The wobble of a landed bolt flips side once per step, a step a
+		// frame: twelve 240ths at 240 FPS, too fast to see. A frame of a
+		// fraction of a 60th steps it only when a 60th comes round, so each
+		// side shows for a 60th as at 60 FPS.
+		if (weapon->timer240 >= 2 && ((g_Vars.lvupdate240 & 3) == 0 || g_Vars.lvupdate60 > 0)) {
+#else
 		if (weapon->timer240 >= 2) {
+#endif
 			// Bolt is travelling
 			struct modelrodata_bbox *bbox = modelFindBboxRodata(obj->model);
 			s32 ival = weapon->timer240 - 1;
@@ -9003,7 +9128,11 @@ void liftTick(struct prop *prop)
 			prevdist = lift->dist;
 #endif
 
+#ifndef PLATFORM_N64
+			applySpeedSmooth(&lift->dist, segdist, &lift->speed, lift->accel, lift->accel, lift->maxspeed);
+#else
 			applySpeed(&lift->dist, segdist, &lift->speed, lift->accel, lift->accel, lift->maxspeed);
+#endif
 
 			// If arriving at the destination, set the distance explicitly
 			if (lift->speed < 1 && lift->speed > -1) {
@@ -10769,6 +10898,12 @@ void chopperFireRocket(struct chopperobj *chopper, bool side)
 	}
 }
 
+#ifndef PLATFORM_N64
+#define CHOPPER_APPLYSPEED applySpeedSmooth
+#else
+#define CHOPPER_APPLYSPEED applySpeed
+#endif
+
 void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 {
 	struct defaultobj *obj = chopperprop->obj;
@@ -10853,6 +10988,12 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 		speedmult = 0.125f;
 
 		if (chopper->barrelrotspeed > 0.0f) {
+#ifndef PLATFORM_N64
+			if (g_Vars.lvupdate240 & 3) {
+				// once a frame was four times the spin-down at 240 FPS
+				chopper->barrelrotspeed -= 0.017453292f * g_Vars.lvupdate60f;
+			} else
+#endif
 			chopper->barrelrotspeed -= 0.017453292f;
 		} else {
 			chopper->barrelrotspeed = 0.0f;
@@ -10862,25 +11003,25 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 	chopper->barrelrot += chopper->barrelrotspeed * LVUPDATE60FREAL();
 
 #if PAL
-	applySpeed(&gunroty, angleh, &gunturnyspeed60, 0.0027920822612941f * speedmult, 0.0055841645225883f * speedmult, 0.16752494871616f * speedmult);
+	CHOPPER_APPLYSPEED(&gunroty, angleh, &gunturnyspeed60, 0.0027920822612941f * speedmult, 0.0055841645225883f * speedmult, 0.16752494871616f * speedmult);
 
 	if (gunroty == angleh && gunturnyspeed60 <= 0.0055841645225883f * speedmult && -0.0055841645225883f * speedmult <= gunturnyspeed60) {
 		gunturnyspeed60 = 0.0f;
 	}
 
-	applySpeed(&gunrotx, anglev, &gunturnxspeed60, 0.0027920822612941f * speedmult, 0.0055841645225883f * speedmult, 0.16752494871616f * speedmult);
+	CHOPPER_APPLYSPEED(&gunrotx, anglev, &gunturnxspeed60, 0.0027920822612941f * speedmult, 0.0055841645225883f * speedmult, 0.16752494871616f * speedmult);
 
 	if (gunrotx == anglev && gunturnxspeed60 <= 0.0055841645225883f * speedmult && -0.0055841645225883f * speedmult <= gunturnxspeed60) {
 		gunturnxspeed60 = 0.0f;
 	}
 #else
-	applySpeed(&gunroty, angleh, &gunturnyspeed60, 0.0023267353f * speedmult, 0.0046534706f * speedmult, 0.1396041f * speedmult);
+	CHOPPER_APPLYSPEED(&gunroty, angleh, &gunturnyspeed60, 0.0023267353f * speedmult, 0.0046534706f * speedmult, 0.1396041f * speedmult);
 
 	if (gunroty == angleh && gunturnyspeed60 <= 0.0046534706f * speedmult && -0.0046534706f * speedmult <= gunturnyspeed60) {
 		gunturnyspeed60 = 0.0f;
 	}
 
-	applySpeed(&gunrotx, anglev, &gunturnxspeed60, 0.0023267353f * speedmult, 0.0046534706f * speedmult, 0.1396041f * speedmult);
+	CHOPPER_APPLYSPEED(&gunrotx, anglev, &gunturnxspeed60, 0.0023267353f * speedmult, 0.0046534706f * speedmult, 0.1396041f * speedmult);
 
 	if (gunrotx == anglev && gunturnxspeed60 <= 0.0046534706f * speedmult && -0.0046534706f * speedmult <= gunturnxspeed60) {
 		gunturnxspeed60 = 0.0f;
@@ -10891,6 +11032,15 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 	chopper->gunrotx = gunrotx;
 	chopper->gunturnyspeed60 = gunturnyspeed60;
 	chopper->gunturnxspeed60 = gunturnxspeed60;
+
+#ifndef PLATFORM_N64
+	// The gun fires on every other tick of this counter, which went up once
+	// a frame: 120 shots a second at 240 FPS instead of 30. A frame of a
+	// fraction of a 60th moves it (and fires) only when a 60th comes round;
+	// the flash keeps showing the counter's parity in between.
+	{
+		const bool cadencestep = (g_Vars.lvupdate240 & 3) == 0 || g_Vars.lvupdate60 > 0;
+#endif
 
 	if (!(chopper->fireslotthing->unk00 % 2)) {
 		firing = false;
@@ -10910,6 +11060,9 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 		rot.y = sinf(totalrotx);
 		rot.z = cosf(totalroty) * cosf(totalrotx);
 
+#ifndef PLATFORM_N64
+		if (cadencestep)
+#endif
 		projectileCreate(chopperprop, chopper->fireslotthing, &gunpos, &rot, WEAPON_CHOPPERGUN, targetprop);
 
 		if (rwdata != NULL) {
@@ -10921,8 +11074,20 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	if (cadencestep)
+#endif
 	chopper->fireslotthing->unk00++;
+#ifndef PLATFORM_N64
+	}
+#endif
 }
+
+#ifndef PLATFORM_N64
+#define CHOPPER_APPLYROTATION applyRotationSmooth
+#else
+#define CHOPPER_APPLYROTATION applyRotation
+#endif
 
 void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, struct coord *dir, bool firing)
 {
@@ -10965,7 +11130,18 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 		chopper->power += 0.030833334f * g_Vars.lvupdate60freal;
 	}
 
-	chopper->bob += 0.052359f;
+#ifndef PLATFORM_N64
+	// The bob and the bank below were stepped once a frame, so a
+	// frame of a fraction of a 60th (above 60 FPS) ran them that much too
+	// often. Such a frame scales them by its time; a frame of whole 60ths
+	// takes the original arithmetic.
+	if (g_Vars.lvupdate240 & 3) {
+		chopper->bob += 0.052359f * g_Vars.lvupdate60f;
+	} else
+#endif
+	{
+		chopper->bob += 0.052359f;
+	}
 
 	if (chopper->bob > M_BADTAU) {
 		chopper->bob = 0.0f;
@@ -10984,13 +11160,30 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 		f2 *= PAL ? 0.976f : 0.98f;
 	}
 
-	chopper->vx += dir->x;
-	chopper->vy += dir->y;
-	chopper->vz += dir->z;
+#ifndef PLATFORM_N64
+	if (g_Vars.lvupdate240 & 3) {
+		// The thrust was added and the drag taken once a frame, so the
+		// speed's response (a shot-down one's fall above all) ran at the
+		// frame rate. Per 240th: a quarter of the thrust, then the fourth
+		// root of the drag.
+		const f32 drag240 = PAL ? __builtin_powf(0.976f, 0.25f) : __builtin_powf(0.98f, 0.25f);
 
-	chopper->vx *= f2;
-	chopper->vy *= f2;
-	chopper->vz *= f2;
+		for (i = 0; i < g_Vars.lvupdate240; i++) {
+			chopper->vx = (chopper->vx + dir->x * 0.25f) * drag240;
+			chopper->vy = (chopper->vy + dir->y * 0.25f) * drag240;
+			chopper->vz = (chopper->vz + dir->z * 0.25f) * drag240;
+		}
+	} else
+#endif
+	{
+		chopper->vx += dir->x;
+		chopper->vy += dir->y;
+		chopper->vz += dir->z;
+
+		chopper->vx *= f2;
+		chopper->vy *= f2;
+		chopper->vz *= f2;
+	}
 
 	if (chopper->attackmode != CHOPPERMODE_FALL) {
 		if (chopper->attackmode != CHOPPERMODE_PATROL || chopper->patroltimer60 > 0) {
@@ -11015,32 +11208,44 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 	}
 
 #if PAL
-	applyRotation(&curroty, goalroty, &turnyspeed, 0.00026175772654824f, 0.00052351545309648f, 0.015705462545156f);
+	CHOPPER_APPLYROTATION(&curroty, goalroty, &turnyspeed, 0.00026175772654824f, 0.00052351545309648f, 0.015705462545156f);
 
 	if (curroty == goalroty && turnyspeed <= 0.00052351545309648f && turnyspeed >= -0.00052351545309648f) {
 		turnyspeed = 0.0f;
 	}
 
-	applyRotation(&currotx, goalrotx, &turnxspeed, 0.00026175772654824, 0.00052351545309648f, 0.015705462545156f);
+	CHOPPER_APPLYROTATION(&currotx, goalrotx, &turnxspeed, 0.00026175772654824, 0.00052351545309648f, 0.015705462545156f);
 
 	if (currotx == goalrotx && turnxspeed <= 0.00052351545309648f && turnxspeed >= -0.00052351545309648f) {
 		turnxspeed = 0.0f;
 	}
 #else
-	applyRotation(&curroty, goalroty, &turnyspeed, 0.00021813141938765f, 0.00043626284f, 0.013087885f);
+	CHOPPER_APPLYROTATION(&curroty, goalroty, &turnyspeed, 0.00021813141938765f, 0.00043626284f, 0.013087885f);
 
 	if (curroty == goalroty && turnyspeed <= 0.00043626284f && turnyspeed >= -0.00043626284f) {
 		turnyspeed = 0.0f;
 	}
 
-	applyRotation(&currotx, goalrotx, &turnxspeed, 0.00021813141938765f, 0.00043626284f, 0.013087885f);
+	CHOPPER_APPLYROTATION(&currotx, goalrotx, &turnxspeed, 0.00021813141938765f, 0.00043626284f, 0.013087885f);
 
 	if (currotx == goalrotx && turnxspeed <= 0.00043626284f && turnxspeed >= -0.00043626284f) {
 		turnxspeed = 0.0f;
 	}
 #endif
 
-	currotz += (-turnyspeed * 40.0f - currotz) * 0.1f;
+#ifndef PLATFORM_N64
+	if (g_Vars.lvupdate240 & 3) {
+		// A tenth of the way per 60th is 1 - 0.9^(1/4) per 240th
+		const f32 ease240 = 1.0f - __builtin_powf(0.9f, 0.25f);
+
+		for (i = 0; i < g_Vars.lvupdate240; i++) {
+			currotz += (-turnyspeed * 40.0f - currotz) * ease240;
+		}
+	} else
+#endif
+	{
+		currotz += (-turnyspeed * 40.0f - currotz) * 0.1f;
+	}
 
 	spfc.x = M_BADTAU - currotx;
 	spfc.y = curroty;
@@ -11596,11 +11801,29 @@ void hovercarTick(struct prop *prop)
 			}
 		} else {
 			if (hovercar->speedtime60 == 0) {
-				hovercar->speed += 6;
-
 				sp1c0.x = prop->pos.x;
-				sp1c0.y = prop->pos.y - hovercar->speed;
 				sp1c0.z = prop->pos.z;
+
+#ifndef PLATFORM_N64
+				// A shot-down taxi or limo gained 6 of speed and fell by it
+				// once a frame: sixteen times the drop per second at 240 FPS.
+				// A frame of a fraction of a 60th takes quarter steps.
+				if (g_Vars.lvupdate240 & 3) {
+					f32 drop = 0.0f;
+					s32 i;
+
+					for (i = 0; i < g_Vars.lvupdate240; i++) {
+						hovercar->speed += 1.5f;
+						drop += hovercar->speed * 0.25f;
+					}
+
+					sp1c0.y = prop->pos.y - drop;
+				} else
+#endif
+				{
+					hovercar->speed += 6;
+					sp1c0.y = prop->pos.y - hovercar->speed;
+				}
 
 				if (sp1c0.y < hovercar->speedaim) {
 					sp1c0.y = hovercar->speedaim;
@@ -11754,13 +11977,13 @@ void hovercarTick(struct prop *prop)
 			sp1fc = hovercar->rotx;
 		}
 
-		applyRotation(&sp190, sp200, &sp184, HOVVALUE1(), HOVVALUE1() * 2.0f, HOVVALUE2());
+		CHOPPER_APPLYROTATION(&sp190, sp200, &sp184, HOVVALUE1(), HOVVALUE1() * 2.0f, HOVVALUE2());
 
 		if (sp190 == sp200 && HOVVALUE1() * 2.0f >= sp184 && -HOVVALUE1() * 2.0f <= sp184) {
 			sp184 = 0;
 		}
 
-		applyRotation(&sp18c, sp1fc, &sp180, HOVVALUE1(), HOVVALUE1() * 2.0f, HOVVALUE2());
+		CHOPPER_APPLYROTATION(&sp18c, sp1fc, &sp180, HOVVALUE1(), HOVVALUE1() * 2.0f, HOVVALUE2());
 
 		if (sp18c == sp1fc && HOVVALUE1() * 2.0f >= sp180 && -HOVVALUE1() * 2.0f <= sp180) {
 			sp180 = 0;
@@ -11769,6 +11992,18 @@ void hovercarTick(struct prop *prop)
 		if (hovercar->base.flags & OBJFLAG_HOVERCAR_ISHOVERBOT) {
 			sp188 = 0;
 		} else {
+#ifndef PLATFORM_N64
+			// The bank eased a tenth of the way once a frame: per 240th
+			// 1 - 0.9^(1/4) on a frame of a fraction of a 60th
+			if (g_Vars.lvupdate240 & 3) {
+				const f32 ease240 = 1.0f - __builtin_powf(0.9f, 0.25f);
+				s32 i;
+
+				for (i = 0; i < g_Vars.lvupdate240; i++) {
+					sp188 += (-sp184 * 120 - sp188) * ease240;
+				}
+			} else
+#endif
 			sp188 += (-sp184 * 120 - sp188) * 0.1f;
 		}
 
@@ -22308,25 +22543,62 @@ bool doorCalcIntendedFrac(struct doorobj *door)
 			door->fadetime60 = 0;
 		}
 
+#ifndef PLATFORM_N64
+		{
+			// fadetime60 counts whole 60ths; above 60 FPS take off the 240ths
+			// carried towards the next one so the fade moves every frame
+			// (lvupdate240rem is 0 at 60 FPS, leaving the sum unchanged)
+			f32 fadetime = door->fadetime60;
+
+			if (fadetime > 0.0f) {
+				fadetime -= g_Vars.lvupdate240rem * 0.25f;
+
+				if (fadetime < 0.0f) {
+					fadetime = 0.0f;
+				}
+			}
+
+			if (door->mode == DOORMODE_OPENING) {
+				door->laserfade = (u32)((fadetime * 255.0f) / TICKS(60.0f));
+				return false;
+			}
+
+			door->laserfade = (u32)(((TICKS(60.0f) - fadetime) * 255.0f) / TICKS(60.0f));
+		}
+#else
 		if (door->mode == DOORMODE_OPENING) {
 			door->laserfade = (u32)((door->fadetime60 * 255.0f) / TICKS(60.0f));
 			return false;
 		}
 
 		door->laserfade = (u32)(((TICKS(60.0f) - door->fadetime60) * 255.0f) / TICKS(60.0f));
+#endif
 	}
 
 	if (door->mode == DOORMODE_OPENING || door->mode == DOORMODE_CLOSING) {
 		f32 end = door->mode == DOORMODE_OPENING ? door->maxfrac : 0;
 
 		// Skedar Ruins random door stuckage
+#ifndef PLATFORM_N64
+		// The roll is once a frame against the frame counter, so above 60 FPS
+		// a door stuck as many times more often per second as there were
+		// frames to the 60th (and lvframe60's "& 3" held for four frames
+		// running at 240). A frame of a fraction of a 60th rolls only when a
+		// 60th comes round, against the 60 Hz counter, which advances by one
+		// there as lvframenum does at 60 FPS. A frame of whole 60ths (60 FPS
+		// included) rolls as before, rngRandom() call for call.
+		if ((door->base.flags3 & OBJFLAG3_DOOR_STICKY)
+				&& ((g_Vars.lvupdate240 & 3) == 0 || g_Vars.lvupdate60 > 0)) {
+			s32 value = (rngRandom() % 64) + 30;
+			s32 framenum = (g_Vars.lvupdate240 & 3) == 0 ? g_Vars.lvframenum : g_Vars.lvframe60;
+
+			// emulate low fps cal rate for stuckage test
+			if (((framenum % value) == 0)
+				&& ((g_Vars.lvframe60 & 3) == 0)) {
+#else
 		if (door->base.flags3 & OBJFLAG3_DOOR_STICKY) {
 			s32 value = (rngRandom() % 64) + 30;
 
-#ifndef PLATFORM_N64 // emulate low fps cal rate for stuckage test
-			if (((g_Vars.lvframenum % value) == 0)
-				&& ((g_Vars.lvframe60 & 3) == 0)) {
-#else
 			if ((g_Vars.lvframenum % value) == 0) {
 #endif
 				bool dothething = false;
@@ -22367,7 +22639,11 @@ bool doorCalcIntendedFrac(struct doorobj *door)
 			}
 		}
 
+#ifndef PLATFORM_N64
+		applySpeedSmooth(&door->frac, end, &door->fracspeed, door->accel, door->decel, door->maxspeed);
+#else
 		applySpeed(&door->frac, end, &door->fracspeed, door->accel, door->decel, door->maxspeed);
+#endif
 
 		if (door->frac >= door->maxfrac) {
 			door->frac = door->maxfrac;
