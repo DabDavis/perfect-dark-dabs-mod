@@ -5,7 +5,7 @@
 The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
-- **The Stage Loader: every mod's maps as arenas beside the mod loaded** — mods.md, "The Stage Loader": maps-only mounts never overlay; the registrar rescans on a swap; the branch's fixes (allocation, pool checks, room sizing, textures by stage); the importer splits a rebuilt texture table (30) and writes the `maps` block (31) so a mod's arenas come from its own tables under its own names — a file name is Perfect Dark's slot, not the map (GE-X's `crad` is Aztec)
+- **The Stage Loader: every mod's maps as arenas beside the mod loaded** — mods.md, "The Stage Loader": maps-only mounts never overlay; the registrar rescans on a swap; the branch's fixes (allocation, pool checks, room sizing, textures by stage); the importer splits a rebuilt texture table (30) and writes the `maps` block (31) so a mod's arenas come from its own tables under its own names — a file name is Perfect Dark's slot, not the map (GE-X's `crad` is Aztec); every imported mod's maps take its own stage row, sky and model states (`modBorrowArenas()`, 2026-10-10: Dark Noon's grass drew as stretched stock crates)
 - **Mod directories, Load Mods, modconfig, `modcodediff`, the ROM symbol file, the data segment and importing a mod's weapon definitions** — [mods.md](CLAUDE-notes/mods.md): only the first mod dir joins the file search; files swap live, segments cannot; the `datasegment` block, `moddata.c`, and "where this stands" for continuing the import work
 - **A mod entered from the Perfect Menu, no restart (2026-10-09)** — mods.md, "A mod entered from the Perfect Menu": the "Perfect Dark Mods" row and its list, `modmode.c`'s queue (sound drains, the Institute reloads, the swap at the stage boundary in **port/src/pdmain.c's** outer loop - the port's main loop, not src/lib/main.c's), `modSwapPath()`, Mod.ModDir no longer mounted at startup and Load Mods gone; online, `modModeRequestAtNextStage()` swaps at the host's next STAGE_LOAD
 - **A mod entered live: data (2026-10-09)** — mods.md, "A mod entered live: data": `modDataUnload()` undoes a data segment import (tables back, then frees, statics reset); a mod with only `segs/data` + `segs/data.names` swaps live (`modDirHasBootSegs()`); a modconfig's weapon edits go into the game's own weapon objects and are kept/undone field by field; `--mod-data-swap A,B,none` + `--mod-dump-data FILE` are the test; hash file ids by name and struct fields, not padding
@@ -1868,6 +1868,33 @@ uses it only when that stage is found in the mod it borrows from, and then
 treats the map as one of that mod's arenas (stage row, model states). The
 GoldenEye Arenas use it for GE-X's doors and props - ge-bean.md, "Their doors,
 props and lights".
+
+**Every imported mod's maps take its own row, sky and props (2026-10-10, F3
+20261005-092437).** Only GoldenEye X's maps did (`arenasrc`, above); every other
+console mod's map played on Skedar's row, under the chooser's default blue sky
+and with Perfect Dark's model files behind the mod's model numbers. Dark Noon's
+Valley (`darknoon_valley[mrkane]`) stands its grass tufts and rocks on
+`Pa51_exp1Z`/`Pa51_crate1Z`, which it replaced, and each placed object is
+scaled to its pad's box: the stock A51 crates stretched into the brown slabs
+and spikes the tester called "wildly incorrect geometry", under a blue sky the
+mod paints purple. `modBorrowArenas()` now also walks every other mount with an
+IMPORT.txt and a datasegment block that the Stage Loader gave a stage
+(`borrowFindMapMods()`, GoldenEye X left out by its gun score, so the borrow
+set to "none" changes nothing for it) and takes each map's own stage row
+(found by its multiplayer setup's name), sky and model states the same way
+(`borrowArenaFromRow()`, `arenas.src[]` says which mod `modBorrowStageModels()`
+reads). A mod that kept the stock model table swaps nothing; a file it ships
+is its own pinned slot (`romdataRegisterModFile()`, deduplicated). A net
+client that mounts the host's map mod on request (`modMapsMountIndex()`) runs
+`modBorrowArenasRefresh()` after it, so its copy of the map is the host's
+(netcontenttest's modmap and modmount cases, PD_Kakariko's Playground). Judged
+against the real cartridge: the patched ROM in mupen64plus (Debian's packages
+unpacked with `apt-get download` + `dpkg -x`, Glide64mk2 + rsp-hle under a
+private Xvfb, keys by xdotool: Return Start, Shift_L A; a fresh controller pak
+holds the new agent file) spawns on pad 169 facing a crate and three grass
+tufts, which the port now draws the same. Checked: a GoldenEye X arena is
+pixel-identical at `--fixed-step`; Kakariko's Car Park gains its own window
+model and Suburb its own sky.
 
 ## A GE-X tester's seven reports, and what each was (2026-09-13, importer 32)
 

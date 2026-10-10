@@ -4350,6 +4350,9 @@ s32 modMapsMountIndex(s32 index)
 
 	numMapDirsMounted++;
 	modloaderAddDir(dir);
+	// an imported mod's maps take its own rows, skies and props (modborrow.c),
+	// as they do where it was mounted at boot - the host's, for a net client
+	modBorrowArenasRefresh();
 	sysLogPrintf(LOG_NOTE, "mod: `%s` mounted for its maps on request", modList[index].name);
 
 	return dir;
