@@ -1355,10 +1355,17 @@ Gfx *lvRender(Gfx *gdl)
 #endif
 		struct player *player;
 		struct chrdata *chr;
+#ifndef PLATFORM_N64
+		s32 lastbuilt;
+#endif
 
 		playercount = forcesingleplayer ? 1 : PLAYERCOUNT();
 
 		gSPClipRatio(gdl++, FRUSTRATIO_2);
+
+#ifndef PLATFORM_N64
+		lastbuilt = -1;
+#endif
 
 		for (i = 0; i < playercount; i++) {
 			bool islastplayer;
@@ -1378,6 +1385,10 @@ Gfx *lvRender(Gfx *gdl)
 
 			if (g_NetMode == NETMODE_CLIENT && netClientRenderPass(i, playercount, &islastplayer)) continue; // netplay: a puppet player's view is not simulated here
 			if (g_NetMode == NETMODE_SERVER && netHostRenderPass(i, playercount, &islastplayer)) continue; // netplay: nor an out-of-play seat's on a host
+
+#ifndef PLATFORM_N64
+			lastbuilt = g_Vars.currentplayernum;
+#endif
 
 #ifndef PLATFORM_N64
 			// a mesh's kept pose is drawn under this view's camera, not the last view's
@@ -2049,6 +2060,18 @@ Gfx *lvRender(Gfx *gdl)
 			if (g_NetMode != NETMODE_NONE && netDiscardPass(g_Vars.currentplayernum)) gdl = savedgdl;
 #endif
 		} // end of player loop
+
+#ifndef PLATFORM_N64
+		// netplay: a skipped view (an open seat on a host, a puppet on a
+		// client) is last in the order, and lvTick's AI ran with it current:
+		// its camera matrices were never built, so a guard spawned off screen
+		// read a NULL world-to-screen matrix (crash 20261010-125706, GoldenEye
+		// Facility co-op hosted alone). The last view built is current, as it
+		// is offline.
+		if (g_NetMode != NETMODE_NONE && lastbuilt >= 0 && g_Vars.currentplayernum != lastbuilt) {
+			setCurrentPlayerNum(lastbuilt);
+		}
+#endif
 	} // end of stage if-statements
 
 	if (g_Vars.autocutplaying && g_Vars.autocutfinished) {

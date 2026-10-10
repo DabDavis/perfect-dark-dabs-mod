@@ -1441,6 +1441,16 @@ void gexPlusMissionHeads(void)
 static u8 *g_GeMissionLang;
 static char g_GeMissionLangBank[16];
 
+// The bank's slots: langGet() reads the offset table unbounded, and a slot
+// past it is string bytes taken as an offset (crash 20261010-130513, a
+// cinema's opening line read through 0xffffffffffffffff)
+static s32 g_GeMissionLangCount;
+
+s32 gexPlusMissionLangCount(void)
+{
+	return g_LangBanks[LANGBANK_GEMISSION] ? g_GeMissionLangCount : 0;
+}
+
 /**
  * The selected language's text for a slot of the mission's own bank, keyed
  * ge.<bank>.<slot> by the bank file's name (langpack.h). NULL for GoldenEye's.
@@ -1516,6 +1526,19 @@ void gexPlusMissionLangLoad(s32 stagenum)
 
 		g_GeMissionLang = bank;
 		g_LangBanks[LANGBANK_GEMISSION] = (uintptr_t *)bank;
+
+		// the table is as long as the first string's offset says
+		// (preprocess/filelang.c writes a widened table, then the strings)
+		g_GeMissionLangCount = 0;
+
+		for (u32 i = 0; (i + 1) * sizeof(uintptr_t) <= banklen; i++) {
+			const uintptr_t off = ((uintptr_t *)bank)[i];
+
+			if (off) {
+				g_GeMissionLangCount = (s32)(off / sizeof(uintptr_t));
+				break;
+			}
+		}
 	}
 }
 

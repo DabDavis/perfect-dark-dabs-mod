@@ -1438,7 +1438,19 @@ u16 invGetNameIdByIndex(s32 index)
 
 char *invGetNameByIndex(s32 index)
 {
+#ifndef PLATFORM_N64
+	// A mod's text override or weapon can name an empty text id, which
+	// langGet() gives as NULL: fall back to the weapon's own name, never NULL
+	char *name = langGet(invGetNameIdByIndex(index));
+
+	if (name == NULL) {
+		name = bgunGetName(invGetWeaponNumByIndex(index));
+	}
+
+	return name;
+#else
 	return langGet(invGetNameIdByIndex(index));
+#endif
 }
 
 char *invGetShortNameByIndex(s32 index)
@@ -1455,7 +1467,16 @@ char *invGetShortNameByIndex(s32 index)
 			if (override) {
 #if VERSION < VERSION_JPN_FINAL
 				if (override->inventorytext) {
+#ifndef PLATFORM_N64
+					// a mod's override can name an empty text id: the weapon's own name then
+					char *text = langGet(override->inventorytext);
+
+					if (text) {
+						return text;
+					}
+#else
 					return langGet(override->inventorytext);
+#endif
 				}
 #endif
 
@@ -1467,7 +1488,15 @@ char *invGetShortNameByIndex(s32 index)
 			override = invGetTextOverrideForWeapon(weaponnum);
 
 			if (override && override->inventorytext) {
+#ifndef PLATFORM_N64
+				char *text = langGet(override->inventorytext);
+
+				if (text) {
+					return text;
+				}
+#else
 				return langGet(override->inventorytext);
+#endif
 			}
 #endif
 		}

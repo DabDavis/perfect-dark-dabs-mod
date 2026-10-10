@@ -1454,6 +1454,15 @@ nothing is ever sent from one machine to another but names and hashes.
   prop.c, player.c). The frame's first pass always runs (a dedicated host
   with every seat open). The seats line says how many views were skipped
   ("their views not built N").
+  **The skipped view must not stay current (F3 pass 36, crash
+  20261010-125706).** Open seats are ordered last, so lvRender's loop ended
+  with one of them current and the next frame's lvTick ran every chr's AI
+  as that player - whose camera matrices were never built: a guard spawned
+  off screen on GoldenEye Facility (aiSpawnChrAtPad -> chrIsPosOffScreen ->
+  envIsPosInFogMaxDistance) read a NULL worldtoscreenmtx. lvRender now makes
+  the last view it built current after the loop when online (`lastbuilt`,
+  lv.c); envIsPosInFogMaxDistance / camIsPosInScreenBox also take a NULL
+  matrix as "no view" (never NULL offline).
   **Measured, not done: a remote player's view without its drawing.**
   Dam co-op in the HD look, a host and three idle clients on one machine,
   the host's main thread over ticks 1200-2400 (`perf stat -t`, the game's
