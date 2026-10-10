@@ -498,6 +498,21 @@ void wallhitsTick(void)
 	u32 stack2[4];
 
 	static s32 var8007f834 = 0;
+#ifndef PLATFORM_N64
+	// A wall hit's timer (a blood splat growing, any hit fading out) steps by
+	// a whole amount a frame, rounded from (lvupdate240 + 2) / 4: 2 at 60 FPS
+	// and still 1 at 240, so above 60 FPS blood spread and faded twice as
+	// fast (and the spare-limit sweep below ran four times as often). A frame
+	// shorter than a 60th now steps its share of what a 60th steps, the
+	// remainder carried in 240ths, so it adds up to the 60 FPS rate. Frames
+	// of a 60th or more, and paused ones (lvupdate240 0 with time passing),
+	// keep stock's sums, so 60 and 30 FPS are as they were; a frame with no
+	// time at all (uncapped past 240, a netplay present-only pass) steps
+	// nothing.
+	static s32 phase240 = 0;
+	bool sub60 = g_Vars.lvupdate240 < 4 && (g_Vars.lvupdate240 > 0 || g_Vars.diffframe240 == 0);
+	s32 upd240 = sub60 ? g_Vars.lvupdate240 : 0;
+#endif
 
 	sp12c = (g_Vars.lvupdate240 + 2.0f) * 0.25f;
 	fov = currentPlayerGetGunZoomFov();
@@ -520,6 +535,9 @@ void wallhitsTick(void)
 	if (numallocated < g_WallhitsCriticalSpareLimit) {
 		wallhitRemoveOne();
 	} else if (numallocated < g_WallhitsGoalSpareLimit) {
+#ifndef PLATFORM_N64
+		if (!sub60 || phase240 + upd240 >= 4)
+#endif
 		var8007f834++;
 
 		if (var8007f834 == 8) {
@@ -543,6 +561,22 @@ void wallhitsTick(void)
 
 		if (wallhit->timermax) {
 			u32 amount = (u32)(f0 + 0.5f);
+
+#ifndef PLATFORM_N64
+			if (sub60) {
+				// what a 60 FPS frame steps (sp12c at lvupdate240 4 is 1.5),
+				// in this frame's share
+				f32 f60 = 1.5f;
+				u32 amount60;
+
+				if (wallhit->timerspeed != 8) {
+					f60 *= 0.6f * ((wallhit->timerspeed - 8.0f) * 0.125f);
+				}
+
+				amount60 = (u32)(f60 + 0.5f);
+				amount = ((phase240 + upd240) * amount60) / 4 - (phase240 * amount60) / 4;
+			}
+#endif
 
 			if (wallhit->expanding) {
 				if (wallhit->timercur > wallhit->timermax) {
@@ -676,6 +710,12 @@ void wallhitsTick(void)
 		wallhitClipTick(wallhit);
 #endif
 	}
+
+#ifndef PLATFORM_N64
+	if (sub60) {
+		phase240 = (phase240 + upd240) & 3;
+	}
+#endif
 }
 
 const char var7f1b5a5c[] = "g_MaxRound = %s%s%f";

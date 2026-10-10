@@ -486,3 +486,56 @@ the binary never lands on silently never fires; `lvTick` with
 `lvframe60 % 30 == 0` is safe under `--fixed-step`. The probe must set the
 difficulty on frame 0, as the trace scripts must, or two runs of one seed
 differ.
+
+## Chrs above 60 FPS: what runs per frame and what per 60th (2026-10-10)
+
+`chraTick()` runs a chr's AI list **and its action tick** (the `switch` on
+`actiontype`: stand, attack, gopos...) inside one block, entered when
+`chr->sleep < 0`, the chr is never-sleeping, alert (`alertness >= 65`), or a
+dying simulant. `sleep -= lvupdate60` only goes negative on a frame that
+holds a 60th, so above 60 FPS an idle chr (and every background list,
+`g_BgChrs`) runs list and action once a 60th, while an alert chr runs both
+every frame: four times a 60th at 240. Whatever counts or rolls per call in
+there is therefore 4x as frequent for alert chrs at 240, and whatever is keyed
+on `lvframenum` lands on one residue for 60 Hz runs. Fixed shapes, all leaving
+60 and 30 FPS bit-for-bit as they were (test with `--fixed-fps 240` against
+`--fixed-step`, gdb, and the replay test):
+
+- a per-call count that means time: count only when `g_Vars.lvupdate60 > 0`
+  (`chrTickAttackAmount()`'s burst count, the shield shimmer clock in
+  `chrRenderShield()`); at 60 FPS that is every frame, at 30 every frame too;
+- a test on `lvframenum % N`: on a frame shorter than a 60th
+  (`diffframe240 < 4`) test `lvframe60 % N` and only when `lvupdate60 > 0`
+  (`aiSetDrCarollImages()`); `diffframe240 >= 4` keeps stock's test, which also
+  keeps slow motion and a netplay sim tick as they were;
+- a whole step a frame rounded from `lvupdate240` (wall hits' timers): on a
+  frame shorter than a 60th step the frame's share of the 60 FPS step, with
+  the remainder carried in 240ths (`wallhitsTick()`'s `phase240`), so the
+  frames of a 60th add up to it exactly;
+- a gun with no automatic rate fires whenever `chrTickShoot()` is called with
+  the hand's firing flag up; `func0f041a74()` calls it every frame. Actions
+  that drop the flag after the shot are paced by their own tick; one that
+  keeps it up (`ACT_ATTACKAMOUNT`) is not, and now fires only when
+  `lvupdate60 > 0`.
+
+Measuring: a gdb Python `stop()` may read and write memory but must not call
+an inferior function (the run hangs); return True from `stop()` and make the
+call from a `run`/`continue` loop in the script instead. Attack Ship's guards
+never fight the unattended player, so a burst was forced with
+`chrTryAttackAmount(&g_ChrSlots[i], 512, 0, 90, 100)` for every armed chr;
+blood with `splatsCreate(1, 1.1f, g_Vars.currentplayer->prop, 0, 0, 0, 0, 1,
+150, 0, 8)` and `wallhitFade()`; Dr Caroll's faces by pointing Deep Sea's
+background list 0x1023 (`g_BgChrs[33]`, chrnum 4035) at its mid cutscene
+0x042a once the intro is over (lvframe60 ~3317) - the `--skip-cutscenes` flag
+skips that cutscene too.
+
+Not changed: gating list execution for alert chrs to frames that hold a 60th.
+Nothing the lists read is set and cleared inside one frame outside that block
+(the hearing flag and CONSIDERPROXIES are cleared in it, a hit raises
+CHRCFLAG_TRIGGERSHOTLIST which waits for the list, the cutscene skip latches),
+but two things depend on the per-frame run: the converted-mission first tick
+(`firsttick`, above the block, sets `sleep = -1` so a new chr's list runs the
+tick it is made - a 60 Hz gate would bring back Facility's Doak bug unless it
+is exempt), and `aiGeObjectNudge()`, which scales its move by
+`lvupdate60freal`, correct for a list run every frame and a quarter of the
+distance for one run once a 60th at 240 (a background list today).

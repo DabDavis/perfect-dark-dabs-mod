@@ -7728,7 +7728,18 @@ Gfx *chrRenderShield(Gfx *gdl, struct chrdata *chr, u32 alpha)
 	}
 #endif
 
-	if (chrGetShield(chr) > 0 && g_Vars.lvupdate240 > 0) {
+#ifndef PLATFORM_N64
+	// The shimmer's clock and its walk over the body count 60ths, not drawn
+	// frames: stock stepped both once a frame, so above 60 FPS the shield
+	// flashed every 300 frames (1.25 s at 240 instead of 5 s) and the shimmer
+	// ran over the body four times as fast. At 60 FPS lvupdate60 is 1 every
+	// frame and at 30 it is 2, so both step as before.
+	bool shimmerstep = g_Vars.lvupdate60 > 0;
+#else
+	bool shimmerstep = g_Vars.lvupdate240 > 0;
+#endif
+
+	if (chrGetShield(chr) > 0 && shimmerstep) {
 		chr->cmcount++;
 
 		if (chr->cmcount > 300) {
@@ -7739,7 +7750,7 @@ Gfx *chrRenderShield(Gfx *gdl, struct chrdata *chr, u32 alpha)
 	if ((chr->hidden2 & CHRH2FLAG_SHIELDHIT)
 			|| (chrGetShield(chr) > 0 && chr->cmcount < 10)
 			|| (chr->cloakfadefrac > 0 && !chr->cloakfadefinished)) {
-		if (chrGetShield(chr) > 0 && g_Vars.lvupdate240 > 0) {
+		if (chrGetShield(chr) > 0 && shimmerstep) {
 			s32 numiterations = (rngRandom() % 4) + 1;
 			s32 newcmnum = chr->cmnum2;
 			s32 candidate;
