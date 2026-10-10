@@ -169,6 +169,7 @@ struct gegunstat {
 // GoldenEye's WEAPONSTATBITFLAG_* bits a definition is built from (bondconstants.h)
 #define GESTATFLAG_ROLL_FLASH             0x00000001 // WEAPONSTATBITFLAG_00000001 (gunfire.c)
 #define GESTATFLAG_HAS_AUTO_AIM           0x00000008
+#define GESTATFLAG_FIRST_SHOT_ACCURACY    0x00001000
 #define GESTATFLAG_CLICKY                 0x00000010
 #define GESTATFLAG_HIDE_FIRST_PERSON_HAND 0x00002000
 #define GESTATFLAG_ONLY_1_HANDED          0x00000100
@@ -895,12 +896,25 @@ static struct invaimsettings *gegunsAim(s32 i, const struct invaimsettings *src,
 	aim->flags = src->flags;
 
 	// Auto-aim is GoldenEye's WEAPONSTATBITFLAG_HAS_AUTO_AIM, which the
-	// launchers, the knives, the grenade and the mines lack
+	// launchers, the knives, the grenade and the mines lack. And a volley's
+	// first shot at a quarter of the Inaccuracy is its
+	// WEAPONSTATBITFLAG_FIRST_SHOT_ACCURACY (gunfire.c's
+	// bullet_path_from_screen_center()), which is Perfect Dark's
+	// INVAIMFLAG_ACCURATESINGLESHOT (bgunCalculatePlayerShotSpread()) - the
+	// row's, not the host's: Goldfinger 64's M1 Garand has it and rides the
+	// Golden Gun, which has not, so every shot scattered at its whole
+	// Inaccuracy where the cartridge's single shots go nearly true (F3
+	// 20261004-174748). GoldenEye's own rows agree with their hosts but for
+	// the sniper rifle, whose Inaccuracy is 0.
 	if (stat->bitflags) {
-		aim->flags &= ~INVAIMFLAG_AUTOAIM;
+		aim->flags &= ~(INVAIMFLAG_AUTOAIM | INVAIMFLAG_ACCURATESINGLESHOT);
 
 		if (stat->bitflags & GESTATFLAG_HAS_AUTO_AIM) {
 			aim->flags |= INVAIMFLAG_AUTOAIM;
+		}
+
+		if (stat->bitflags & GESTATFLAG_FIRST_SHOT_ACCURACY) {
+			aim->flags |= INVAIMFLAG_ACCURATESINGLESHOT;
 		}
 	}
 

@@ -206,6 +206,17 @@ void *mempAllocFromBank(struct memorypool *pool, u32 size, u8 poolnum)
 		return allocation;
 	}
 
+#ifndef PLATFORM_N64
+	// Every allocation a whole number of 16 bytes, so the next starts on 16
+	// as the N64's callers all assumed (they pass ALIGN16 sizes). The PC's own
+	// sizes are not always - bg.c's AVOID_UB section loads add the compressed
+	// length, its spectator colours are ALIGN8 - and everything after one came
+	// out on an odd address, which the renderer took for a segmented one
+	// (gfx_pc.cpp's gfx_seg_marked(): Goldfinger 64's Cartel drew no bullet
+	// holes, F3 20261004-230444)
+	size = ALIGN16(size);
+#endif
+
 	if (pool->leftpos > pool->rightpos) {
 		sysLogPrintf(LOG_NOTE, "#warning: memory pool %x is full. Req: %d\n", pool, size);
 		return 0;
@@ -316,6 +327,9 @@ s32 mempRealloc(void *allocation, s32 newsize, u8 poolnum)
 	}
 
 	pool->leftpos += growsize;
+#ifndef PLATFORM_N64
+	pool->leftpos = (u8 *)ALIGN16((uintptr_t) pool->leftpos);
+#endif
 	return 1;
 }
 

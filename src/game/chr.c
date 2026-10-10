@@ -3244,7 +3244,7 @@ s32 chrTick(struct prop *prop)
 	// the mission's first frame, 14000 units away (tester F3 20260927-003241)
 	chr->hidden2 &= ~CHRH2FLAG_PASTLEVELFOG;
 
-	if (needsupdate && modIsFogDisabled() && !envIsPosInFogMaxDistance(&prop->pos, modelGetEffectiveScale(model))) {
+	if (needsupdate && modIsFogDisabled() && envIsPosPastLevelFog(&prop->pos, modelGetEffectiveScale(model))) {
 		chr->hidden2 |= CHRH2FLAG_PASTLEVELFOG;
 	}
 #endif
