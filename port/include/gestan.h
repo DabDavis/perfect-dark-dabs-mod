@@ -245,6 +245,13 @@ bool geStanPlayerFloor(s32 playernum, const struct geo *geo, struct coord *pos, 
 		f32 *ground);
 
 /**
+ * Whether the tile the player's walk is on (GoldenEye's current_tile_ptr) holds
+ * `pos` in plan with its surface at `y` (within 2): then `y` is the floor his
+ * walk has put him on, whatever height his feet have sunk to.
+ */
+bool geStanPlayerTileFloor(s32 playernum, struct coord *pos, f32 y);
+
+/**
  * A guard's floor the same way: from the tile under where it stood, walked to
  * where it goes; a floor the search found that the walk does not reach, risen
  * more than a step, is not its ground (the walked tile's surface and room are).

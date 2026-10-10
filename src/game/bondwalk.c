@@ -1520,10 +1520,20 @@ void bwalkUpdateVertical(void)
 		// Only a fall towards a floor: a player with no floor under them at
 		// all (vv_ground at the -30000 floor of the world - a room the
 		// search missed) is caught by whatever floor turns up, as ever.
+		//
+		// And not the floor of the tile his walk has crossed a link onto: that
+		// is his, as GoldenEye's Bond stands on his tile's surface. Up Dam's
+		// tower stair with the stick to one side, the climb lifted the player
+		// to the roof's height at the stairwell's side, he sank back onto the
+		// top flight, and walking on to the roof's tile he was still settling -
+		// the roof was 28 over his feet, so it was no ground, and he fell
+		// through the stairwell to the floor under it (F3 report
+		// 20261010-092009)
 		if (g_Vars.currentplayer->bdeltapos.y < 0.0f
 				&& g_Vars.currentplayer->vv_ground > -29000.0f
 				&& g_Vars.currentplayer->vv_ground < g_Vars.currentplayer->vv_manground
-				&& ground > g_Vars.currentplayer->vv_manground + 10.0f) {
+				&& ground > g_Vars.currentplayer->vv_manground + 10.0f
+				&& !geStanPlayerTileFloor(g_Vars.currentplayernum, &testpos, ground)) {
 			u16 midcol;
 			u8 midtype;
 			u16 midflags;
