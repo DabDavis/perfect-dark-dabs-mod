@@ -4111,6 +4111,89 @@ void applySpeed(f32 *distdone, f32 maxdist, f32 *speedptr, f32 accel, f32 decel,
 	*speedptr = speed;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * applySpeed for things drawn every frame (doors, lifts): above 60 FPS a frame
+ * is 1-3 ticks of 1/240 s and lvupdate60 is 0 on most frames, so applySpeed
+ * moves them only on every fourth frame. When the frame is not a whole number
+ * of 60ths this takes lvupdate240 quarter steps instead: the speed (per 60th)
+ * changes by a quarter of accel/decel and a quarter of it is travelled per
+ * step, the same rates per second. A frame of whole 60ths (every frame at 60
+ * and 30 FPS, and an online sim tick) takes the original path unchanged.
+ */
+void applySpeedSmooth(f32 *distdone, f32 maxdist, f32 *speedptr, f32 accel, f32 decel, f32 maxspeed)
+{
+	f32 speed;
+	s32 i;
+
+	if ((g_Vars.lvupdate240 & 3) == 0) {
+		applySpeed(distdone, maxdist, speedptr, accel, decel, maxspeed);
+		return;
+	}
+
+	speed = *speedptr;
+
+	for (i = 0; i < g_Vars.lvupdate240; i++) {
+		f32 limit = speed * speed * 0.5f / decel;
+		f32 distremaining = maxdist - *distdone;
+
+		if (distremaining > 0.0f) {
+			if (speed > 0.0f && distremaining <= limit) {
+				speed -= decel * 0.25f;
+
+				if (speed < decel) {
+					speed = decel;
+				}
+			} else if (speed < maxspeed) {
+				if (speed < 0.0f) {
+					speed += decel * 0.25f;
+				} else {
+					speed += accel * 0.25f;
+				}
+
+				if (speed > maxspeed) {
+					speed = maxspeed;
+				}
+			}
+
+			if (speed * 0.25f >= distremaining) {
+				*distdone = maxdist;
+				break;
+			}
+
+			*distdone += speed * 0.25f;
+		} else {
+			if (speed < 0.0f && -distremaining <= limit) {
+				speed += decel * 0.25f;
+
+				if (speed > -decel) {
+					speed = -decel;
+				}
+			} else if (speed > -maxspeed) {
+				if (speed > 0.0f) {
+					speed -= decel * 0.25f;
+				} else {
+					speed -= accel * 0.25f;
+				}
+
+				if (speed < -maxspeed) {
+					speed = -maxspeed;
+				}
+			}
+
+			if (speed * 0.25f <= distremaining) {
+				*distdone = maxdist;
+				break;
+			}
+
+			*distdone += speed * 0.25f;
+		}
+	}
+
+	*speedptr = speed;
+}
+#endif
+
 void applyRotation(f32 *angle, f32 maxrot, f32 *speed, f32 accel, f32 decel, f32 maxspeed)
 {
 	f32 tmp = maxrot - *angle;
@@ -22308,12 +22391,36 @@ bool doorCalcIntendedFrac(struct doorobj *door)
 			door->fadetime60 = 0;
 		}
 
+#ifndef PLATFORM_N64
+		{
+			// fadetime60 counts whole 60ths; above 60 FPS take off the 240ths
+			// carried towards the next one so the fade moves every frame
+			// (lvupdate240rem is 0 at 60 FPS, leaving the sum unchanged)
+			f32 fadetime = door->fadetime60;
+
+			if (fadetime > 0.0f) {
+				fadetime -= g_Vars.lvupdate240rem * 0.25f;
+
+				if (fadetime < 0.0f) {
+					fadetime = 0.0f;
+				}
+			}
+
+			if (door->mode == DOORMODE_OPENING) {
+				door->laserfade = (u32)((fadetime * 255.0f) / TICKS(60.0f));
+				return false;
+			}
+
+			door->laserfade = (u32)(((TICKS(60.0f) - fadetime) * 255.0f) / TICKS(60.0f));
+		}
+#else
 		if (door->mode == DOORMODE_OPENING) {
 			door->laserfade = (u32)((door->fadetime60 * 255.0f) / TICKS(60.0f));
 			return false;
 		}
 
 		door->laserfade = (u32)(((TICKS(60.0f) - door->fadetime60) * 255.0f) / TICKS(60.0f));
+#endif
 	}
 
 	if (door->mode == DOORMODE_OPENING || door->mode == DOORMODE_CLOSING) {
@@ -22367,7 +22474,11 @@ bool doorCalcIntendedFrac(struct doorobj *door)
 			}
 		}
 
+#ifndef PLATFORM_N64
+		applySpeedSmooth(&door->frac, end, &door->fracspeed, door->accel, door->decel, door->maxspeed);
+#else
 		applySpeed(&door->frac, end, &door->fracspeed, door->accel, door->decel, door->maxspeed);
+#endif
 
 		if (door->frac >= door->maxfrac) {
 			door->frac = door->maxfrac;

@@ -116,6 +116,9 @@ bool projectileFindCollidingProp(struct prop *prop, struct coord *pos, struct co
 s32 func0f06cd00(struct defaultobj *obj, struct coord *pos, struct coord *arg2, struct coord *arg3);
 bool func0f06d37c(struct defaultobj *obj, struct coord *arg1, struct coord *arg2, struct coord *arg3);
 void applySpeed(f32 *distdone, f32 maxdist, f32 *speed, f32 accel, f32 decel, f32 maxspeed);
+#ifndef PLATFORM_N64
+void applySpeedSmooth(f32 *distdone, f32 maxdist, f32 *speed, f32 accel, f32 decel, f32 maxspeed);
+#endif
 void applyRotation(f32 *angle, f32 maxrot, f32 *speed, f32 accel, f32 decel, f32 maxspeed);
 void projectileFall(struct defaultobj *obj, f32 mtx[3][3]);
 void knifePlayWooshSound(struct defaultobj *obj);
