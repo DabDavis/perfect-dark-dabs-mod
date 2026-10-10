@@ -363,12 +363,14 @@ void netRecPack(s32 rec, const struct netentstate *s, u8 *out)
 		out[20] = s->extra[0];
 		out[21] = s->extra[1];
 		out[22] = s->extra[2];
+		out[23] = s->deform; // (protocol 29)
 		break;
 	case NETREC_DOOR:
 		put16(out + 0, (u32)netClampI(netRound(netFinite(s->doorfrac) * 65535.f), 0, 65535));
 		out[2] = (u8)s->doormode;
 		out[3] = s->laserfade;
 		out[4] = (u8)s->flags;
+		out[5] = s->deform; // (protocol 29)
 		// (protocol 28) where it stands: GoldenEye's fall-away doors
 		// (Surface's vent hatch) fall out of their frame when let go
 		putPos(out + 6, s->pos[0]);
@@ -440,12 +442,14 @@ void netRecUnpack(s32 rec, const u8 *in, struct netentstate *s)
 		s->extra[0] = in[20];
 		s->extra[1] = in[21];
 		s->extra[2] = in[22];
+		s->deform = in[23];
 		break;
 	case NETREC_DOOR:
 		s->doorfrac = get16(in + 0) / 65535.f;
 		s->doormode = (s8)in[2];
 		s->laserfade = in[3];
 		s->flags = in[4];
+		s->deform = in[5];
 		s->pos[0] = getPos(in + 6);
 		s->pos[1] = getPos(in + 9);
 		s->pos[2] = getPos(in + 12);
@@ -1090,7 +1094,7 @@ static void netSnapWriteHdr(struct netbuf *b, const struct netsnaphdr *hdr)
  */
 static s32 netSnapHostWrite(struct netsnaphost *h, const struct netsnaphdr *hdr, const struct netsnapent *ents,
 		struct netcand *cands, s32 ncands, const struct netbaselineslot *base, const u8 *lp, const u8 *lpbase,
-		const u8 *scen, const u8 *scenbase, u32 evseq, u8 *out, s32 cap, u8 msgtype)
+		const u8 *scen, const u8 *scenbase, u32 evseq, const u8 *world, const u8 *worldbase, u8 *out, s32 cap, u8 msgtype)
 {
 	struct netbuf b;
 	const s32 nbytes = (h->maxids + 7) / 8;
@@ -1191,18 +1195,28 @@ static s32 netSnapHostWrite(struct netsnaphost *h, const struct netsnaphdr *hdr,
 		netBufWriteU8(&b, 0);
 	}
 
+	// (protocol 29) the world block
+	if (world) {
+		netBufWriteU8(&b, worldbase ? 2 : 1);
+		netDeltaWrite(&b, world, worldbase, NETWORLD_SIZE);
+	} else {
+		netBufWriteU8(&b, 0);
+	}
+
 	return netBufOk(&b) ? netBufLen(&b) : -1;
 }
 
 #define NETSNAP_MSGTYPE 14 // NETMSG_SNAP (netproto.h)
 
 s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsnapent *ents, s32 n,
-		const u8 *lp, const u8 *scen, u32 evseq, u8 *out, s32 cap)
+		const u8 *lp, const u8 *scen, u32 evseq, const u8 *world, u8 *out, s32 cap)
 {
 	const struct netbaselineslot *base;
 	const u8 *lpbase = NULL;
 	const u8 *scenbase = NULL;
+	const u8 *worldbase = NULL;
 	s32 scenlen = 0;
+	s32 worldlen = 0;
 	u16 baseline;
 	u16 seq;
 	s32 i;
@@ -1266,6 +1280,10 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		if (h->scenseq[baseline % NETBASELINE_SLOTS] == baseline) {
 			scenbase = h->scen[baseline % NETBASELINE_SLOTS];
 		}
+
+		if (h->worldseq[baseline % NETBASELINE_SLOTS] == baseline) {
+			worldbase = h->world[baseline % NETBASELINE_SLOTS];
+		}
 	}
 
 	if (lp) {
@@ -1274,6 +1292,10 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 
 	if (scen) {
 		scenlen = netDeltaEncode(scen, scenbase, NETSCEN_SIZE, s_Tmp, sizeof(s_Tmp)) + 1 + 4;
+	}
+
+	if (world) {
+		worldlen = netDeltaEncode(world, worldbase, NETWORLD_SIZE, s_Tmp, sizeof(s_Tmp));
 	}
 
 	// what each entity would cost, and how much it wants to go
@@ -1330,7 +1352,7 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 	// the most wanted first, as many as fit
 	qsort(s_Cands, ncands, sizeof(*s_Cands), netCandCmp);
 
-	fixed = NETSNAP_HDRSIZE + lplen + 1 + scenlen + 1 + 8 + 4 + 4;
+	fixed = NETSNAP_HDRSIZE + lplen + 1 + scenlen + 1 + worldlen + 1 + 8 + 4 + 4;
 
 	// every present entity on another base snapshot is listed, taken or not
 	for (i = 0; i < ncands; i++) {
@@ -1360,7 +1382,7 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		}
 
 		qsort(s_Cands, ncands, sizeof(*s_Cands), netCandEntCmp);
-		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, scen, scenbase, evseq, out, cap, NETSNAP_MSGTYPE);
+		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, scen, scenbase, evseq, world, worldbase, out, cap, NETSNAP_MSGTYPE);
 
 		if (len >= 0 || budget <= 0) {
 			break;
@@ -1378,7 +1400,7 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		}
 
 		qsort(s_Cands, ncands, sizeof(*s_Cands), netCandEntCmp);
-		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, scen, scenbase, evseq, out, cap, NETSNAP_MSGTYPE);
+		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, scen, scenbase, evseq, world, worldbase, out, cap, NETSNAP_MSGTYPE);
 
 		if (len < 0) {
 			return -1;
@@ -1458,6 +1480,13 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		h->scenseq[seq % NETBASELINE_SLOTS] = seq;
 	} else {
 		h->scenseq[seq % NETBASELINE_SLOTS] = 0;
+	}
+
+	if (world) {
+		memcpy(h->world[seq % NETBASELINE_SLOTS], world, NETWORLD_SIZE);
+		h->worldseq[seq % NETBASELINE_SLOTS] = seq;
+	} else {
+		h->worldseq[seq % NETBASELINE_SLOTS] = 0;
 	}
 
 	if (!h->firsttick) {
@@ -1629,9 +1658,11 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 	s32 i;
 	s32 haslp;
 	s32 hasscen;
+	s32 hasworld;
 	u32 evseq;
 	u8 lp[NETLP_SIZE];
 	static u8 scen[NETSCEN_SIZE];
+	static u8 world[NETWORLD_SIZE];
 	s32 entkeys = 0;
 
 	c->received++;
@@ -1902,6 +1933,21 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 
 	evseq = hasscen ? netBufReadU32(b) : 0;
 
+	// (protocol 29) the world block
+	hasworld = netBufReadU8(b);
+
+	if (hasworld == 1) {
+		netDeltaRead(b, NULL, world, NETWORLD_SIZE);
+	} else if (hasworld == 2) {
+		if (!baseinfo || !baseinfo->hasworld) {
+			return netSnapClientFail(c);
+		}
+
+		netDeltaRead(b, baseinfo->world, world, NETWORLD_SIZE);
+	} else if (hasworld != 0) {
+		return netSnapClientFail(c);
+	}
+
 	if (!netBufOk(b) || netBufRemaining(b) != 0) {
 		return netSnapClientFail(c);
 	}
@@ -1936,6 +1982,12 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 
 	if (hasscen) {
 		memcpy(info->scen, scen, NETSCEN_SIZE);
+	}
+
+	info->hasworld = hasworld != 0;
+
+	if (hasworld) {
+		memcpy(info->world, world, NETWORLD_SIZE);
 	}
 
 	if (c->newest == 0) {

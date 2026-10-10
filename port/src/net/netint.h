@@ -230,6 +230,9 @@ void netEventsHostViewReset(s32 view); // a new client in the view: its EVENTS c
 void netEventsHostCatchUp(s32 view);   // its first EVENTS: the kill table (a SCORES event)
 void netEventsHostScores(void);        // the kill table to everyone (a seat's row cleared)
 
+struct defaultobj;
+struct doorobj;
+struct coord;
 // networld.c: the world's state outside the entity records (the test's wreck and census)
 void netWorldStageStart(void);   // after netEntsStageStart
 void netWorldMatchStopped(void);
@@ -237,6 +240,19 @@ void netWorldTickBegin(void);
 void netWorldTickEnd(void);
 void netWorldNoteDeform(void);   // an objDeform made (host) or applied (client)
 void netWorldCensus(const char *why);
+void netWorldHostTickEnd(void);  // the world block for this tick's snapshots
+const u8 *netWorldHostBlock(void); // NULL outside a match
+s32 netWorldGlassCovered(struct defaultobj *obj); // the world block carries this glass (no GLASS event)
+void netWorldHostStorm(struct coord *pos);        // nbombCreateStorm on the host
+void netWorldHostGas(struct coord *pos);          // gasReleaseFromPos on the host
+void netWorldClientOnSnap(u32 hosttick, const u8 *world);
+void netWorldClientUpTo(f64 rt);  // every block the render clock has reached
+s32 netWorldObjDeformed(struct defaultobj *obj);  // drawn with objDeform's vertices
+s32 netWorldDoorGlassOut(struct doorobj *door);   // a windowed door's pane gone
+void netEntsHostNoteDeform(struct defaultobj *obj, s32 level); // netents.c: objDeform on the host
+u8 netWorldClientDeform(struct defaultobj *obj, u8 rec, u8 applied); // an OBJ/DOOR record's NETDEFORM_* byte
+void netWorldClientDoorGlass(struct doorobj *door, s32 fresh);       // a DOOR record's NETDOOR_GLASSGONE
+void netWorldLog(const char *why);
 
 // netpuppets.c
 void netPuppetsStageStart(void);  // the client's match stage began (after netEntsStageStart)

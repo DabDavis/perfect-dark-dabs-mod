@@ -318,6 +318,7 @@ void netTickEnd(void)
 		if (g_NetMode == NETMODE_SERVER) {
 			// the tick's events go before its snapshot
 			netEventsHostFlush();
+			netWorldHostTickEnd();
 			netScenHostTickEnd();
 			netEntsHostTickEnd();
 			netLagCompHostTickEnd();

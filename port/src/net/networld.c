@@ -12,22 +12,54 @@
 #include "game/nbomb.h"
 #include "game/propobj.h"
 #include "game/setuputils.h"
+#include "game/wallhit.h"
 #include "net/net.h"
+#include "net/netsnap.h"
 #include "netint.h"
 
 /**
- * The world's latest-value-wins state outside any entity record: what the
- * test harness breaks and counts (--net-test-wreck, --net-test-census), on
- * both machines, so a late joiner's world can be held against the host's.
+ * The world block (protocol 29): the world's latest-value-wins state that no
+ * entity record carries, as EverQuest Online Adventures' DRDP keeps a state
+ * channel - XOR-delta'd against what the client acked (the SNAP's baseline),
+ * never resent, the newest wins. What had gone as reliable events and was
+ * really state:
+ *
+ *   - the stage's glass broken (a bit per setup glass): a mission's broken
+ *     glass is freed on the host, so no entity record could say so, and a
+ *     joiner never heard of the panes broken before it came; a match's
+ *     glass regenerates, and the bit follows it;
+ *   - the N-bomb storms going (the last four, with the tick each began);
+ *   - the gas let go (gasReleaseFromPos: its fog stays for the match).
+ *
+ * The client applies the newest block its render clock has reached, behind
+ * no event: a lost EVENTS packet no longer holds up a pane, and a joiner's
+ * first block is the world as it stands. A change it sees as it happens is
+ * played as the host played it (shards, the storm's sound); one from before
+ * it came is put in quietly (no shards for every pane broken before a join).
  *
  * The stage's setup is the same on every machine (the content hashes say
  * so), so its glass and windowed doors are numbered by their order among
  * the setup commands on each machine alike.
+ *
+ * Also here, for the test harness: --net-test-wreck breaks the glass and
+ * windowed doors, crumples objects, starts a storm and the gas at host
+ * ticks; --net-test-census counts them on every machine, so a late joiner's
+ * world can be held against the host's (tools/ci/netcrowd.sh).
+ *
+ * Layout (NETWORLD_SIZE 320, netproto.h SNAP):
+ *     0  u16 nglass         setup glass on the stage (the bits cover the first NETWORLD_MAXGLASS)
+ *     2  u8 gas             1 once let go
+ *     3  u8 0
+ *     4  u32 gastick        the host tick it was let go
+ *     8  f32 gaspos[3]
+ *    20  storms[4]          u8 serial (1-255, 0 none), u8 0[3], u32 tick, f32 pos[3]
+ *   100  u8 glass[220]      a bit per setup glass: broken now
  */
 
 extern struct nbomb g_Nbombs[6];
 extern struct fogenvironment *g_EnvTransitionFrom;
 extern struct fogenvironment *g_EnvTransitionTo;
+extern f32 g_GasReleaseTimerMax240;
 
 #define NETWORLD_MAXLIST 4096
 #define NETWORLD_MAXWRECK 4
@@ -44,6 +76,72 @@ static u32 s_WreckAt[NETWORLD_MAXWRECK];
 static s32 s_NumWreck = 0;
 static u32 s_CensusAt[NETWORLD_MAXWRECK];
 static s32 s_NumCensus = 0;
+
+#define NW_NGLASS    0
+#define NW_GAS       2
+#define NW_GASTICK   4
+#define NW_GASPOS    8
+#define NW_STORMS    20
+#define NW_STORMSIZE 20
+#define NW_NUMSTORMS 4
+#define NW_GLASS     100
+#define NETWORLD_MAXGLASS ((NETWORLD_SIZE - NW_GLASS) * 8)
+#define NW_STORMLIFE 420  // ticks a storm is worth starting late (nbombTick's ~350, and some)
+#define NW_LATE      30   // ticks past its own after which a change is put in as it stands now
+#define NW_RING      16
+
+typedef char nw_fits[(NW_STORMS + NW_NUMSTORMS * NW_STORMSIZE <= NW_GLASS) ? 1 : -1];
+
+// host
+static u8 s_HostBlock[NETWORLD_SIZE];
+static s32 s_HostHave = 0;
+static u8 s_StormSerial = 0;
+
+// client
+struct nwblock {
+	u32 tick;
+	u8 b[NETWORLD_SIZE];
+};
+
+static struct nwblock *s_Ring = NULL; // [NW_RING], oldest first
+static s32 s_RingN = 0;
+static u8 s_Applied[NETWORLD_SIZE];   // the last block applied
+static s32 s_HaveApplied = 0;
+static u32 s_ClGlassFresh = 0;   // panes broken as they broke (shards)
+static u32 s_ClGlassQuiet = 0;   // ... put in as they stand (before this machine came, or again)
+static u32 s_ClStorms = 0;
+static u32 s_ClStormsLate = 0;   // started part way through
+static u32 s_ClGas = 0;
+static u32 s_ClBlocks = 0;       // blocks applied that changed something
+static f64 s_ClLagSum = 0;       // render ticks past the block's tick they were applied at
+static f64 s_ClLagMax = 0;
+static u32 s_ClDoorGlass = 0;
+static u32 s_ClDeforms = 0;      // objDeform calls made from records
+static u32 s_ClUndeforms = 0;    // ... and objects made whole again
+
+static void put16(u8 *p, u32 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
+static u16 get16(const u8 *p) { return (u16)(p[0] | (p[1] << 8)); }
+static void put32(u8 *p, u32 v) { put16(p, v); put16(p + 2, v >> 16); }
+static u32 get32(const u8 *p) { return get16(p) | ((u32)get16(p + 2) << 16); }
+
+static void putf(u8 *p, f32 f)
+{
+	u32 v;
+
+	memcpy(&v, &f, 4);
+	put32(p, v);
+}
+
+static f32 getf(const u8 *p)
+{
+	u32 v = get32(p);
+	f32 f;
+
+	memcpy(&f, &v, 4);
+
+	// off the wire: finite and inside the world, or 0
+	return f == f && f < 1048576.f && f > -1048576.f ? f : 0.f;
+}
 
 static void netWorldFreeLists(void)
 {
@@ -72,6 +170,53 @@ static s32 netWorldDoorGlassGone(struct doorobj *door)
 	return rw && !rw->toggle.visible;
 }
 
+// (protocol 29) a windowed door's pane shot out: the DOOR record's NETDOOR_GLASSGONE
+s32 netWorldDoorGlassOut(struct doorobj *door)
+{
+	return door && netWorldDoorIsWindowed(door) && netWorldDoorGlassGone(door);
+}
+
+/**
+ * Client: the host's door has lost its pane. As the host broke it (shards)
+ * when this machine saw the door whole before, else put in as it stands; a
+ * door whose portal was shut takes a second call (doorDestroyGlass forces
+ * the portal open on the first, as the stock third and fourth shots do)
+ */
+void netWorldClientDoorGlass(struct doorobj *door, s32 fresh)
+{
+	struct model *model;
+	union modelrwdata *rw;
+
+	if (!door || !door->base.prop || !netWorldDoorIsWindowed(door) || netWorldDoorGlassGone(door)) {
+		return;
+	}
+
+	door->glasshits = 3;
+
+	if (fresh) {
+		doorDestroyGlass(door);
+
+		if (!netWorldDoorGlassGone(door)) {
+			doorDestroyGlass(door);
+		}
+	} else {
+		model = door->base.model;
+
+		if (door->portalnum >= 0) {
+			g_BgPortals[door->portalnum].flags |= PORTALFLAG_FORCEOPEN;
+		}
+
+		wallhitsFreeByProp(door->base.prop, 1);
+		rw = modelGetNodeRwData(model, modelGetPart(model->definition, MODELPART_WINDOWEDDOOR_0001));
+
+		if (rw) {
+			rw->toggle.visible = false;
+		}
+	}
+
+	s_ClDoorGlass++;
+}
+
 static s32 netWorldGlassGone(struct defaultobj *obj)
 {
 	return (obj->hidden2 & OBJH2FLAG_DESTROYED) || (obj->hidden & OBJHFLAG_DELETING) || obj->prop == NULL
@@ -79,7 +224,7 @@ static s32 netWorldGlassGone(struct defaultobj *obj)
 }
 
 // Whether any of the object's display lists draws vertices of its own (objDeform's copies)
-static s32 netWorldObjDeformed(struct defaultobj *obj)
+s32 netWorldObjDeformed(struct defaultobj *obj)
 {
 	struct model *model = obj->model;
 	struct modelnode *node;
@@ -128,6 +273,15 @@ void netWorldStageStart(void)
 	s_Deforms = 0;
 	s_NumWreck = 0;
 	s_NumCensus = 0;
+	memset(s_HostBlock, 0, sizeof(s_HostBlock));
+	s_HostHave = 0;
+	s_StormSerial = 0;
+	s_RingN = 0;
+	memset(s_Applied, 0, sizeof(s_Applied));
+	s_HaveApplied = 0;
+	s_ClGlassFresh = s_ClGlassQuiet = s_ClStorms = s_ClStormsLate = s_ClGas = s_ClBlocks = 0;
+	s_ClLagSum = s_ClLagMax = 0;
+	s_ClDoorGlass = s_ClDeforms = s_ClUndeforms = 0;
 
 	if (g_NetMode == NETMODE_NONE || !cmd) {
 		return;
@@ -184,7 +338,15 @@ void netWorldStageStart(void)
 
 void netWorldMatchStopped(void)
 {
+	if (g_NetMode == NETMODE_CLIENT && s_HaveApplied) {
+		netWorldLog("at the match's end");
+	}
+
 	netWorldFreeLists();
+	free(s_Ring);
+	s_Ring = NULL;
+	s_RingN = 0;
+	s_HostHave = 0;
 }
 
 void netWorldNoteDeform(void)
@@ -325,4 +487,308 @@ void netWorldTickEnd(void)
 			netWorldCensus("at the test's tick");
 		}
 	}
+}
+
+/*
+ * Host
+ */
+
+// Whether the world block carries this glass (else E5's GLASS event does)
+s32 netWorldGlassCovered(struct defaultobj *obj)
+{
+	s32 i;
+
+	for (i = 0; i < s_NumGlass && i < NETWORLD_MAXGLASS; i++) {
+		if (s_Glass[i] == obj) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+// nbombCreateStorm on the host: the next of the four storm slots
+void netWorldHostStorm(struct coord *pos)
+{
+	u8 *p;
+
+	if (g_NetMode != NETMODE_SERVER || !pos) {
+		return;
+	}
+
+	s_StormSerial = s_StormSerial == 255 ? 1 : s_StormSerial + 1;
+	p = s_HostBlock + NW_STORMS + (s_StormSerial % NW_NUMSTORMS) * NW_STORMSIZE;
+	memset(p, 0, NW_STORMSIZE);
+	p[0] = s_StormSerial;
+	put32(p + 4, g_NetTick);
+	putf(p + 8, pos->x);
+	putf(p + 12, pos->y);
+	putf(p + 16, pos->z);
+}
+
+// gasReleaseFromPos on the host: let go for the rest of the match
+void netWorldHostGas(struct coord *pos)
+{
+	if (g_NetMode != NETMODE_SERVER || !pos) {
+		return;
+	}
+
+	s_HostBlock[NW_GAS] = 1;
+	put32(s_HostBlock + NW_GASTICK, g_NetTick);
+	putf(s_HostBlock + NW_GASPOS + 0, pos->x);
+	putf(s_HostBlock + NW_GASPOS + 4, pos->y);
+	putf(s_HostBlock + NW_GASPOS + 8, pos->z);
+}
+
+/**
+ * netTickEnd, before the snapshots: the glass as it stands now (broken, or
+ * regenerated in a match), so the block is the host's world at the tick
+ */
+void netWorldHostTickEnd(void)
+{
+	const s32 n = s_NumGlass < NETWORLD_MAXGLASS ? s_NumGlass : NETWORLD_MAXGLASS;
+	s32 i;
+
+	if (g_NetMode != NETMODE_SERVER || !s_Glass) {
+		return;
+	}
+
+	put16(s_HostBlock + NW_NGLASS, (u32)n);
+	memset(s_HostBlock + NW_GLASS, 0, NETWORLD_SIZE - NW_GLASS);
+
+	for (i = 0; i < n; i++) {
+		if (netWorldGlassGone(s_Glass[i])) {
+			s_HostBlock[NW_GLASS + (i >> 3)] |= (u8)(1 << (i & 7));
+		}
+	}
+
+	s_HostHave = 1;
+}
+
+const u8 *netWorldHostBlock(void)
+{
+	return g_NetMode == NETMODE_SERVER && s_HostHave ? s_HostBlock : NULL;
+}
+
+/*
+ * Client
+ */
+
+void netWorldClientOnSnap(u32 hosttick, const u8 *world)
+{
+	if (!s_Ring) {
+		s_Ring = calloc(NW_RING, sizeof(*s_Ring));
+
+		if (!s_Ring) {
+			return;
+		}
+	}
+
+	// snapshots come newest last (an older one is dropped as it is decoded)
+	if (s_RingN && hosttick <= s_Ring[s_RingN - 1].tick) {
+		return;
+	}
+
+	if (s_RingN == NW_RING) {
+		memmove(s_Ring, s_Ring + 1, sizeof(*s_Ring) * (NW_RING - 1));
+		s_RingN--;
+	}
+
+	s_Ring[s_RingN].tick = hosttick;
+	memcpy(s_Ring[s_RingN].b, world, NETWORLD_SIZE);
+	s_RingN++;
+}
+
+// A pane broken here as it stands: no shards, its marks gone (glassDestroy without the show)
+static void netWorldGlassQuiet(struct defaultobj *obj)
+{
+	wallhitsFreeByProp(obj->prop, 0);
+	wallhitsFreeByProp(obj->prop, 1);
+	obj->damage = 0;
+	obj->hidden |= OBJHFLAG_DELETING;
+	obj->hidden2 |= OBJH2FLAG_DESTROYED;
+}
+
+static s32 netWorldApply(const u8 *b, u32 tick, f64 rt)
+{
+	const s32 n = get16(b + NW_NGLASS);
+	const f64 age = rt - tick;
+	s32 changed = 0;
+	s32 i;
+	s32 k;
+
+	// the glass: a pane the host has broken that stands here
+	for (i = 0; i < n && i < s_NumGlass && i < NETWORLD_MAXGLASS; i++) {
+		const u8 bit = (u8)(1 << (i & 7));
+		struct defaultobj *obj = s_Glass[i];
+
+		if ((b[NW_GLASS + (i >> 3)] & bit) == 0 || netWorldGlassGone(obj)) {
+			continue;
+		}
+
+		// glassDestroy reads the glass's bbox unchecked
+		if (!obj->model || !objFindBboxRodata(obj)) {
+			continue;
+		}
+
+		// seen whole in the last block and broken in this one, in time: as
+		// the host broke it; else (a joiner's first block, a pane this
+		// machine's own regeneration put back early) as it stands
+		if (s_HaveApplied && (s_Applied[NW_GLASS + (i >> 3)] & bit) == 0 && age <= NW_LATE) {
+			glassDestroy(obj);
+			s_ClGlassFresh++;
+		} else {
+			netWorldGlassQuiet(obj);
+			s_ClGlassQuiet++;
+		}
+
+		changed = 1;
+	}
+
+	// the storms: one this machine has not started
+	for (k = 0; k < NW_NUMSTORMS; k++) {
+		const u8 *p = b + NW_STORMS + k * NW_STORMSIZE;
+		const u8 *q = s_Applied + NW_STORMS + k * NW_STORMSIZE;
+		const f64 sage = rt - get32(p + 4);
+		struct coord pos;
+
+		if (p[0] == 0 || (s_HaveApplied && p[0] == q[0])) {
+			continue;
+		}
+
+		changed = 1;
+
+		if (sage > NW_STORMLIFE) {
+			continue; // over before this machine heard of it
+		}
+
+		pos.x = getf(p + 8);
+		pos.y = getf(p + 12);
+		pos.z = getf(p + 16);
+		nbombCreateStorm(&pos, NULL);
+		s_ClStorms++;
+
+		// part way through: as old as the host's
+		if (sage > NW_LATE) {
+			s32 j;
+
+			for (j = 0; j < 6; j++) {
+				if (g_Nbombs[j].age240 == 0 && g_Nbombs[j].pos.x == pos.x && g_Nbombs[j].pos.z == pos.z) {
+					g_Nbombs[j].age240 = (s32)(sage * 4);
+					s_ClStormsLate++;
+					break;
+				}
+			}
+		}
+	}
+
+	// the gas, once
+	if (b[NW_GAS] && !(s_HaveApplied && s_Applied[NW_GAS])) {
+		const f64 gage = rt - get32(b + NW_GASTICK);
+		struct coord pos;
+
+		changed = 1;
+
+		// gasTick fades to the stage's second sky, which a stage with no
+		// sky of its own has not got (envApplyTransitionFrac would read NULL)
+		if (g_EnvTransitionFrom && g_EnvTransitionTo) {
+			pos.x = getf(b + NW_GASPOS + 0);
+			pos.y = getf(b + NW_GASPOS + 4);
+			pos.z = getf(b + NW_GASPOS + 8);
+			gasReleaseFromPos(&pos);
+			s_ClGas++;
+
+			// let go a while ago: as far through its fade as the host's
+			// (gasTick adds a 60th a 60th)
+			if (gage > NW_LATE) {
+				g_GasReleaseTimer240 = (f32)gage < g_GasReleaseTimerMax240 ? (f32)gage : g_GasReleaseTimerMax240;
+
+				if (g_GasReleaseTimer240 >= g_GasReleaseTimerMax240) {
+					g_GasReleasing = false;
+				}
+			}
+		}
+	}
+
+	memcpy(s_Applied, b, NETWORLD_SIZE);
+	s_HaveApplied = 1;
+
+	return changed;
+}
+
+/**
+ * After the pose step and the events (netClientPosePuppets): the newest
+ * block the render clock has reached, never held for an event
+ */
+void netWorldClientUpTo(f64 rt)
+{
+	s32 i;
+	s32 at = -1;
+
+	if (g_NetMode != NETMODE_CLIENT || !s_Ring || !s_RingN || !s_Glass) {
+		return;
+	}
+
+	for (i = 0; i < s_RingN; i++) {
+		if ((f64)s_Ring[i].tick <= rt) {
+			at = i;
+		}
+	}
+
+	if (at < 0) {
+		return;
+	}
+
+	if (!s_HaveApplied || memcmp(s_Ring[at].b, s_Applied, NETWORLD_SIZE) != 0) {
+		if (netWorldApply(s_Ring[at].b, s_Ring[at].tick, rt)) {
+			const f64 lag = rt - s_Ring[at].tick;
+
+			s_ClBlocks++;
+			s_ClLagSum += lag;
+
+			if (lag > s_ClLagMax) {
+				s_ClLagMax = lag;
+			}
+		}
+	}
+
+	memmove(s_Ring, s_Ring + at + 1, sizeof(*s_Ring) * (s_RingN - at - 1));
+	s_RingN -= at + 1;
+}
+
+/**
+ * Client (netpuppets.c, an OBJ or DOOR record posed): the host's crumpling
+ * of the object, from the record's NETDEFORM_* byte; applied is what this
+ * machine has made of it so far. Returns the new applied byte
+ */
+u8 netWorldClientDeform(struct defaultobj *obj, u8 rec, u8 applied)
+{
+	const s32 c = NETDEFORM_COUNT(rec);
+	s32 a = NETDEFORM_COUNT(applied);
+	const s32 level = NETDEFORM_LEVEL(rec) ? NETDEFORM_LEVEL(rec) : 1;
+
+	if (!obj || !obj->model || c == a) {
+		return rec;
+	}
+
+	if (c > a) {
+		for (; a < c; a++) {
+			objDeform(obj, level);
+			netWorldNoteDeform();
+			s_ClDeforms++;
+		}
+	} else if (c == 0 && netWorldObjDeformed(obj)) {
+		// whole again on the host (a match's prop regenerated)
+		modelFreeVertices(VTXSTORETYPE_OBJVTX, obj->model);
+		s_ClUndeforms++;
+	}
+
+	return rec;
+}
+
+void netWorldLog(const char *why)
+{
+	sysLogPrintf(LOG_NOTE, "net: world client %s (tick %u): blocks that changed something %u (lag mean %.1f max %.1f ticks), glass broken as it broke %u, as it stood %u, storms %u (part way %u), gas %u, door panes %u, deforms from records %u (made whole %u)",
+			why, g_NetTick, s_ClBlocks, s_ClBlocks ? s_ClLagSum / s_ClBlocks : 0.0, s_ClLagMax, s_ClGlassFresh, s_ClGlassQuiet,
+			s_ClStorms, s_ClStormsLate, s_ClGas, s_ClDoorGlass, s_ClDeforms, s_ClUndeforms);
 }

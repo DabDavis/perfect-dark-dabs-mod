@@ -98,6 +98,8 @@ struct netpup {
 	u32 listtick;        // (protocol 24) the host tick of the record that last decided in or out of the world
 	u16 listgen;         // ... its generation
 	u8 listout;          // ... and what it said
+	u8 deform;           // (protocol 29) the record's NETDEFORM_* byte as applied here
+	u16 deformgen;       // ... for this host generation
 };
 
 static struct netpup *s_Pup = NULL;
@@ -1354,6 +1356,12 @@ static void netPupDoor(struct netpup *u, struct prop *prop, const struct netents
 	door->mode = s->doormode;
 	door->laserfade = s->laserfade;
 
+	// (protocol 29) a windowed door's pane shot out on the host: as it
+	// broke when this machine had the door whole before, else as it stands
+	if (s->flags & NETDOOR_GLASSGONE) {
+		netWorldClientDoorGlass(door, u->havestate);
+	}
+
 	if (!u->havestate || frac != door->frac) {
 		door->frac = frac;
 		doorUpdateTiles(door);
@@ -2141,6 +2149,11 @@ void netClientPosePuppets(void)
 
 	if (g_NetClientWorld && g_NetPass != NETPASS_PRESENT_ONLY) {
 		netEventsClientDrain(s_PoseRtValid, s_PoseRt);
+
+		// (protocol 29) the world block the render clock has reached
+		if (s_PoseRtValid) {
+			netWorldClientUpTo(s_PoseRt);
+		}
 	}
 }
 
@@ -2528,6 +2541,16 @@ static void netClientPosePuppetsRun(void)
 			break;
 		default:
 			break;
+		}
+
+		// (protocol 29) the host's crumpling of the object, as state
+		if ((rec == NETREC_OBJ || rec == NETREC_DOOR) && prop->obj) {
+			if (u->deformgen != gen) {
+				u->deform = 0;
+				u->deformgen = gen;
+			}
+
+			u->deform = netWorldClientDeform(prop->obj, st.deform, u->deform);
 		}
 
 		netPupTrace(rt, id, kind, prop);

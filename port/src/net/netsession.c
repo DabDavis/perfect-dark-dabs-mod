@@ -3806,6 +3806,8 @@ static void netClientEvent(const struct netevent *ev)
 			netEntsClientOnSnap(ev->data, ev->len);
 			break;
 		case NETMSG_EVENTS:
+		case NETMSG_EVFX:
+		case NETMSG_EVSHOT:
 			netEventsClientOnMsg(ev->data, ev->len);
 			break;
 		default:

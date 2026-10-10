@@ -101,6 +101,8 @@ static s32 s_LpHavePrev[NET_MAXVIEWS];
 static f32 *s_TelePrev = NULL;                // [maxids * 3]: a chr's position at its last capture
 static u8 *s_TeleCount = NULL;                  // [maxids]
 static u16 *s_TeleGen = NULL;                 // [maxids]
+static u8 *s_Deform = NULL;                   // [maxids] (protocol 29) host: NETDEFORM_* of the prop's object
+static u16 *s_DeformGen = NULL;               // [maxids] ... for this generation of the prop
 static u32 s_OfferedSum[NET_MAXVIEWS];
 static u8 s_Pkt[NET_MAXUNRELIABLE];
 
@@ -439,6 +441,8 @@ static void netEntsFreeAll(void)
 	free(s_TelePrev);
 	free(s_TeleCount);
 	free(s_TeleGen);
+	free(s_Deform);
+	free(s_DeformGen);
 	free(s_Desc);
 	free(s_DescValid);
 	s_Desc = NULL;
@@ -452,6 +456,8 @@ static void netEntsFreeAll(void)
 	s_TelePrev = NULL;
 	s_TeleCount = NULL;
 	s_TeleGen = NULL;
+	s_Deform = NULL;
+	s_DeformGen = NULL;
 	s_NumCmds = 0;
 	s_MaxIds = 0;
 }
@@ -531,8 +537,11 @@ void netEntsStageStart(void)
 	s_TelePrev = calloc(s_MaxIds * 3, sizeof(f32));
 	s_TeleCount = calloc(s_MaxIds, 1);
 	s_TeleGen = calloc(s_MaxIds, sizeof(u16));
+	s_Deform = calloc(s_MaxIds, 1);
+	s_DeformGen = calloc(s_MaxIds, sizeof(u16));
 
-	if (!s_SetupCmdOfProp || !s_SetupGenOfProp || !s_Cap || !s_Ents || !s_TelePrev || !s_TeleCount || !s_TeleGen) {
+	if (!s_SetupCmdOfProp || !s_SetupGenOfProp || !s_Cap || !s_Ents || !s_TelePrev || !s_TeleCount || !s_TeleGen
+			|| !s_Deform || !s_DeformGen) {
 		sysLogPrintf(LOG_ERROR, "net: out of memory for the entity table");
 		netEntsFreeAll();
 		return;
@@ -739,6 +748,45 @@ static void netCaptureRot(f32 rot[3][3], f32 *q)
 	netQuatFromMatrix(m, q);
 }
 
+/**
+ * (protocol 29) Host: objDeform made on an object (E5's hook): counted on its
+ * prop, so its record carries the crumpling as state - a joiner and a
+ * client that comes into its scope later see it crumpled as well
+ */
+void netEntsHostNoteDeform(struct defaultobj *obj, s32 level)
+{
+	const s32 idx = obj && obj->prop ? netPropIndex(obj->prop) : -1;
+	u8 b;
+
+	if (g_NetMode != NETMODE_SERVER || !s_Deform || idx < 0 || idx >= s_MaxIds) {
+		return;
+	}
+
+	b = s_DeformGen[idx] == netPropGen(idx) ? s_Deform[idx] : 0;
+	level = level < 1 ? 1 : level > 15 ? 15 : level;
+	b = (u8)((NETDEFORM_COUNT(b) < 15 ? NETDEFORM_COUNT(b) + 1 : 15) | (level << 4));
+	s_Deform[idx] = b;
+	s_DeformGen[idx] = netPropGen(idx);
+}
+
+// The crumpling the record carries: none once the object is whole again
+// (a match's prop regenerated: its own vertices back, modelFreeVertices)
+static u8 netCaptureDeform(struct prop *prop, struct defaultobj *obj)
+{
+	const s32 idx = netPropIndex(prop);
+
+	if (!s_Deform || idx < 0 || idx >= s_MaxIds || s_DeformGen[idx] != netPropGen(idx) || !s_Deform[idx]) {
+		return 0;
+	}
+
+	if (!netWorldObjDeformed(obj)) {
+		s_Deform[idx] = 0;
+		return 0;
+	}
+
+	return s_Deform[idx];
+}
+
 static void netCaptureObj(struct netcap *c, struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
@@ -756,6 +804,13 @@ static void netCaptureObj(struct netcap *c, struct prop *prop)
 		st->doormode = door->mode;
 		st->laserfade = door->laserfade;
 		st->flags = (prop->flags & PROPFLAG_ENABLED) ? 1 : 0;
+
+		// (protocol 29) a windowed door's pane shot out (doorDestroyGlass)
+		if (netWorldDoorGlassOut(door)) {
+			st->flags |= NETDOOR_GLASSGONE;
+		}
+
+		st->deform = netCaptureDeform(prop, obj);
 	} else if (c->desc.rec == NETREC_LIFT) {
 		struct liftobj *lift = (struct liftobj *)obj;
 
@@ -775,6 +830,7 @@ static void netCaptureObj(struct netcap *c, struct prop *prop)
 		st->flags = flags;
 		netCaptureRot(obj->realrot, st->quat);
 		st->damage = obj->damage;
+		st->deform = netCaptureDeform(prop, obj);
 		st->extra[0] = netWeaponOf(prop) == 0xff ? 0 : netWeaponOf(prop);
 
 		// (protocol 23) GoldenEye's tank: the turret against the hull in
@@ -1204,7 +1260,7 @@ static void netHostSendSnap(s32 slot)
 		netLpCapture(slot, pn, lp);
 	}
 
-	len = netSnapHostBuild(h, &hdr, s_Ents, n, pn >= 0 && g_Vars.players[pn]->prop ? lp : NULL, netScenHostBlock(), netEventsHostSeq(slot), s_Pkt, sizeof(s_Pkt));
+	len = netSnapHostBuild(h, &hdr, s_Ents, n, pn >= 0 && g_Vars.players[pn]->prop ? lp : NULL, netScenHostBlock(), netEventsHostSeq(slot), netWorldHostBlock(), s_Pkt, sizeof(s_Pkt));
 
 	if (len <= 0) {
 		return;
@@ -2194,6 +2250,10 @@ void netEntsClientOnSnap(const u8 *data, s32 len)
 
 		if (info && info->hasscen) {
 			netScenClientOnSnap(hdr.hosttick, info->scen, info->evseq);
+		}
+
+		if (info && info->hasworld) {
+			netWorldClientOnSnap(hdr.hosttick, info->world);
 		}
 	}
 
