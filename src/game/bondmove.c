@@ -742,6 +742,35 @@ void bmoveResetMoveData(struct movedata *data)
  * 0, 0, 0, 1 = tickmode warp
  * 1, 1, 0, 1 = autowalk
  */
+/**
+ * How far the B button's hold timer (usedowntime, in 60ths: TICKS(25) shows
+ * the other function, TICKS(50) for the sniper's crouch) moves for sample i of
+ * this frame. The timer counted samples, which is one a 60th at 60 FPS but one
+ * a frame above it, so at 240 FPS a hold of B changed modes four times as fast.
+ * Off the 60 FPS path it moves by the frame's 60ths (lvupdate60, the carried
+ * remainder included) on the frame's last sample instead - and by at least one
+ * on the first held frame, so a tap shorter than a 60th still reads as a tap
+ * (usedowntime > 0 on release).
+ */
+static s32 bmoveUseDownStep(s32 samplenum, s32 numsamples)
+{
+#ifndef PLATFORM_N64
+	if (g_Vars.lvupdate240 != g_Vars.lvupdate60 * 4) {
+		if (samplenum != numsamples - 1) {
+			return 0;
+		}
+
+		if (g_Vars.currentplayer->usedowntime == 0 && g_Vars.lvupdate60 == 0) {
+			return 1;
+		}
+
+		return g_Vars.lvupdate60;
+	}
+#endif
+
+	return 1;
+}
+
 void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool ignorec2)
 {
 	struct movedata movedata;
@@ -1178,10 +1207,10 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 											} else if (result == USETIMER_REPEAT) {
 												g_Vars.currentplayer->usedowntime = -2;
 											} else {
-												g_Vars.currentplayer->usedowntime++;
+												g_Vars.currentplayer->usedowntime += bmoveUseDownStep(i, numsamples);
 											}
 										} else {
-											g_Vars.currentplayer->usedowntime++;
+											g_Vars.currentplayer->usedowntime += bmoveUseDownStep(i, numsamples);
 										}
 									}
 								} else if (g_Vars.currentplayer->usedowntime >= -2) {
@@ -1718,10 +1747,10 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 											} else if (result == USETIMER_REPEAT) {
 												g_Vars.currentplayer->usedowntime = -2;
 											} else {
-												g_Vars.currentplayer->usedowntime++;
+												g_Vars.currentplayer->usedowntime += bmoveUseDownStep(i, numsamples);
 											}
 										} else {
-											g_Vars.currentplayer->usedowntime++;
+											g_Vars.currentplayer->usedowntime += bmoveUseDownStep(i, numsamples);
 										}
 									}
 								} else {
