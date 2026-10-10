@@ -2489,13 +2489,29 @@ void playerExecutePreparedWarp(void)
 			// The player's prop is the eye (cam_pos and prop->pos are the same
 			// point in normal play), so it is what the shot looks at - Bond's,
 			// which in online co-op is the host's player, on every machine and
-			// for every player's view (netcoop.c)
+			// for every player's view (netcoop.c).
+			//
+			// But not while his body is drawn, which an ending's shots are
+			// there for: the prop is then the body's root, at his hips, and
+			// GoldenEye's point (field_3C4, the smoothed field_488.pos) is 52
+			// over it - his eye, at first, then 7 of the body's own units up
+			// its root (bondview2.c, the player's chrTick branch), which
+			// follows him wherever the ending moves the body. On the
+			// cartridge TND64 Press's ending aims at y 163 and then 156-157
+			// with his root at 111 and then 105 (52 over it each time);
+			// looking at the root put his head above the frame in all three
+			// shots (F3 20261006-034615). GoldenEye's world is ours unscaled,
+			// so the 52 is the same on every level
 			if (g_WarpType2HasDirection == 1) {
 				struct prop *eye = g_Vars.bond && g_Vars.bond->prop ? g_Vars.bond->prop : g_Vars.currentplayer->prop;
 
 				look.x = eye->pos.x - pos.x;
 				look.y = eye->pos.y - pos.y;
 				look.z = eye->pos.z - pos.z;
+
+				if (eye->chr && eye->chr->model) {
+					look.y += 52.0f;
+				}
 			} else {
 				look.x = cosf(g_WarpType2Params->look[1]) * sinf(g_WarpType2Params->look[0]);
 				look.y = sinf(g_WarpType2Params->look[1]);

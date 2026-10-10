@@ -375,14 +375,26 @@ Rigs: `~/wt/tnd-run/rig` (the game, all three sources in added-content/),
   longer lands in `joyReadData()` since netplay moved joy.c's lines: the
   probe here used the line after `nextlast = index` (728 at b9a21531f).
 - **Press's ending (F3 20261006-034615)**: three CameraSwitches with the
-  look-at-Bond flag (list 0x1001 at +88, +229, +289, tags 1, 5 and 6); ours
-  aims each at Bond's prop, which during the ending is his body's root (y 105
-  over a floor at 0), so his head is above the frame from all three. By
-  bondview2.c GoldenEye aims at `field_3C4`, the smoothed `field_488.pos`,
-  which while Bond's body is drawn in POSEND is his root matrix's position
-  plus 7 along its y axis (bondview2.c, the player's chrTick branch) - the
-  same point - so the code alone says the framing agrees; not settled on the
-  cartridge (the oracle host was down for the whole pass). The probe for it,
-  untested: `~/wt/f3-1010a-tndperf-run/tools/outrocam_ares.py` (a level list
-  put on a chr from its first HideAllChrs, Bond's prop, eye, look-at point and
-  root matrix logged with a picture at each frame given).
+  look-at-Bond flag (list 0x1001 at +88, +229, +289, tags 1, 5 and 6), and
+  ours aimed each at Bond's prop, which while his body is drawn is the body's
+  root at his hips (y 105-111 over a floor at 0): his head was above the
+  frame in all three. The cartridge (`view/outrocam_ares.py`, the level's
+  background list sent to its HideAllChrs) aims at y 157-163 - `field_3C4`,
+  the smoothed `field_488.pos`, which stays at his eye height over his feet
+  (163.1 = his standing eye; 156-157 once his ending animation moves the body)
+  - and frames his head and shoulders. Reading bondview2.c alone had said the
+  root: the cartridge disagreed, so trust the probe. Both phases are 52 over
+  the root (163.1 over 111.1, then 156.5-157.1 over 104.8-105.2, the body's
+  own up axis tilting it a few units: 7 of GoldenEye's model units), and
+  GoldenEye's world is ours unscaled, so a converted mission's look-at-Bond
+  shot now aims 52 over his prop while his body has a model (player.c,
+  playerExecutePreparedWarp's GE branch) - over his root rather than his
+  ground plus eye height, which would stay on the floor while the body falls
+  (Dam's dive). In normal play the prop is the eye and nothing changes. This
+  is GoldenEye's own rule, so Dam's, Statue Park's, the Cradle's and
+  Egyptian's look-at-Bond shots move the same way (not pictured).
+  In GoldenEye a background list (0x1000 on, the same ids as ours) runs on a
+  chr record with no prop that is in no slot of g_ChrSlots; the probe finds
+  it by the list's address in RDRAM. Noticed, not chased: on the cartridge
+  Bond's hands are empty through this ending (its BondHideWeapons, ours
+  00ed); ours shows his gun.
