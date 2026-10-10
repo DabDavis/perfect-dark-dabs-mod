@@ -16434,6 +16434,18 @@ void objCheckDestroyed(struct defaultobj *obj, struct coord *pos, s32 playernum)
 
 				func0f065e74(&rootprop->pos, rootprop->rooms, pos, rooms);
 
+#ifndef PLATFORM_N64
+				// GoldenEye blows a destroyed prop apart again with its
+				// explosion 0x10 (propobj.c's objExplode(), every fourth shot
+				// past a destroyed level, whatever the prop's own explosion
+				// is): debris and a puff, no flame, no blast, no shake - the
+				// row Perfect Dark kept as its 16. Perfect Dark's own small
+				// fireball (6) hurt and burned on a converted level's
+				// wreckage at every fourth shot (F3 20261005-035700, Aztec)
+				if (geRoomActive()) {
+					explosionCreateSimple(prop, pos, rooms, EXPLOSIONTYPE_16, playernum);
+				} else
+#endif
 				if (exptype != EXPLOSIONTYPE_NONE) {
 					explosionCreateSimple(prop, pos, rooms, EXPLOSIONTYPE_6, playernum);
 				}
