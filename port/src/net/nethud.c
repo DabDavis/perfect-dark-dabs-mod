@@ -19,6 +19,7 @@
 #include "game/chraction.h"
 #include "game/modspectate.h"
 #include "game/playermgr.h"
+#include "game/player.h"
 #include "game/prop.h"
 #include "game/propobj.h"
 #include "game/radar.h"
@@ -751,6 +752,12 @@ static s32 netHudTagPlayerOf(struct prop *prop)
 	}
 
 	if ((chr->hidden & CHRHFLAG_CLOAKED) && !USINGDEVICE(DEVICE_IRSCANNER)) {
+		return -1;
+	}
+
+	// a body this camera stands in is not drawn (playerGetNetBodyAlphaFrac:
+	// a co-op mission's players start on one spot), nor named
+	if (playerGetNetBodyAlphaFrac(prop) <= 0) {
 		return -1;
 	}
 

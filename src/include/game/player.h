@@ -89,6 +89,7 @@ s32 playerTetherBodyState(s32 playernum, f32 *facing, f32 *travel, s32 *travelse
 f32 playerGetCutsceneBodyAlphaFrac(struct prop *prop);
 f32 playerGetOwnBodyAlphaFrac(struct prop *prop);
 f32 playerGetNearChrAlphaFrac(struct prop *prop);
+f32 playerGetNetBodyAlphaFrac(struct prop *prop);
 f32 playerGetShotOriginPullback(void);
 #ifndef PLATFORM_N64
 bool playerGetCameraToEyeOffset(struct coord *offset);

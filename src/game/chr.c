@@ -4403,6 +4403,15 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		solidfade = solidfade || frac < 1.0f;
 	}
 
+	// netplay: another player's body round this machine's camera (players
+	// pass through each other and start on one spot), and out of the opening
+	if (g_NetMode != NETMODE_NONE) {
+		f32 frac = playerGetNetBodyAlphaFrac(prop);
+
+		alpha = alpha * frac;
+		solidfade = solidfade || frac < 1.0f;
+	}
+
 	if (g_Vars.currentplayer->visionmode == VISIONMODE_XRAY
 			|| (!USINGDEVICE(DEVICE_IRSCANNER) && chrGetCloakAlpha(chr) < 0xff)) {
 		solidfade = false;
