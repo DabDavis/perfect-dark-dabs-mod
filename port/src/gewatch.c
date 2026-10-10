@@ -1309,6 +1309,11 @@ s32 geWatchIsSettled(void)
 	return geWatchIsOpen() && g_Watch.state == WS_OPEN;
 }
 
+s32 geWatchIsSettledFor(s32 playernum)
+{
+	return geWatchHoldsPlayer(playernum) && g_Watch.state == WS_OPEN;
+}
+
 // GoldenEye's own clock for the watch: the real frame, which keeps running
 // while the level is frozen (speedgraphframes)
 static f32 watchDelta(void)

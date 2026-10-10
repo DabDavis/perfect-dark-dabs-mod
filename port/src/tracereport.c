@@ -331,11 +331,18 @@ void traceReportTick(void)
 			&& pl && pl->prop
 			&& !g_Vars.in_cutscene
 			&& g_Menus[menu].openinhibit == 0
-			&& geWatchIsOpen()) {
+			&& (g_NetMode != NETMODE_NONE ? geWatchHoldsPlayer(pnum) : geWatchIsOpen())) {
 		// GE Plus's watch, once it is all the way up and the level stopped.
 		// Its own root and no pause of the report's: the watch paused the
-		// level and is still holding it when the report closes.
-		if (geWatchIsSettled() && pl->pausemode == PAUSEMODE_PAUSED) {
+		// level and is still holding it when the report closes. Online the
+		// watch is asked about this machine's own player by number: this
+		// tick runs with whichever player the last loop left current (the
+		// host's last open seat), for which the watch was never open, so the
+		// report fell to the branch below and waited for the watch to close
+		// (F3 20261009-185625). The level never stops online; the report
+		// pushes no pause of its own here either.
+		if ((g_NetMode != NETMODE_NONE ? geWatchIsSettledFor(pnum) : geWatchIsSettled())
+				&& pl->pausemode == PAUSEMODE_PAUSED) {
 			g_Menus[menu].playernum = menuplayer;
 			menuPushRootDialog(&g_TraceReportMenuDialog, MENUROOT_MAINMENU);
 			g_OfferPending = false;
