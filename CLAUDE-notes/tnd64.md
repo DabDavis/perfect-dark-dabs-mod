@@ -350,3 +350,39 @@ Rigs: `~/wt/tnd-run/rig` (the game, all three sources in added-content/),
   (set_enviro_fog_for_items_in_solo_watch_menu, zbufferenabled FALSE); ours
   draws it with z and no culling (gewatch.c, for the D5K's silencer), so
   coplanar lettering fights. Not reproduced headlessly.
+
+## F3 pass 35 (fix/f3-1010a-tndperf)
+
+- **Stamper's head (F3 20261004-195552)** is the hack's own, as Kaufman's
+  is: TND's CborisZ (our Cgx006Z, row 153, scale 0.115) has a boxy head with
+  a blond flat top and its face on textures 2882-2884 (TND's own images past
+  GoldenEye's, kept at their numbers: no g_TexRemap source). Pictured from
+  the same world angles on the cartridge (`view/chrface_ares.py`,
+  GF_GAME=tnd, level 25, chr 1) and on ours (a pd-side twin of it placing
+  Bond at the same absolute angles: the End's world is GoldenEye's moved,
+  not turned or scaled), the two heads match. Not a bug.
+  20261004-194456 (Kaufman again) is the pass 33 report's duplicate.
+- **The PPK Special Issue's shot (F3 20261004-202954)** is TND's own row
+  (item 4, the PP7's file, weapon 0x5e): sound 107, which TND re-recorded as
+  a 35010-byte raw 16-bit wave (type 1; GoldenEye's 107 is 6940 bytes of
+  ADPCM). Ours plays exactly that: an audio dump of six taps on The End
+  (`--audio-dump`, music at 0 through `optionsSetMusicVolume(0)`) correlates
+  0.985 with the bank's own wave at a pitch of 1.0, which is what keyBase 60
+  and detune 0 give in both games' sndplayer (`(keyBase * 100 + detune -
+  6000)` cents), and bondgun.c stops the last shot at the next as gunfire.c
+  does. Pass 33's sweep matched the id against the cartridge. Not a bug.
+  The gun sweep's input breakpoint (`guns/gunscen.py`'s `joy.c:613`) no
+  longer lands in `joyReadData()` since netplay moved joy.c's lines: the
+  probe here used the line after `nextlast = index` (728 at b9a21531f).
+- **Press's ending (F3 20261006-034615)**: three CameraSwitches with the
+  look-at-Bond flag (list 0x1001 at +88, +229, +289, tags 1, 5 and 6); ours
+  aims each at Bond's prop, which during the ending is his body's root (y 105
+  over a floor at 0), so his head is above the frame from all three. By
+  bondview2.c GoldenEye aims at `field_3C4`, the smoothed `field_488.pos`,
+  which while Bond's body is drawn in POSEND is his root matrix's position
+  plus 7 along its y axis (bondview2.c, the player's chrTick branch) - the
+  same point - so the code alone says the framing agrees; not settled on the
+  cartridge (the oracle host was down for the whole pass). The probe for it,
+  untested: `~/wt/f3-1010a-tndperf-run/tools/outrocam_ares.py` (a level list
+  put on a chr from its first HideAllChrs, Bond's prop, eye, look-at point and
+  root matrix logged with a picture at each frame given).
