@@ -117,13 +117,20 @@ gdb -p $(pgrep -x pd.x86_64) -batch -ex "thread 1" -ex "bt 14"
 
 **A Windows crash dialog** gives `PC` and `MAIN MODULE: [base]`, and a
 backtrace of `[base]+offset` lines. The offset is from the image base, which
-the release exe has at `0x140000000`, and the exe keeps its DWARF (30 MB for a
-reason), so:
+the release exe has at `0x140000000`. Releases built after 2026-10-10 ship the
+DWARF beside the exe rather than in it (`pd.x86_64-windows.exe.debug`,
+`pd.x86_64-linux.debug`: two thirds of each binary, which Check for Updates no
+longer downloads); addr2line on the `.debug` gives exactly what it gave on the
+whole exe. Older releases keep it inside the exe, so `-e` the exe for those:
 
 ```sh
-gh release download v3.1.2 -p pd.x86_64-windows.exe -O pd-v3.1.2.exe
-x86_64-w64-mingw32-addr2line -f -C -i -e pd-v3.1.2.exe 0x1401ba7a3   # 0x140000000 + offset
+gh release download v3.1.2 -p 'pd.x86_64-windows.exe*' -D <scratch>/v3.1.2
+x86_64-w64-mingw32-addr2line -f -C -i -e <scratch>/v3.1.2/pd.x86_64-windows.exe.debug 0x1401ba7a3   # 0x140000000 + offset
 ```
+
+A CI run's own copies are the `pd-dabs-mod-x86_64-windows-debug` and
+`pd-dabs-mod-x86_64-linux-debug` artifacts, for a dev build the rolling
+release has moved past.
 
 Plain `addr2line` says `??` for every line. When the report does not say
 which build, try each stable exe: the right one symbolises to a stack that
