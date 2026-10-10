@@ -31,6 +31,16 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 48 2026-10-10
+Online: joining a room whose host is on its end screen now says you are in for its next match, and the host is told (thanks dab)
+Online: joins, leaves and chat show over the end screen too
+Online: Defection's dataDyne banners and dropped shields are no longer drawn ten times their size on guests (thanks ElmoBear)
+Online co-op with open seats: A51 Escape's hangar and other mission triggers still work after you die and respawn (thanks ElmoBear)
+GoldenEye Arenas, Train: simulants reach the spots beside the train instead of standing under them (thanks dab)
+GoldenEye, Dam: the truck no longer jams in a yard gate that closes on it (thanks echoremastered)
+GoldenEye: F3 opens over the watch online too (thanks dick)
+Online play needs everyone on this update (protocol 26)
+
 notes 47 2026-10-09
 Perfect Dark Mods: a new Perfect Menu row lists your installed mods; pick one to play it with no restart
 Perfect Dark Mods: Back to Perfect Dark on the Perfect Menu leaves the mod
