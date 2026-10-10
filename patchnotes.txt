@@ -31,6 +31,20 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 51 2026-10-10
+New: surround sound works again: set Sound Mode to Surround, then pick 5.1 Speakers, Dolby Surround (as the N64 sent it) or Headphone Surround under Surround Output in Extended Audio Options; Auto picks 5.1 when your speakers have six channels
+New: Headphone Surround puts sounds behind you on any stereo headset, with a Headphone Room slider for how much room you hear, and a Subwoofer slider for 5.1 and headphones
+Above 60 FPS: guns, crouching, doors, lifts (and you riding them) and leaning now move smoothly
+Above 60 FPS: holding B to switch modes on classic controls no longer changes modes instantly
+Above 60 FPS: explosion screen shake is back, and the IR scanner sweep moves by time, not framerate
+Above 60 FPS: Helicopters and Interceptors bob, bank, aim and fire at the 60 FPS rate (they fired four times as fast at 240), and shot-down ones and Chicago's cars fall at the right speed
+Above 60 FPS: flying cars no longer lean too hard into turns, and the crossbow bolt wobble is back
+Above 60 FPS: Skedar Ruins doors get stuck as often as at 60 FPS, and Dr. Caroll's faces change at a set speed
+Above 60 FPS: shield shimmer appears at the same rate as at 60, and enemies firing bursts fire the whole burst
+Above 60 FPS: blood and bullet holes grow and fade at the same speed as at 60
+Above 60 FPS: rain and snow fade, the wind changes and lightning strikes at the same rate as at 60
+Above 60 FPS: the random effects during the credits play as often as at 60, menu text and dialogs open at a fixed rate, and after a match the game waits as long before saving
+
 notes 50 2026-10-10
 New: Goldfinger 64 and Tomorrow Never Dies 64 guns in the Combat Simulator: pick ROM Hack Guns on the Weapons page to play any arena with that game's guns and weapon sets; online, everyone plays with the host's choice (thanks raffine52)
 New: GoldenEye's Silver PP7, Gold PP7 and Taser: turn on GoldenEye Cheat Guns on the Weapons page to add them to the weapon lists, with three new GoldenEye weapon sets (off by default) (thanks PCGENE789)
