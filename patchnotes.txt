@@ -31,6 +31,12 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 52 2026-10-10
+CamSpy: launched beside a wall it no longer gets stuck there, unable to fly on or go up and down; it comes out where it fits, so its objectives can be done again
+Above 60 FPS: alerted enemies make their decisions at the same rate as at 60, and new characters act on the frame they appear, as at 60
+Tomorrow Never Dies 64: Bazaar's jet and Parkhaus's car travel at full speed above 60 FPS
+Smaller updates: the Windows and Linux builds no longer carry their debug information, so Check for Updates downloads about a quarter as much (Windows 66 MB to about 16 MB)
+
 notes 51 2026-10-10
 New: surround sound works again: set Sound Mode to Surround, then pick 5.1 Speakers, Dolby Surround (as the N64 sent it) or Headphone Surround under Surround Output in Extended Audio Options; Auto picks 5.1 when your speakers have six channels
 New: Headphone Surround puts sounds behind you on any stereo headset, with a Headphone Room slider for how much room you hear, and a Subwoofer slider for 5.1 and headphones
