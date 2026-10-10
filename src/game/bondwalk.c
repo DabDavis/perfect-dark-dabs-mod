@@ -2092,6 +2092,83 @@ bool bwalkCanUncrouch(void)
 	return true;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * applySpeed() for the crouch, in 240ths. applySpeed() steps in whole 60ths
+ * (lvupdate60), so above 60 FPS the eye height moved only on every fourth
+ * frame. This takes lvupdate240 quarter steps instead: accel/decel scaled by
+ * the quarter, the distance by it too, plus the term that makes four quarter
+ * steps under a constant acceleration cover what one 60th step does (an
+ * explicit step adds the whole new speed; four quarter steps add only 10/16
+ * of the speed change, the rest is half the change times (1 - dt) each) - so
+ * the crouch takes the same time per second at any rate. The 60 FPS path
+ * (lvupdate240 == 4 * lvupdate60) never comes here.
+ */
+static void bwalkApplyCrouchSpeed240(f32 *distdone, f32 maxdist, f32 *speedptr, f32 accel, f32 decel, f32 maxspeed)
+{
+	const f32 dt = 0.25f;
+	f32 speed = *speedptr;
+	s32 i;
+
+	for (i = 0; i < g_Vars.lvupdate240; i++) {
+		f32 limit = speed * speed * 0.5f / decel;
+		f32 distremaining = maxdist - *distdone;
+		f32 prevspeed = speed;
+		f32 step;
+
+		if (distremaining > 0.0f) {
+			if (speed > 0.0f && distremaining <= limit) {
+				speed -= decel * dt;
+
+				if (speed < decel) {
+					speed = decel;
+				}
+			} else if (speed < maxspeed) {
+				speed += speed < 0.0f ? decel * dt : accel * dt;
+
+				if (speed > maxspeed) {
+					speed = maxspeed;
+				}
+			}
+
+			step = speed * dt + (speed - prevspeed) * (1.0f - dt) * 0.5f;
+
+			if (step >= distremaining) {
+				*distdone = maxdist;
+				break;
+			}
+
+			*distdone += step;
+		} else {
+			if (speed < 0.0f && -distremaining <= limit) {
+				speed += decel * dt;
+
+				if (speed > -decel) {
+					speed = -decel;
+				}
+			} else if (speed > -maxspeed) {
+				speed -= speed > 0.0f ? decel * dt : accel * dt;
+
+				if (speed < -maxspeed) {
+					speed = -maxspeed;
+				}
+			}
+
+			step = speed * dt + (speed - prevspeed) * (1.0f - dt) * 0.5f;
+
+			if (step <= distremaining) {
+				*distdone = maxdist;
+				break;
+			}
+
+			*distdone += step;
+		}
+	}
+
+	*speedptr = speed;
+}
+#endif
+
 void bwalkUpdateCrouchOffset(void)
 {
 	f32 targetoffset = 0;
@@ -2117,6 +2194,13 @@ void bwalkUpdateCrouchOffset(void)
 		f32 prevcrouchoffsetrealsmall = g_Vars.currentplayer->crouchoffsetrealsmall;
 
 		// f32 *frac, f32 maxfrac, f32 *fracspeed, f32 accel, f32 decel, f32 maxspeed
+#ifndef PLATFORM_N64
+		if (g_Vars.lvupdate240 != g_Vars.lvupdate60 * 4) {
+			// above 60 FPS: every frame, not every fourth
+			bwalkApplyCrouchSpeed240(&g_Vars.currentplayer->crouchoffset, targetoffset,
+					&g_Vars.currentplayer->crouchspeed, PALUPF(0.5f), PALUPF(0.5f), PALUPF(5.0f));
+		} else
+#endif
 		applySpeed(&g_Vars.currentplayer->crouchoffset, targetoffset,
 				&g_Vars.currentplayer->crouchspeed, PALUPF(0.5f), PALUPF(0.5f), PALUPF(5.0f));
 

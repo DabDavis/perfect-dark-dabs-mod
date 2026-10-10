@@ -2302,6 +2302,28 @@ Gfx *bviewDrawIrLens(Gfx *gdl)
 	scanincrement = (f32) scanrate * i / 240.0f;
 	fadeincrement = (f32) faderate * i / 240.0f;
 
+#ifndef PLATFORM_N64
+	// The sweep and its fade were so many lines a frame: a second a sweep at
+	// 60 FPS, four sweeps a second at 240 and half a one at 30. Off 60 FPS
+	// (diffframe240 4) they are that much per 60th of the frame's time, the
+	// fraction carried to the next frame, so the sweep takes a second at any
+	// rate. diffframe240 rather than lvupdate240: the lens is drawn paused
+	// too, and the sweep ran by the screen's frames there before.
+	if (g_Vars.diffframe240 != 4) {
+		static f32 scancarry[MAX_PLAYERS];
+		static f32 fadecarry[MAX_PLAYERS];
+		s32 p = g_Vars.currentplayernum % MAX_PLAYERS;
+		f32 frac = g_Vars.diffframe240 * 0.25f;
+		f32 scan = scanincrement * frac + scancarry[p];
+		f32 fade = fadeincrement * frac + fadecarry[p];
+
+		scanincrement = (s32) scan;
+		fadeincrement = (s32) fade;
+		scancarry[p] = scan - scanincrement;
+		fadecarry[p] = fade - fadeincrement;
+	}
+#endif
+
 	// This code runs on the first frame of IR use (90 != 0),
 	// and in debug versions developers could change the radius at runtime.
 #if VERSION >= VERSION_NTSC_1_0
