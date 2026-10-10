@@ -68,5 +68,9 @@ bool coopHearPlayerNoise(struct chrdata *chr, struct prop *noiseprop, s32 player
 // a converted mission's chr with two co-op players or more: its target player
 // chosen again toward the nearest every ten ticks (host only; p1p2 left alone)
 void coopRetarget(struct chrdata *chr);
+// a converted mission's Bond-only question (CHR_P1P2: what Bond carries,
+// holds or used a gadget on) asked with two co-op players or more: any
+// player's answer counts, as GoldenEye had one Bond and every player is him
+bool coopAnyPlayerIsBond(s32 chrref);
 
 #endif

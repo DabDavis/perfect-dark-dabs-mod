@@ -17,6 +17,21 @@ bool coopPlayerAlive(s32 playernum)
 		&& g_Vars.players[playernum] && !g_Vars.players[playernum]->isdead;
 }
 
+/**
+ * A converted mission's lists (GoldenEye's, Goldfinger 64's, TND64's) ask
+ * about Bond through CHR_P1P2, which coopRetarget() leaves on the host's
+ * player. Where the question is what Bond did - the objects he collected,
+ * the item in his hand, a gadget used on an object (IFBondCollectedObject,
+ * IFBondHasItemEquipped, IFBondUsedGadgetOnObject) - only the host's player
+ * could answer it: a co-op player who attached Bunker's data thief to the
+ * mainframe never downloaded the data (F3 20261010-044027). With two players
+ * or more on such a mission every player is Bond to those three.
+ */
+bool coopAnyPlayerIsBond(s32 chrref)
+{
+	return chrref == CHR_P1P2 && coopIsOn() && PLAYERCOUNT() >= 2 && modloaderStageIsMission(g_Vars.stagenum);
+}
+
 bool coopAllDead(void)
 {
 	s32 i;

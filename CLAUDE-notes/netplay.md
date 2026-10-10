@@ -1073,6 +1073,28 @@ progression").
   testing it: this box has game controllers attached, and a headless run
   without the gates' `SDL_GAMECONTROLLER_IGNORE_DEVICES*` env read a held A
   on pad 0 - the folder picked the Cinema page's Intro by itself.
+- **Bunker would not end, a guest paused for good (F3 pass 36, 2026-10-10).**
+  Three findings from the owner's twelve-seat GoldenEye night:
+  (1) A converted mission's lists ask about Bond through `CHR_P1P2`, the
+  host's player. A death online co-op brings back went to
+  `chrsClearRefsToPlayer`, which moved every list's p1p2 to another player
+  for good, and the exit list's IFBondIsDead had already sent it to its
+  dead list - note 49's fix (`modRespawnPlayerComesBack`) asked
+  `modRespawnCanRespawn()`, which says no in co-op (`mplayerisrunning`).
+  Now a death that `netCoopRespawnDue()` brings back keeps p1p2 on a
+  converted mission, and `modRespawnPlayerComesBack` asks it too.
+  (2) IFBondCollectedObject, IFBondHasItemEquipped and
+  IFBondUsedGadgetOnObject (PD 005d/0060/0063 on CHR_P1P2) count any
+  player's answer with two players or more on a converted mission
+  (`coopAnyPlayerIsBond`): a guest's data thief on Bunker's mainframe never
+  downloaded. (3) `g_NetHostSocketLvupdate240`, a client's tick rate, is
+  only ever written by a host: a game that hosted (its last tick 0 after
+  an abort or a held barrier) and then joined another room as a client
+  ran that whole match paused - `lvframenum 0` in its F3, no gun, every
+  step pulled back by the host's snapshots, GoldenEye's opening still on
+  screen for ever. `netStageStart` puts it back to 4. Gates:
+  `netcooptest.sh gebunker` (new) and `campleave` (A's level frame in B's
+  mission).
 - **Left for later.** Counter-op; GoldenEye's missions (gewatch/gecinema
   read pad 0); AI buddies; the host's cheats are not synced to clients;
   spectators were not tried on a mission; a client's START in a cutscene

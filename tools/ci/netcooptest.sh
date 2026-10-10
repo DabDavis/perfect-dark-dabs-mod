@@ -84,16 +84,23 @@
 #           Game Lobby says so (not "connecting to the host"), the host is
 #           told, and the room's next launch has it in the mission.
 #
+#   gebunker  GoldenEye's Bunker in co-op (F3 20261010-044027): a guest's data
+#           thief on the mainframe completes the download, and the host's
+#           Mission Respawn death leaves every list's Bond on the host's
+#           player and no list at its dead end (the exit stayed shut).
+#   (campleave also reads A's level frame in B's mission: a game that hosted
+#           before had run every match it joined paused, F3 20261010-053457.)
+#
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave}
+CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -993,7 +1000,7 @@ case_campleave() {
 	game campleave-a 500 "[Mod]\nGhostUser=camper\nGhostPin=1234\n[Net]\nLobbyServer=http://127.0.0.1:$lport\nPort=$pa\n" \
 		--net-lobby-script host --net-lobby-room "Camp A" --net-lobby-campaign pd --net-lobby-solo --net-test-sims 0 --skip-cutscenes --rng-seed 7 &
 	local ha=$!
-	local ap bp roomb="" st="" drawn=""
+	local ap bp roomb="" st="" drawn="" lvf=""
 	if ! waitfor "$A" "net: co-op: the Perfect Dark campaign begins" 90; then
 		fail "$name: no campaign on A"
 	else
@@ -1048,7 +1055,15 @@ case_campleave() {
 		bp=$(gamepid campleave-b)
 		campleave_gdb "$bp" -ex "call (void)netLobbyLaunch(0)" -ex 'python print("STAGE campleave: B launches the room again")'
 		waitfor "$A" "net: co-op client: the first mission block" 120 || echo "     A is not in B's next mission"
-		sleep 2
+		sleep 4
+		# A hosted (and aborted) a mission before: its last hosted tick's
+		# rate, 0, had stayed the rate it ran B's match at as a client - the
+		# level paused under it (F3 20261010-053457)
+		ap=$(gamepid campleave-a)
+		[ -n "$ap" ] && lvf=$(timeout 40 gdb -p "$ap" -batch -ex "break netTickEnd" -ex "continue" -ex "delete" \
+			-ex 'python import gdb; print("STAGE campleave: A in the mission of B at tick %d, level frame %d" % (int(gdb.parse_and_eval("g_NetTick")), int(gdb.parse_and_eval("g_Vars.lvframenum"))))' \
+			2>/dev/null | grep "^STAGE")
+		echo "${lvf:-     (the level frame of A not read)}" | tee -a "$OUT/stage.log" | sed 's/^/     /'
 	fi
 	ap=$(gamepid campleave-a); [ -n "$ap" ] && kill -TERM "$ap"
 	wait $ha; local ax=$?; [ "$ax" = 143 ] && ax=0
@@ -1070,6 +1085,76 @@ case_campleave() {
 	grep -o "screenshot: .*png" "$B" | tail -1 | sed 's/^/     B /'
 	grep -q "lobby: the match is over; reopening room" "$B" && pass "$name: B's room open again after its end screen" || fail "$name: B's room was not reopened"
 	grep -q "net: co-op client: the first mission block" "$A" && pass "$name: A is in B's next mission" || fail "$name: A never got into B's next mission"
+	local lf; lf=$(echo "$lvf" | grep -o "level frame [0-9]*" | awk '{print $3}')
+	[ "${lf:-0}" -gt 60 ] && pass "$name: A's level runs in B's mission (frame $lf), not paused at the rate its own hosting left" \
+		|| fail "$name: A's level does not run in B's mission (${lvf:-not read})"
+}
+
+# ---------------------------------------------------------------- gebunker
+# GoldenEye's Bunker as a co-op mission (F3 20261010-044027, "bunker not
+# completing online"): with Mission Respawn the host's player dies and comes
+# back. First Bond-only questions answered by a co-op player (Bond, CHR_P1P2,
+# is the host's player): the client holds the data thief (--net-test-equip)
+# and has used it on the mainframe (its activation by a co-op player, put
+# there on the host), and the download must complete (stage flag 0x400,
+# objective 3). Then the host's death: every list's Bond must stay the host's
+# player and no list may take the death for Bond's end - the exit list's
+# IFBondIsDead had sent it to its dead list for good (note 49's fix covered a
+# solo mission alone), so reaching the exit ended nothing.
+cat > "$OUT/gebunker.py" <<'PY'
+import gdb
+def i(e): return int(gdb.parse_and_eval(e))
+def brk(t):
+    gdb.execute("break netScenHostTickEnd if g_NetTick >= %d" % t); gdb.execute("continue"); gdb.execute("delete")
+def bg():
+    return " ".join("%d:%d@%x" % (i("g_BgChrs[%d].chrnum" % k), i("g_BgChrs[%d].p1p2" % k), i("(long)g_BgChrs[%d].ailist" % k) & 0xffffff) for k in range(i("g_NumBgChrs")))
+brk(1200)
+gdb.execute("set var g_StageFlags = g_StageFlags | 0x100")
+brk(1260)
+gdb.execute("set var objFindByTagId(6)->hidden = objFindByTagId(6)->hidden | 0x40000")
+print("STAGE gebunker: the mainframe used by a co-op player at tick %d, player 1 holding 0x%02x, Bond player %d" % (i("g_NetTick"), i("g_Vars.players[1]->gunctrl.weaponnum"), i("g_BgChrs[0].p1p2")))
+brk(1650)
+print("STAGE gebunker: stage flags %08x at tick %d" % (i("g_StageFlags"), i("g_NetTick")))
+before = bg()
+gdb.execute("call (void)setCurrentPlayerNum(0)")
+gdb.execute("call (void)playerDie(1)")
+print("STAGE gebunker: the host's player killed at tick %d" % i("g_NetTick"))
+brk(2150)
+after = bg()
+print("STAGE gebunker: lists (chrnum:p1p2@list) before %s" % before)
+print("STAGE gebunker: lists after the new life %s (player 0 dead %d)" % (after, i("g_Vars.players[0]->isdead")))
+print("STAGE gebunker: lists %s" % ("unchanged" if before == after else "changed"))
+PY
+case_gebunker() {
+	local name=gebunker port=$((PORT + 12)) H=$OUT/gebunker-host.log C=$OUT/gebunker-client.log
+	echo "== $name"
+	game gebunker-host 300 '[Mod]\nMapMods=GoldenEye Arenas\nMissionRespawn=1\nMissionLives=0\n' --host "$port" --net-test-host 1 --rng-seed 7 \
+		--net-test-coop 4 --net-test-coop-game ge --exit-frame 3000 &
+	local host=$!
+	waitfor "$H" "net: hosting on UDP port\|cannot be played online" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; return; }
+	if grep -q "cannot be played online" "$H"; then
+		echo "skip $name: GoldenEye is not converted here"; kill -TERM $host; wait $host; return
+	fi
+	game gebunker-client 290 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join --exit-frame 2800 --net-test-equip 1000,0x7d &
+	local client=$!
+	waitfor "$C" "net: match 1: GO" 150 || echo "     no GO on the client"
+	local hp; hp=$(gamepid gebunker-host)
+	[ -n "$hp" ] && timeout 120 gdb -p "$hp" -batch -x "$OUT/gebunker.py" 2>/dev/null | grep "^STAGE" | tee -a "$OUT/stage.log" | sed 's/^/     host: /'
+	wait "$client"; local cx=$?
+	[ "$cx" = 143 ] && cx=0
+	wait "$host"; local hx=$?
+	[ "$hx" = 143 ] && hx=0
+	crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
+	crashed "$C" && fail "$name: the client crashed" || { [ "$cx" = 0 ] && pass "$name: client ran to the end" || fail "$name: client exit $cx"; }
+	grep -q "net: co-op: starting Bunker (GoldenEye, index 4" "$H" && pass "$name: the host started Bunker" || fail "$name: the host did not start Bunker"
+	grep -q "net: co-op: player 0 died (the mission's death 1, tick [0-9]*): a new life" "$H" && pass "$name: the host's death comes back" || fail "$name: no new life for the host's death"
+	grep -q "STAGE gebunker: lists after the new life [0-9:@a-f ]*(player 0 dead 0)" "$OUT/stage.log" && pass "$name: the host's player back by tick 2150" || fail "$name: the host's player not back by tick 2150"
+	grep "STAGE gebunker: lists after" "$OUT/stage.log" | grep -q ":[1-9][0-9]*@" && fail "$name: a list's Bond moved off the host's player: $(grep -o 'lists after.*' "$OUT/stage.log" | head -1)"
+	grep -q "STAGE gebunker: lists unchanged" "$OUT/stage.log" && pass "$name: no list took the death for Bond's end" || fail "$name: a list moved on the death: $(grep -o 'lists after.*' "$OUT/stage.log" | head -1)"
+	grep -q "STAGE gebunker: the mainframe used by a co-op player at tick [0-9]*, player 1 holding 0x7d, Bond player 0" "$OUT/stage.log" && pass "$name: the client held the data thief, Bond the host's player" || fail "$name: the client did not hold the data thief"
+	local fl; fl=$(grep -o "STAGE gebunker: stage flags [0-9a-f]*" "$OUT/stage.log" | tail -1 | awk '{print $NF}')
+	local dl=0; [ -n "$fl" ] && dl=$(( 0x$fl & 0x400 ))
+	[ "$dl" != 0 ] && pass "$name: the co-op player's download completed (stage flags $fl)" || fail "$name: no download (stage flags ${fl:-unread})"
 }
 
 {
@@ -1087,6 +1172,7 @@ for c in $CASES; do
 		letgo) case_letgo ;;
 		nomodroom) case_nomodroom ;;
 		campleave) case_campleave ;;
+		gebunker) case_gebunker ;;
 		*) fail "unknown case $c" ;;
 	esac
 done

@@ -2122,6 +2122,23 @@ bool aiIfChrHasObject(void)
 		setCurrentPlayerNum(prevplayernum);
 	}
 
+#ifndef PLATFORM_N64
+	// a converted mission in co-op: whoever collected it (coopAnyPlayerIsBond)
+	if (!hasprop && obj && obj->prop && coopAnyPlayerIsBond(cmd[2])) {
+		s32 prevplayernum = g_Vars.currentplayernum;
+		s32 i;
+
+		for (i = 0; i < PLAYERCOUNT() && !hasprop; i++) {
+			if (g_Vars.players[i] && g_Vars.players[i]->prop) {
+				setCurrentPlayerNum(i);
+				hasprop = invHasProp(obj->prop);
+			}
+		}
+
+		setCurrentPlayerNum(prevplayernum);
+	}
+#endif
+
 	if (hasprop) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
 	} else {
@@ -2225,6 +2242,24 @@ bool aiIfChrHasWeaponEquipped(void)
 		setCurrentPlayerNum(prevplayernum);
 	}
 
+#ifndef PLATFORM_N64
+	// a converted mission in co-op: any living player with it in the hand
+	// (coopAnyPlayerIsBond) - Bunker's data thief equipped by a co-op player
+	if (!passes && coopAnyPlayerIsBond(cmd[2])) {
+		u32 prevplayernum = g_Vars.currentplayernum;
+		s32 i;
+
+		for (i = 0; i < PLAYERCOUNT() && !passes; i++) {
+			if (g_Vars.players[i] && g_Vars.players[i]->prop && !g_Vars.players[i]->isdead) {
+				setCurrentPlayerNum(i);
+				passes = bgunGetWeaponNum(HAND_RIGHT) == cmd[3];
+			}
+		}
+
+		setCurrentPlayerNum(prevplayernum);
+	}
+#endif
+
 	if (passes) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
 	} else {
@@ -2300,6 +2335,15 @@ bool aiIfChrActivatedObject(void)
 				pass = true;
 				obj->hidden &= ~(OBJHFLAG_ACTIVATED_BY_BOND | OBJHFLAG_ACTIVATED_BY_COOP);
 			}
+#ifndef PLATFORM_N64
+		} else if (coopAnyPlayerIsBond(cmd[2])) {
+			// a converted mission in co-op: a gadget used on it by any player
+			// (coopAnyPlayerIsBond), the host's or a co-op player's
+			if (obj->hidden & (OBJHFLAG_ACTIVATED_BY_BOND | OBJHFLAG_ACTIVATED_BY_COOP)) {
+				pass = true;
+				obj->hidden &= ~(OBJHFLAG_ACTIVATED_BY_BOND | OBJHFLAG_ACTIVATED_BY_COOP);
+			}
+#endif
 		} else {
 			struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
