@@ -5674,14 +5674,15 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * Building the release's mesh into the rooms takes a second or more a load
  * (Dam 1.6 s, Frigate 2.5 s) and comes out the same every time for the same
  * inputs, so what it leaves behind is written to
- * cache/xbla/goldeneye/levels/<key>_<file>[_ce].bin and read back instead.
+ * cache/xbla/goldeneye/levels/<key>_<file>.bin and read back instead (a
+ * <key>_<file>_ce.bin is an old one built from the Community Edition's overlay,
+ * deleted at the start: gebeanCePurge()).
  *
  * The key is a hash of everything the build reads: HDCACHE_VERSION (bump it
  * on ANY change to what build() or the functions it calls produce, here or
  * in gebean.c's level walk and pictures), the binary's commit, the struct
  * layouts, the level's table row, the release's level file byte for
- * byte (which is also what the Community Edition's overlay changes), whether
- * that overlay is on, the pictures' alpha as bound, the level file's rooms
+ * byte, the pictures' alpha as bound, the level file's rooms
  * (their bytes, bases, positions and boxes), the doors' boxes and the
  * environment's water. No setting is read by the build. A file whose header,
  * length, key or checksum is wrong is built over and rewritten.
@@ -5776,7 +5777,6 @@ static u64 hdcacheKey(const char *levelname, u8 **filerooms, u32 *filelens, s32 
 	h = hashBytes(h, &row->scale, sizeof(row->scale));
 	h = hashBytes(h, row->offset, sizeof(row->offset));
 	h = hashStr(h, levelname);
-	h = hashU32(h, gebeanCeIsActive());
 
 	file = gebeanLevelFileBytes(level, &filelen);
 	h = hashU32(h, filelen);
@@ -5845,8 +5845,7 @@ static s32 hdcachePath(char *dst, u32 dstLen, const char *levelname, s32 temp)
 		fsCreateDir(dst);
 	}
 
-	snprintf(dst, dstLen, "%s/levels/%s_%s%s.bin%s", dir, row->key, levelname,
-			gebeanCeIsActive() ? "_ce" : "", temp ? ".tmp" : "");
+	snprintf(dst, dstLen, "%s/levels/%s_%s.bin%s", dir, row->key, levelname, temp ? ".tmp" : "");
 
 	return 1;
 }
@@ -7217,8 +7216,7 @@ static s32 build(void)
 		return 0;
 	}
 
-	// the Community Edition keeps Surface's two halves as files of their own
-	levelname = gebeanCeLevelName(row->key, row->bean);
+	levelname = row->bean;
 	level = gebeanLevelOpen(levelname);
 
 	if (!level) {
@@ -7970,11 +7968,10 @@ s32 gebeanStageFogFactor(s32 min, s32 max, f32 *fm, f32 *fo)
  * out. Levels GoldenEye draws without fog (Frigate, Silo, Bunker 1, the
  * multiplayer-only ones) have no row in either.
  *
- * The table is read out of the player's own copy (fogTableLoad()): the
- * Community Edition patches it too (Surface 2's fog nearer "to closer match
- * N64", Jungle, Temple, Train, Archives, Statue...), so with the CE's overlay
- * on its rows are the ones its patched default.xex has (gebeance.c writes
- * them into the overlay). The retail rows below are only for a copy whose
+ * The table is read out of the player's own copy (fogTableLoad()). The
+ * Community Edition patched it too (Surface 2's fog nearer "to closer match
+ * N64", Jungle, Temple, Train, Archives, Statue): its distances are built in
+ * over it (beanFogsCe[]). The retail rows below are only for a copy whose
  * default.xex is not unpacked.
  *
  * Facility's colour in the release is 0x102001, which reads as GoldenEye's
@@ -8038,7 +8035,6 @@ static s32 numBeanFogs = -1;
 #define BEANFOG_DAM_LOW   (2782.0f + 13219.0f)
 #define BEANFOG_DAM_HIGH  (9161.0f + 13219.0f)
 #define BEANFOG_DAM       33
-#define BEANFOG_SURFACE2  43
 
 static u32 beBe32(const u8 *p)
 {
@@ -8128,9 +8124,29 @@ static u8 *fogFileLoad(const char *path, u32 *len)
 }
 
 /**
- * The table, once a session: the Community Edition's rows when its overlay is
- * drawn, else the player's default.xex beside the release's files/, else the
- * retail rows built in.
+ * The Community Edition's changes to the table's HD fog distances, built in
+ * (the owner, 2026-10-10: the Community Edition is the game's own, silently
+ * on). Read off its patched default.xex (CEUpdate/xex.diff over the retail
+ * one): where the fog is whole (+0x24), level by level. Only the distance: its
+ * new colours (Statue 0x090708, Jungle 0x797c79, Temple 0x103060, Cradle
+ * 0x6e8196) go with its own skydomes, which are its new pictures and not drawn
+ * here - under GoldenEye's own sky the release's colour stays (gebeansky.c).
+ * Its new rows for Bunker 1 (45000) and Silo (10000) are for levels GoldenEye
+ * draws without fog, where no row is read.
+ */
+static const struct { s16 levelid; s32 end; } beanFogsCe[] = {
+	{ 22, 5000 },  // Statue, 3500
+	{ 24, 4500 },  // Archives, 3000
+	{ 25, 4500 },  // Train, 1500
+	{ 37, 4500 },  // Jungle, 2500
+	{ 38, 22500 }, // Temple, 6000 (its 238/338/438 player-count rows too)
+	{ 43, 6500 },  // Surface 2, 10000: "reduced fog distance to closer match N64"
+};
+
+/**
+ * The table, once a session: the player's default.xex beside the release's
+ * files/, else the retail rows built in; the Community Edition's distances
+ * over either.
  */
 static void fogTableLoad(void)
 {
@@ -8145,11 +8161,7 @@ static void fogTableLoad(void)
 
 	numBeanFogs = 0;
 
-	if (gebeanCeFogTablePath(path, sizeof(path)) && (data = fogFileLoad(path, &len)) != NULL) {
-		fogTableRead(data, len);
-		free(data);
-		from = "the Community Edition's default.xex";
-	} else if (gebeanTreeInfo(root, sizeof(root), archive, sizeof(archive), cache, sizeof(cache))) {
+	if (gebeanTreeInfo(root, sizeof(root), archive, sizeof(archive), cache, sizeof(cache))) {
 		snprintf(path, sizeof(path), "%s/../default.xex", root);
 
 		if ((data = fogFileLoad(path, &len)) != NULL) {
@@ -8173,14 +8185,14 @@ static void fogTableLoad(void)
 			beanFogs[i].rgb = 0x102010;
 		}
 
-		// Surface 2's fog whole at 6500, not the release's 10000: the
-		// Community Edition's one correction to the table ("reduced fog
-		// distance to closer match N64"), taken whether its zip is on or
-		// not. GoldenEye's own fog there is half at about 450 units and nine
-		// tenths at about 2300 (957 of its 1000 over a 10..10000 range);
-		// linear to 10000 it was a third at 3300, linear to 6500 half.
-		if (beanFogs[i].levelid == BEANFOG_SURFACE2 && beanFogs[i].end == 10000) {
-			beanFogs[i].end = 6500;
+		// The Community Edition's distances. Surface 2's, for one: GoldenEye's
+		// own fog there is half at about 450 units and nine tenths at about
+		// 2300 (957 of its 1000 over a 10..10000 range); linear to 10000 it
+		// was a third at 3300, linear to 6500 half
+		for (u32 k = 0; k < ARRAYCOUNT(beanFogsCe); k++) {
+			if (beanFogs[i].levelid == beanFogsCe[k].levelid) {
+				beanFogs[i].end = beanFogsCe[k].end;
+			}
 		}
 	}
 
@@ -8240,10 +8252,6 @@ s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb)
 	rgb[0] = f->rgb >> 16;
 	rgb[1] = f->rgb >> 8;
 	rgb[2] = f->rgb;
-
-	// A Community Edition dome whose horizon is not the fog's colour gives
-	// it its own (Surface 2's grey storm)
-	gebeanSkyFogColour(rgb);
 
 	// GoldenEye's gas cloud (and sky switch) fades the level's fog to its
 	// second sky (bgfog.c's fogSwitchToSolosky2(); env.c's

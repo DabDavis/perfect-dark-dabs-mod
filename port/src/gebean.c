@@ -2121,9 +2121,7 @@ static const char *gebeanPoolEntryMissing(s32 i)
 
 		snprintf(source, sizeof(source), "%s/%s", looks[look], poolRows[i].row.source);
 
-		if (!gebeanCeFilePath(path, sizeof(path), source, "default.bin")) {
-			snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
-		}
+		snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
 
 		if (fsFileSize(path) <= 0) {
 			return look ? "its N64-look entry is missing" : "its entry is missing";
@@ -5168,6 +5166,8 @@ static void beanRepaintUv(const struct beandraw *d, const struct beanvtx *v, f32
 	uv[1] = (v->pos[1] - beanRepaints[k].origin[1]) / beanRepaints[k].unit;
 }
 
+static void beanApplyCeFixes(const char *source, u8 *file, u32 size);
+
 static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 {
 	const char *names[BEAN_MAXBONES];
@@ -5183,10 +5183,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 	memset(bm, 0, sizeof(*bm));
 	bm->keepparts = keepparts;
 	bm->original = strncmp(source, "original/", 9) == 0;
-	// the Community Edition's copy first, where this session draws it (gebeance.c)
-	if (!gebeanCeFilePath(path, sizeof(path), source, "default.bin")) {
-		snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
-	}
+	snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
 
 	fp = fopen(path, "rb");
 
@@ -5213,6 +5210,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 	}
 
 	fclose(fp);
+	beanApplyCeFixes(source, bm->file, (u32)size);
 
 	bm->draws = calloc(BEAN_MAXDRAWS, sizeof(*bm->draws));
 
@@ -8928,6 +8926,47 @@ static const struct {
 	{ "new/prop/doorprison1", 0, 10, 11, 0xffffffff, 0xff666666 },
 	{ "new/prop/woodentable1", 0, 0, 67, 0xff000000, 0xff292929 },
 };
+
+/**
+ * The Community Edition's vertex colours, built in (gebeancefixes.h, from
+ * tools/geconvert/fit/gen_cefixtable.py): byte for byte against the release's
+ * own file as it is read, before anything is made of it, and only where the
+ * file is the size listed and still has the bytes listed. Colours only - the
+ * generator refuses anything else - for the props and level the Community
+ * Edition recoloured: the crates' and the ammo crate's shading, the runway
+ * gun's greys, the metal chair, the tuning console's trim, Complex's railings.
+ * See CLAUDE-notes/ge-bean.md, "The Community Edition built in".
+ */
+#define CEFIX(src, size, off, len, old, new) { src, size, off, len, old, new }
+
+static const struct {
+	const char *source;
+	u32 size;
+	u32 off;
+	u8 len;
+	const char *old;
+	const char *fix;
+} beanCeFixes[] = {
+#include "gebeancefixes.h"
+};
+
+static void beanApplyCeFixes(const char *source, u8 *file, u32 size)
+{
+	s32 applied = 0;
+
+	for (u32 i = 0; i < ARRAYCOUNT(beanCeFixes); i++) {
+		if (beanCeFixes[i].size == size && beanCeFixes[i].off + beanCeFixes[i].len <= size
+				&& strcmp(beanCeFixes[i].source, source) == 0
+				&& memcmp(file + beanCeFixes[i].off, beanCeFixes[i].old, beanCeFixes[i].len) == 0) {
+			memcpy(file + beanCeFixes[i].off, beanCeFixes[i].fix, beanCeFixes[i].len);
+			applied++;
+		}
+	}
+
+	if (applied) {
+		sysLogPrintf(LOG_NOTE, "gebean: %s: %d of the Community Edition's vertex colours", source, applied);
+	}
+}
 
 static u32 beanFixVertexColour(const char *source, u32 vboff, u32 vi, u32 argb)
 {
@@ -16133,12 +16172,10 @@ struct gebeanlevel *gebeanSkyOpen(const char *name)
 
 	snprintf(source, sizeof(source), "new/skydome/%s", name);
 
-	if (!gebeanCeFilePath(path, sizeof(path), source, "default.bin")) {
-		snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
+	snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
 
-		if (fsFileSize(path) < 0) {
-			return NULL;
-		}
+	if (fsFileSize(path) < 0) {
+		return NULL;
 	}
 
 	level = calloc(1, sizeof(*level));
@@ -16976,9 +17013,7 @@ static s32 beanLoadFile(struct beanmodel *bm, const char *source, const char *na
 		return 0;
 	}
 
-	if (!gebeanCeFilePath(path, sizeof(path), source, name)) {
-		snprintf(path, sizeof(path), "%s/%s/%s", rootPath, source, name);
-	}
+	snprintf(path, sizeof(path), "%s/%s/%s", rootPath, source, name);
 
 	fp = fopen(path, "rb");
 

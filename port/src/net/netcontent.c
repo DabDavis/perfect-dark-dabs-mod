@@ -75,7 +75,9 @@ static s32 s_HostLookLatched = 0;
 
 void netContentLookLatch(void)
 {
-	s_HostLook = (xblaMeshGetEnabled() && gebeanCeIsActive() ? NETLOOK_GECE : 0)
+	// the Community Edition's copies go with the HD look since it is built in
+	// (geRoomCeData()); the bit stays for older peers
+	s_HostLook = (xblaMeshGetEnabled() ? NETLOOK_GECE : 0)
 		| (xblaMeshPackageReady(0) ? NETLOOK_XBLATILES : 0)
 		| (xblaMeshGetEnabled() ? NETLOOK_MESHES : 0);
 	s_HostLookLatched = 1;

@@ -425,33 +425,23 @@ struct gebeanfont *gebeanFontOpen(const char *name);
 void gebeanFontClose(struct gebeanfont *font);
 
 /** Where the release is: its files/, the archive it came from ("" if none), the cache. */
-// The Community Edition's overlay, a folder of the release's cache
-// (gebeance.c). It holds a files/new/char of its own - the characters the
-// patch changes - so a scan of the cache must never take it for the release.
+// The overlay a build before 2026-10-10 applied from the player's Community
+// Edition updater zip, a folder of the release's cache. It holds a
+// files/new/char of its own, so a scan of the cache must never take it for the
+// release; gebeanCePurge() deletes it. The Community Edition's fixes are the
+// game's own now (CLAUDE-notes/ge-bean.md, "The Community Edition built in").
 #define GEBEAN_CE_DIR "ce"
 
 // The entry that makes an archive the Community Edition's updater zip, as
-// opposed to either release: gebeance.c looks for it to find the updater, and
-// xblaimport.c to pass it over when looking for Perfect Dark's release.
+// opposed to either release: xblaimport.c passes it over when looking for
+// Perfect Dark's release, should a player still have it in added-content/.
 #define GEBEANCE_DIFF_ENTRY "CEUpdate/files.diff"
+
+/** Deletes what the old updater path left in the cache (gebeance.c), once a start. */
+void gebeanCePurge(void);
 
 s32 gebeanTreeInfo(char *root, u32 rootLen, char *archive, u32 archiveLen, char *cache, u32 cacheLen);
 
-/**
- * The GoldenEye XBLA Community Edition, applied by the game from the player's
- * own updater zip in added-content/ (gebeance.c). Chosen in the menu, drawn
- * from the next start: gebeanCeRestartNeeded() says a change is waiting.
- */
-s32 gebeanCeAvailable(void);
-s32 gebeanCeGetWanted(void);
-void gebeanCeSetWanted(s32 on);
-s32 gebeanCeIsActive(void);
-s32 gebeanCeRestartNeeded(void);
-void gebeanCePrepareAtStartup(void);
-s32 gebeanCeFilePath(char *dst, u32 dstLen, const char *source, const char *name);
-/** The overlay's copy of the environment table's rows, from the CE's patched default.xex. */
-s32 gebeanCeFogTablePath(char *dst, u32 dstLen);
-const char *gebeanCeLevelName(const char *key, const char *name);
 s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		void (*fn)(void *arg, s32 tex, const struct gebeanlevelvtx *v), void *arg);
 s32 gebeanLevelNumTextures(struct gebeanlevel *level);

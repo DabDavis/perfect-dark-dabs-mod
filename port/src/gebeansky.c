@@ -43,41 +43,8 @@
 #define GEBEANSKY_EXTENT   30000.0f // the farthest vertex, in what a Vtx holds
 
 /**
- * GoldenEye's key for a level -> the Community Edition's sky for it. Five of
- * these (aztec, bunker, caves, multitemple, temple) are the release's
- * placeholder the Community Edition left in place, and drawn as it draws
- * them; Facility and Jungle have none and keep GoldenEye's.
- */
-static const struct { const char *key, *sky; } skyNames[] = {
-	{ "arch",  "archives" },
-	{ "arec",  "control" },
-	{ "azt",   "aztec" },
-	{ "base",  "library" },
-	{ "cave",  "caves" },
-	{ "crad",  "cradle" },
-	{ "cryp",  "temple" },
-	{ "dam",   "dam" },
-	{ "depo",  "depot" },
-	{ "dest",  "frigate" },
-	{ "dish",  "multitemple" },
-	{ "lib",   "library" },
-	{ "oat",   "caves" },
-	{ "pete",  "streets" },
-	{ "ref",   "complex" },
-	{ "run",   "runway" },
-	{ "sev",   "bunker" },
-	{ "sevb",  "bunker2" },
-	{ "sevx",  "sf1" },
-	{ "sevxb", "sf2" },
-	{ "silo",  "silo" },
-	{ "stack", "library" },
-	{ "stat",  "statuepark" },
-	{ "tra",   "train" },
-};
-
-/**
- * GoldenEye's key for a level -> the release's own sky, drawn without the
- * Community Edition. The release's eleven are one picture, and it is
+ * GoldenEye's key for a level -> the release's own sky. The release's eleven
+ * are one picture, and it is
  * Surface's: a blue sky over the peaks and low sun of Surface's panorama (the
  * level's backdrop, gebeanStageRenderBackdrop()), and the Community Edition's
  * Surface sky (sf1) is that picture with its top half retouched - its bottom
@@ -90,8 +57,11 @@ static const struct { const char *key, *sky; } skyNames[] = {
  * GoldenEye's dark navy cloud plane over it ended in a hard ring some thirty
  * degrees up, the panorama's own sky below it (F3 20260930-013142, "a mix of
  * XBLA and N64"). The release draws the placeholder there (its Dam file, with
- * Dam's horizon ring), which meets the haze with no seam; the Community
- * Edition's own dam dome replaces it where the CE is on.
+ * Dam's horizon ring), which meets the haze with no seam.
+ *
+ * The Community Edition's per-level domes (21) are its own new pictures, which
+ * the game does not take: since it is built in (2026-10-10) every other level
+ * keeps GoldenEye's own sky, as it did with the CE off.
  */
 static const struct { const char *key, *sky; } releaseSkyNames[] = {
 	{ "sevx",  "surface" },
@@ -99,58 +69,9 @@ static const struct { const char *key, *sky; } releaseSkyNames[] = {
 	{ "run",   "runway" },
 };
 
-/**
- * GoldenEye's key for a level -> the colour of its Community Edition dome at
- * the horizon, which the fog and the fill under the dome take in place of the
- * release's, only while the Community Edition is on (gebeanSkyFogColour()).
- *
- * Surface 2: the CE's sf2 is a grey storm, where the release's fog row for
- * the level (retail and the CE's alike) is GoldenEye's dark red 0x201010 -
- * under the dome that left a dark red band where the ground and the
- * panorama fogged out, and the same red filled the screen below the dome's
- * lowest ring. The CE carries no other colour for it (its fog row changes
- * only the distance, 10000 -> 6500), so the colour is the dome's own: the
- * mean of the bottom 20 of its picture's 1024 rows, the band its lowest ring
- * of vertices is drawn with (v 0.98 to 1.0), round the whole turn. The
- * bottom 4 rows give 0x575e5b, the bottom 50 0x58605e.
- */
-static const struct { const char *key; u32 rgb; } ceHorizons[] = {
-	{ "sevxb", 0x575f5d },
-};
-
-s32 gebeanSkyFogColour(u8 *rgb)
-{
-	const char *key;
-
-	if (!gebeanCeIsActive() || (key = gebeanStageLevelKey()) == NULL) {
-		return 0;
-	}
-
-	for (s32 i = 0; i < ARRAYCOUNT(ceHorizons); i++) {
-		if (strcmp(ceHorizons[i].key, key) == 0) {
-			rgb[0] = ceHorizons[i].rgb >> 16;
-			rgb[1] = ceHorizons[i].rgb >> 8;
-			rgb[2] = ceHorizons[i].rgb;
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
 /** The sky file drawn over a level, or NULL for GoldenEye's own sky. */
 static const char *skyNameFor(const char *key)
 {
-	if (gebeanCeIsActive()) {
-		for (s32 i = 0; i < ARRAYCOUNT(skyNames); i++) {
-			if (strcmp(skyNames[i].key, key) == 0) {
-				return skyNames[i].sky;
-			}
-		}
-
-		return NULL;
-	}
-
 	for (s32 i = 0; i < ARRAYCOUNT(releaseSkyNames); i++) {
 		if (strcmp(releaseSkyNames[i].key, key) == 0) {
 			return releaseSkyNames[i].sky;
@@ -385,7 +306,6 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 	struct environment *env = envGetCurrent();
 	const char *key;
 	const char *name;
-	u8 fill[3];
 	struct zrange zrange;
 	Mtxf *mtx;
 	f32 scale;
@@ -403,8 +323,7 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 		return NULL;
 	}
 
-	// The Community Edition's where it is on, else the release's own where
-	// it is the level's (skyNameFor())
+	// The release's own where it is the level's (skyNameFor())
 	name = skyNameFor(key);
 
 	if (!name) {
@@ -431,16 +350,10 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 	}
 
 	// Under the dome's lowest ring: the level's own sky colour, as the game
-	// fills a level with no clouds - or the dome's horizon, where the fog
-	// takes it too (gebeanSkyFogColour())
+	// fills a level with no clouds
 	gDPPipeSync(gdl++);
 	gDPSetCycleType(gdl++, G_CYC_FILL);
-
-	if (gebeanSkyFogColour(fill)) {
-		gdl = viSetFillColour(gdl, fill[0], fill[1], fill[2]);
-	} else {
-		gdl = viSetFillColour(gdl, env->sky_r, env->sky_g, env->sky_b);
-	}
+	gdl = viSetFillColour(gdl, env->sky_r, env->sky_g, env->sky_b);
 
 	gDPSetRenderMode(gdl++, G_RM_NOOP, G_RM_NOOP2);
 	gDPFillRectangle(gdl++,
@@ -526,11 +439,10 @@ s32 gebeanSkyIsDrawn(void)
 /**
  * The sea's picture for a level served in HD: GoldenEye's grey (1) or blue (2)
  * water, texture/bg/water1 and water2 in the release. The release's own are
- * GoldenEye's 32x32 again, which the ROM's are already; the Community
- * Edition's are 512x512 (new/texture/bg/), and those are what its Frigate's
- * sea is drawn with (Xenia, 2026-09-27: dark blue with pale glints where the
- * release draws the ROM's). The stand-in is bound for the game's life, and
- * NULL where there is no picture bigger than GoldenEye's.
+ * GoldenEye's 32x32 again, which the ROM's are already, so this is NULL and
+ * the ROM's are drawn; the Community Edition's 512x512 ones were its own new
+ * pictures (new/texture/bg/), not taken since it is built in. Kept for a
+ * picture bigger than GoldenEye's, bound for the game's life.
  */
 const void *gebeanSkyWaterTile(s32 which)
 {
@@ -557,7 +469,7 @@ const void *gebeanSkyWaterTile(s32 which)
 	if (rgba && w > 32 && h > 32) {
 		snprintf(key, sizeof(key), "gebeansky/%s", source);
 		tiles[which] = xblaTexBindImage(key, rgba, w, h);
-		sysLogPrintf(LOG_NOTE, "gebeansky: the sea's picture %d is the Community Edition's %dx%d", which, w, h);
+		sysLogPrintf(LOG_NOTE, "gebeansky: the sea's picture %d is the release's %dx%d", which, w, h);
 	} else {
 		free(rgba);
 	}
@@ -571,7 +483,6 @@ const void *gebeanSkyWaterTile(s32 which)
 #include "gebeansky.h"
 
 Gfx *gebeanSkyRender(Gfx *gdl) { return NULL; }
-s32 gebeanSkyFogColour(u8 *rgb) { return 0; }
 s32 gebeanSkyIsDrawn(void) { return 0; }
 void gebeanSkyLevelReset(void) { }
 const void *gebeanSkyWaterTile(s32 which) { return NULL; }

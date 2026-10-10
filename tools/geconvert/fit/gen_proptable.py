@@ -87,6 +87,18 @@ EXCLUDE = set(GUN_PROPS) | {
 # inside the HD helicopter (gebeanRigidKeepsUncovered()).
 SCORE_EXEMPT = {282}
 
+# Props drawn from another of the release's files. The release's bomb,
+# safecracker and key analyser cases are GoldenEye's low-detail case again
+# (64x128 pictures); its HD remodel is chrbriefcase, in the same frame (fit
+# 0.2134, perm 1 0 2, sign 1 -1 1), which the Community Edition put in their
+# place. Built in with the Community Edition (2026-10-10). The weapon case is
+# fitted in another frame and stays the release's.
+REPOINT = {
+    'chrbombcase': 'chrbriefcase',
+    'chrsafecrackercase': 'chrbriefcase',
+    'chrkeyanalysercase': 'chrbriefcase',
+}
+
 
 def main():
     fit = json.load(open(paths.data('propfit.json')))
@@ -99,10 +111,12 @@ def main():
             continue
         origin = first_list_origin(names[int(k)])
         centre = np.array(f['n64centre']) - (origin if origin is not None else 0)
-        out.append('\tPROPROW("Pgx%03dZ", "prop/%s", %s, %s, %.5ff, %s, %s), // %s, %.0f%%' % (
-            int(k), f['bean'], ', '.join(map(str, f['perm'])), ', '.join(map(str, f['sign'])), f['scale'],
+        source = REPOINT.get(f['bean'], f['bean'])
+        out.append('\tPROPROW("Pgx%03dZ", "prop/%s", %s, %s, %.5ff, %s, %s), // %s, %.0f%%%s' % (
+            int(k), source, ', '.join(map(str, f['perm'])), ', '.join(map(str, f['sign'])), f['scale'],
             ', '.join('%.2ff' % x for x in f['beancentre']), ', '.join('%.2ff' % x for x in centre),
-            names[int(k)], f['score'] * 100))
+            names[int(k)], f['score'] * 100,
+            ", the release's %s" % source if source != f['bean'] else ''))
     paths.output(OUT).write('\n'.join(out) + '\n')
     print(len(out) - 2, 'rows', file=sys.stderr)
 

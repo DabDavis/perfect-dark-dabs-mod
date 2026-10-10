@@ -46,7 +46,8 @@
  * is the only machine that simulates, so a client's picture can differ from
  * the host's without the match going out of step.
  *
- * Mod.XblaMeshes and Mod.GeXblaCommunityEdition are in none of them either:
+ * Mod.XblaMeshes is in none of them either (nor the Community Edition, built
+ * into the HD look since 2026-10-10):
  * a look is each machine's own picture, and the data a look chooses at a
  * load (the Community Edition's copies, the release's collision) is the
  * host's on every machine (netcontent.c, NETLOOK_*).
