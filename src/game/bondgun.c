@@ -682,8 +682,32 @@ static f32 bgunArmTicks(s32 ticks60)
 	return ticks60;
 }
 #define BGUN_ARMTICKS(ticks60) bgunArmTicks(ticks60)
+
+/**
+ * The hand's states take their steps on the tick: a state that waits for
+ * "the next tick" (the new gun seen loaded, then raised; an animation seen
+ * finished; a switch asked for) took it a 60th later at 60 FPS, but only a
+ * frame later above 60, so a switch drew the new gun 3.5 ticks sooner at
+ * 240 (34.5 against 38) and every step came out shorter by up to three
+ * quarters of a tick. Those steps are taken on a frame of whole 60ths
+ * (lvupdate60 > 0) - every frame at 60 FPS, at 30 and on a netplay sim
+ * tick, so the stock path is unchanged; every fourth at 240, where they
+ * now wait for the 60th as at 60; never on a present-only pass (0/0).
+ */
+#define BGUN_TICKFRAME() (g_Vars.lvupdate60 > 0)
+
+/**
+ * hand->count off the 60 FPS path moves by the 60ths, and to 1 on the
+ * first frame between them so a state's count == 0 entry block runs once.
+ * That 1 was a 60th early: the next 60th made it 2, where at 60 FPS it
+ * was 1, so the counted waits (the old gun let go at 3, the reload's floor
+ * of 2, GoldenEye's raise at 11) ended a tick early. The 60th after such a
+ * first frame is absorbed instead. Per player and hand.
+ */
+static u8 g_BgunCountEarly[MAX_PLAYERS][2];
 #else
 #define BGUN_ARMTICKS(ticks60) (ticks60)
+#define BGUN_TICKFRAME() true
 #endif
 
 f32 bgun0f09815c(struct hand *hand)
@@ -1440,8 +1464,17 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 	hand->shotremainder = 0;
 
 	// If ready to change gun due to manual switch, just do that
-	if (bgunIsReadyToSwitch(handnum) && bgunSetState(handnum, HANDSTATE_CHANGEGUN)) {
-		return lvupdate;
+	if (bgunIsReadyToSwitch(handnum)) {
+#ifndef PLATFORM_N64
+		// on the tick, as at 60 FPS (BGUN_TICKFRAME())
+		if (!BGUN_TICKFRAME()) {
+			return 0;
+		}
+#endif
+
+		if (bgunSetState(handnum, HANDSTATE_CHANGEGUN)) {
+			return lvupdate;
+		}
 	}
 
 	if (gunfunc == hand->gset.weaponfunc) {
@@ -1491,9 +1524,16 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 
 			// Consider switching to another weapon
 			if (weaponHasFlag(info->weaponnum, WEAPONFLAG_THROWABLE)
-					&& (!weaponHasFlag2(info->weaponnum, WEAPONFLAG2_DETONATORHAND) || handnum != HAND_LEFT)
-					&& bgunSetState(handnum, HANDSTATE_AUTOSWITCH)) {
-				return lvupdate;
+					&& (!weaponHasFlag2(info->weaponnum, WEAPONFLAG2_DETONATORHAND) || handnum != HAND_LEFT)) {
+#ifndef PLATFORM_N64
+				if (!BGUN_TICKFRAME()) {
+					return 0;
+				}
+#endif
+
+				if (bgunSetState(handnum, HANDSTATE_AUTOSWITCH)) {
+					return lvupdate;
+				}
 			}
 
 			// Consider switching to other gun function
@@ -1543,6 +1583,14 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 					return lvupdate;
 				}
 			} else {
+#ifndef PLATFORM_N64
+				// the reload of an empty clip starts on the tick, as at 60
+				// FPS: its dip counts the 60ths from here (BGUN_TICKFRAME())
+				if (!BGUN_TICKFRAME()) {
+					return 0;
+				}
+#endif
+
 				hand->count60 = 0;
 				hand->count = 0;
 
@@ -1571,7 +1619,7 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 
 			// Not attacking, but the player may have attempted
 			// to change guns or reload while firing
-			if (hand->modenext != HANDMODE_NONE) {
+			if (hand->modenext != HANDMODE_NONE && BGUN_TICKFRAME()) {
 				next = hand->modenext;
 
 				hand->mode = hand->modenext;
@@ -1654,6 +1702,13 @@ s32 bgunTickIncAutoSwitch(struct handweaponinfo *info, s32 handnum, struct hand 
 #endif
 		hand->shotremainder = 0;
 
+#ifndef PLATFORM_N64
+		if (bgunIsReadyToSwitch(handnum) && !BGUN_TICKFRAME()) {
+			bgunSetArmPitch(hand, MAX_PITCH);
+			return 0;
+		}
+#endif
+
 		if (bgunIsReadyToSwitch(handnum) && bgunSetState(handnum, HANDSTATE_CHANGEGUN)) {
 			if (g_Vars.mplayerisrunning && (IS8MB() || PLAYERCOUNT() != 1)) {
 				playermgrDeleteWeapon(handnum);
@@ -1710,7 +1765,7 @@ s32 bgunTickIncAutoSwitch(struct handweaponinfo *info, s32 handnum, struct hand 
 				}
 			}
 
-			if (someval <= 1 && someval >= 0) {
+			if (someval <= 1 && someval >= 0 && BGUN_TICKFRAME()) {
 				if (g_Vars.currentplayer->hands[1 - handnum].state != HANDSTATE_RELOAD) {
 					hand->count60 = 0;
 					hand->count = 0;
@@ -1729,7 +1784,7 @@ s32 bgunTickIncAutoSwitch(struct handweaponinfo *info, s32 handnum, struct hand 
 				}
 			}
 
-			if (hand->modenext) {
+			if (hand->modenext && BGUN_TICKFRAME()) {
 				hand->mode = hand->modenext;
 				hand->count60 = 0;
 				hand->count = 0;
@@ -1867,7 +1922,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 				}
 			}
 
-			if (hand->animmode != HANDANIMMODE_BUSY) {
+			if (hand->animmode != HANDANIMMODE_BUSY && BGUN_TICKFRAME()) {
 				if (bgunSetState(handnum, HANDSTATE_IDLE)) {
 					return lvupdate;
 				}
@@ -2029,7 +2084,7 @@ s32 bgunTickIncChangeFunc(struct handweaponinfo *info, s32 handnum, struct hand 
 #endif
 		}
 	} else {
-		if (hand->animmode == HANDANIMMODE_BUSY) {
+		if (hand->animmode == HANDANIMMODE_BUSY || !BGUN_TICKFRAME()) {
 			more = true;
 		}
 	}
@@ -3558,7 +3613,7 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 					&& !(hand->ejectstate != EJECTSTATE_INACTIVE && hand->ejecttype == EJECTTYPE_GUN)) {
 				if (hand->statecycles == 0) {
 					bgunStartAnimation(weapon->unequip_animation, handnum, hand);
-				} else if (hand->animmode == HANDANIMMODE_IDLE) {
+				} else if (hand->animmode == HANDANIMMODE_IDLE && BGUN_TICKFRAME()) {
 					hand->stateminor++; // to HANDSTATEMINOR_CHANGEGUN_LOWER
 				}
 			} else {
@@ -3650,9 +3705,10 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 				&& WEAPON_IS_GE(hand->gset.weaponnum);
 #endif
 
-			raisenow = hand->mode != HANDMODE_6;
+			// mode 6 -> 7 -> raise each a tick (BGUN_TICKFRAME())
+			raisenow = hand->mode != HANDMODE_6 && BGUN_TICKFRAME();
 
-			if (hand->mode == HANDMODE_6) {
+			if (hand->mode == HANDMODE_6 && BGUN_TICKFRAME()) {
 #ifndef PLATFORM_N64
 				// once bgunTickSwitch2() has handed over the new weapon
 				if ((quick || gehold) && g_Vars.currentplayer->gunctrl.switchtoweaponnum < 0) {
@@ -3913,7 +3969,7 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 	// Wait for equip animation to finish then go to idle state
 	if (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_EQUIP) {
 		if (info->definition->equip_animation && !weaponHasFlag(hand->gset.weaponnum, WEAPONFLAG_00004000)) {
-			if (hand->animmode == HANDANIMMODE_IDLE) {
+			if (hand->animmode == HANDANIMMODE_IDLE && BGUN_TICKFRAME()) {
 				if (bgunSetState(handnum, HANDSTATE_IDLE)) {
 					return lvupdate;
 				}
@@ -3959,8 +4015,17 @@ s32 bgunTickInc(struct handweaponinfo *info, s32 handnum, s32 lvupdate)
 			// tick at 240, where the reload's two-tick floor and GoldenEye's
 			// raise wait (11 ticks) went by four times as fast. Off 60 FPS
 			// it moves by the 60ths, and to 1 on the first frame so the
-			// states' count == 0 entry blocks still run once.
-			hand->count += hand->count == 0 && g_Vars.lvupdate60 == 0 ? 1 : g_Vars.lvupdate60;
+			// states' count == 0 entry blocks still run once; the 60th
+			// after that first frame is absorbed (g_BgunCountEarly).
+			u8 *early = &g_BgunCountEarly[g_Vars.currentplayernum % MAX_PLAYERS][handnum & 1];
+
+			if (hand->count == 0 && g_Vars.lvupdate60 == 0) {
+				hand->count = 1;
+				*early = true;
+			} else if (g_Vars.lvupdate60 > 0) {
+				hand->count += hand->count == 1 && *early ? g_Vars.lvupdate60 - 1 : g_Vars.lvupdate60;
+				*early = false;
+			}
 		} else
 #endif
 		hand->count++;
