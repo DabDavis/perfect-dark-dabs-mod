@@ -1684,6 +1684,10 @@ void gebeanMeshesSwitched(void)
 			if (gebeanSwitchReloads(ctrl->weaponnum)
 					|| (ctrl->dualwielding && gebeanSwitchReloads(ctrl->leftweaponnum))) {
 				bgunSetGunMemWeapon(ctrl->weaponnum);
+
+				// at once, not a step a tick: the hand was empty for a
+				// moment at every switch (F3 20261008-014239)
+				bgunLoadGunNow();
 			}
 		}
 

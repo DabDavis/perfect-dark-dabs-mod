@@ -84,6 +84,9 @@ void bgunTickGunLoad(void);
 void bgunTickMasterLoad(void);
 void bgunTickLoad(void);
 bool bgunLoadAll(void);
+#ifndef PLATFORM_N64
+void bgunLoadGunNow(void);
+#endif
 struct modeldef *bgunGetCartModeldef(void);
 void bgun0f09ebcc(struct defaultobj *obj, struct coord *coord, RoomNum *rooms, Mtxf *matrix1, struct coord *velocity, Mtxf *matrix2, struct prop *prop, struct coord *pos);
 void bgun0f09ed2c(struct defaultobj *obj, struct coord *coord, Mtxf *arg2, struct coord *velocity, Mtxf *arg4);
