@@ -26,6 +26,7 @@ bool envIsPosInDrawDistance(struct coord *pos, f32 tolerance);
 bool envIsPosPastLevelFog(struct coord *pos, f32 tolerance);
 #endif
 struct distfadesettings *envGetDistFadeSettings(void);
+struct distfadesettings *envGetDistFadeSettingsOwn(void);
 s32 envGetObjShadeMode(struct prop *prop, f32 arg1[4]);
 
 #endif

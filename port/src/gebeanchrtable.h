@@ -51,7 +51,7 @@
 	CHRROW("Cgx048Z", GEBEAN_HEAD,   "head/headshaun"), // CheadshaunZ
 	CHRROW("Cgx049Z", GEBEAN_HEAD,   "head/headdwayne"), // CheaddwayneZ
 	CHRROW("Cgx050Z", GEBEAN_HEAD,   "head/headb"), // CheadbZ
-	CHRROW("Cgx051Z", GEBEAN_HEAD,   "head/headdave"), // CheaddaveZ
+	CHRROW("Cgx051Z", GEBEAN_HEAD,   "head/headneil"), // CheaddaveZ, the release's head/headneil is this face
 	CHRROW("Cgx052Z", GEBEAN_HEAD,   "head/headgrant"), // CheadgrantZ
 	CHRROW("Cgx053Z", GEBEAN_HEAD,   "head/headdes"), // CheaddesZ
 	CHRROW("Cgx054Z", GEBEAN_HEAD,   "head/headchris"), // CheadchrisZ

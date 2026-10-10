@@ -73,9 +73,18 @@ world/sweep.py --out ~/wt/gefidelity-run/out/sweep            # all twenty, ~6 m
   where the regular build carries a rebuilt CE fix, that is a finding against
   the cartridge (FINDINGS.md lists them), never an accepted difference.
 - **HD (XBLA) look:** the release with the Community Edition applied, in Xenia,
-  against ours with `Mod.GeXblaCommunityEdition=1` and
-  `added-content/CommunityEditionUpdaterV6.zip` - GE Plus's XBLA mode runs the
-  CE, so a retail-against-CE comparison judges the wrong thing.
+  against ours - GE Plus's XBLA mode runs the CE, so a retail-against-CE
+  comparison judges the wrong thing.
+  **Since 2026-10-10 (feat/ce-builtin) the Community Edition is built into
+  ours**: no `Mod.GeXblaCommunityEdition` (ignored if set), no zip read. Our HD
+  look is now "the CE's fixes rebuilt in source" and lacks the CE's own new
+  art (its 21 skydomes, Frigate's 512x512 sea, the repainted guns, door and
+  console pictures, the watch hand, Doak's/Alan's head files other than the
+  re-pointed release heads - CLAUDE-notes/ge-bean.md, "The Community Edition
+  built in"). Against Xenia CE those are expected differences, not findings;
+  the instruments' `GeXblaCommunityEdition`/`CE_ZIP` settings (viewdiff.py,
+  xbla/, view/) are now no-ops and want removing when the tools are next
+  reworked. Xenia's CE side stays the oracle.
 
 ## Traps (each cost a run)
 

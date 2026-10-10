@@ -10,6 +10,7 @@ void bgGetRoomBrightnessRange(s32 roomnum, u8 *min, u8 *max);
 struct drawslot *bgGetRoomDrawSlot(s32 roomnum);
 #ifndef PLATFORM_N64
 bool bgRoomIsPortalVisible(s32 room);
+bool bgRoomsInLevelView(RoomNum *rooms);
 f32 bgLevelLength(void);
 #endif
 Gfx *bgRenderXrayData(Gfx *gdl, struct xraydata *xraydata);

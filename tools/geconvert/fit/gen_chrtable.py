@@ -52,6 +52,14 @@ BROKEN = {'blueman', 'bluewoman', 'greyman'}
 # face, but the user keeps the release's HD head anyway (2026-09-26).
 NOT_THEIRS = set()
 
+# Heads drawn from another of the release's files, which has their face: the
+# release's headneil is Doctor Doak's (dark curly hair, goatee), and the
+# Community Edition's own headdave is that file refitted. Built in with the
+# Community Edition (2026-10-10); headfit.c seats it on the neck.
+REPOINT = {
+    'headdave': 'head/headneil',
+}
+
 # GoldenEye's stem -> the release's name for it, and a note for the row
 RENAMED = {
     'suit_lf_hand': ('suitlfhand', "the watch's floating arm"),
@@ -96,6 +104,10 @@ for num, (name, scale, h) in enumerate(chrs):
     if source is None:
         print('\t// %d %s: the release has no such file' % (num, name))
         continue
+
+    if stem in REPOINT:
+        source = REPOINT[stem]
+        note = (note + '; ' if note else '') + "the release's %s is this face" % source
 
     if stem in NOT_THEIRS:
         print('\t// %d %s: the release\'s is another face, left in the N64 look' % (num, name))

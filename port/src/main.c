@@ -244,9 +244,9 @@ int main(int argc, const char **argv)
 	// and GoldenEye XBLA's characters, levels and props out of the player's
 	// archive, the first time, with a notice of its own
 	gebeanUnpackAtStartup();
-	// and the Community Edition's patch over it, where the player has its
-	// updater and has chosen it (gebeance.c)
-	gebeanCePrepareAtStartup();
+	// and clear away what the old Community Edition updater path left in its
+	// cache: the Community Edition is the game's own now (gebeance.c)
+	gebeanCePurge();
 
 	// After the config, because that is where the chosen mod is written, and
 	// before romdataInit(), which is what goes looking for the files it holds.

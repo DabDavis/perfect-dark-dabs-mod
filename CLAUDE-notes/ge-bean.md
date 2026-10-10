@@ -15018,3 +15018,61 @@ settings gave each player's own bit. RX+ for 20 frames turned +66.5 degrees,
   The quarter step moves nothing when the body already touches both walls, so
   the stock slide tried only the first; on a converted stage it now also tries
   the wall that stopped that slide (6712c1a5f).
+
+**Statue Park's far guards, fixed after all (owner, 2026-10-10: "we can fix this").** In the HD look of a
+GoldenEye level chrs and objects are now drawn as far as the scenery: `envGetDistFadeSettings()` scales the
+level's object fade by `end / refdist` (the release's fog end over the fade's start), so the fade starts no
+nearer than where the fog is whole (scaling all three numbers moves the cut for a prop of any size by the
+same factor); chrs take `envIsPosInDrawDistance()` like objects; and the chrs' portal walk (`bgTickPortals()`)
+runs out to the fog's end where that is past the level's own far plane. What the AI goes by stays the N64
+look's: `g_BgPortalSeen` bit 2 marks rooms whose nearest point is inside the level's own plane
+(`bgRoomsInLevelView()`, used by `bgRoomIsOnscreen()` and the MP room visibility), and a chr the N64 look would
+not draw (own fog max, own fade `posIsInObjFadeDistanceOwn()`, own-plane rooms) gets
+`CHRH2FLAG_PASTLEVELFOG`, which keeps it out of the cap of 30 and of the AI's on-screen tests, as Disable Fog
+already did. Statue Park at the report camera (retail): the guard at 3314 is drawn, the nearer one at 2185
+no longer half-faded. Dam/Surface spawn views and 2400-frame wall times unchanged. N64 look untouched.
+
+## The Community Edition built in (2026-10-10, feat/ce-builtin)
+
+The owner: *"lets fully add community edition into the game without the toggle and get rid of the toggle. it is
+silently on for all"*, then *"we do the fix ourselves, not using the zip, but applying the same fixes in our
+source"*. So: no `Mod.GeXblaCommunityEdition` (an old pd.ini's key loads as any unknown key does), no Mods:
+Missions checkbox or Restart Now, no zip search, no HDiffPatch (`port/src/external/hdiffpatch` removed; nothing
+else used it). `gebeance.c` is now only `gebeanCePurge()`, at the start: it deletes the old overlay
+(`cache/xbla/goldeneye/ce/`, its `.applied*` markers) and HD levels built from it (`levels/*_ce.bin`). The HD
+level cache no longer hashes or names a CE state. The CE's fixes stay in the HD look only; the N64 look is the
+cartridge. `GEBEAN_CE_DIR` and `GEBEANCE_DIFF_ENTRY` stay: the scan of the cache still skips an old overlay
+folder, and xblaimport.c still passes over the updater zip should a player keep it in added-content/.
+
+What the zip changed in our game, CE on vs off, HD look - every file our code reads, plus the xex and the audio
+diffs (inventory scripts `~/wt/f3-1010c-gehd-run/ceinv/`: `bytediff.py` classifies every changed byte by CAFF
+blob, `cecompare.py` looks each new picture up in a pixel-hash index of the whole release, `vcol.py`):
+
+| CE change | now |
+|---|---|
+| Data fixes in setups/pads/tiles (`g_RomPatches`, `_ce` copies) | rebuilt earlier; now load with the HD look alone (`geRoomCeData()` = `xblaMeshGetEnabled()`; online `NETLOOK_GECE` = the host's HD look, bit kept for older peers) |
+| xex fog distances: Statue 3500->5000, Archives 3000->4500, Train 1500->4500, Jungle 2500->4500, Temple 6000->22500, Surface 2 10000->6500 | rebuilt: `beanFogsCe[]` over the player's own table (gebeanstage.c) |
+| xex fog colours (Statue 090708, Jungle 797c79, Temple 103060, Cradle 6e8196) and Surface 2's horizon 575f5d | left out: they go with the CE's own domes, which are not drawn; the release's colours under GoldenEye's sky |
+| new rows for Bunker 1 / Silo fog; rows 40/240/340 -> 54/9/20 | n/a: levels GoldenEye draws fogless; unmapped ids |
+| `new/head/headdave` = the release's `head/headneil` (Doak's face: curly hair, goatee) with its vertices refitted | rebuilt: `Cgx051Z` drawn from `head/headneil` (gen_chrtable.py `REPOINT`), seated by our own head fit; F3 20261010-092900 |
+| `new/head/headalan` = the release's `head/headdave` (the glasses face) | **owner's call**: one line in `REPOINT`; the release's own headalan (moustache) is closer to GoldenEye's Alan |
+| bomb, safecracker, key analyser cases -> the release's `chrbriefcase` byte for byte | rebuilt: geproptable.h rows point at `prop/chrbriefcase` (same fit frame; gen_proptable.py `REPOINT`) |
+| weapon case -> `chrbriefcase` | left: fitted in another frame (perm 0 1 2); needs a propfit run against the briefcase |
+| vertex colours: ammocrate3, cardbox2, gunrunway1, metalchair1, tuningconsole1, woodlgcrate1, woodsmcrate5, Complex's railings | rebuilt: `gebeancefixes.h` (gen_cefixtable.py from the release and the reference copy; colour bytes only, checked) applied in `beanLoad()` |
+| chrautoshot flash, console2/3 spiral, doorprison1, woodentable1, stool1 UVs, walletbond (folder), cryptdoor alpha, door glass, XLU bullets, Bunker ii links, Silo armour, Control/Egyptian door flags, Surface Klobbs/railing pad | covered: rebuilt before, keyed on the release's bytes, on without the zip |
+| siloliftdoor/sevdoor3/sevdoor4wind tints, sevdoor4wind hazard strip, Trevelyan's D5K hand, Statue objective/ending guard, table legs | taste: GoldenEye kept (owner 2026-09-25) |
+| `sf1`/`sf2` | nothing: both byte-identical to the release's `surface` (only the dome names differed) |
+| 21 skydomes (`new/skydome/*`) | art left out: the release's 11 are one placeholder; GoldenEye's own sky is drawn but on Surface/Dam/Runway (as CE-off was) |
+| Frigate's sea (`new/texture/bg/water1/2`, 512x512) | art left out: ROM water |
+| rocket launcher, Cougar (ruger), timed mine (1P + pickups) | art left out (new pictures, not in the release) |
+| steeldoor1 stripe, trainextdoor, doorroller4 (+its UVs), siloliftdoor/sevdoor3 pictures, doordest2 (new mesh) | art left out |
+| bridgeconsole1a/3a/3b, doorconsole grille; console1/consolesevb/tv1/consolesev2b/console2/3 screen picture | art left out; the screens are GoldenEye's monitor programmes here anyway |
+| chrclipboard picture (+UVs), Control's 8 placeholders (64x17), Bunker 2's dirt patch | art left out |
+| watch arm (suitlfhand), fist, trigger hand pictures | art left out |
+| `_hits`/`.rbh`, `original/*`, loc/, texture/attract buttons, texture/bg ammo icons, goldeneyelogo, gadget guns, endofgamejungle | n/a: never read |
+| sfx.diff, mus.diff, xexsurround.diff, the rest of xex.diff | n/a: our audio is GoldenEye's; 4J's engine |
+
+Options for the art left out (owner): keep as is (the release's and GoldenEye's own); ask the CE's authors for
+leave to ship their pictures; or rebuild a few by hand from the release's/ROM's pictures (the Control
+placeholders and Bunker 2's patch are small N64-format pictures that may be GoldenEye's own - not checked against
+the ROM). Doak in HD wears the face's own glasses (the release file has them; GoldenEye's Doak has none).

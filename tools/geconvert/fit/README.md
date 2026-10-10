@@ -56,6 +56,7 @@ diff /tmp/gebeanstagetable.h port/src/gebeanstagetable.h
 | `port/src/geproptable.h` | `gen_proptable.py` | `propfit.json` | the ROM (model group origins, prop names) |
 | `port/src/gegunstable.h` | `gen_guntable.py` | `gunfit.json` | nothing else |
 | `port/src/gebeanchrtable.h` | `gen_chrtable.py` | none | the ROM (character list), the release (`files/new/char`, `head` listings) |
+| `port/src/gebeancefixes.h` | `gen_cefixtable.py` | none | the release and a reference copy of the Community Edition applied to it (`GEFIT_CE`, default `.xbla-work/ce/filesCE`); colour bytes only |
 | `port/src/gebeantable.h` | `gen_beantable.py` | `gemap.json`, `gexassign.json`, `texcompare.json` | GE-X 6a's model files, the release (`files/new/head` models); imports `batch_gex.py`, `bean2obj.py`, `pdmodel.py` |
 | `port/include/geaitable.h`, `tools/geconvert/geaitable.py` | `genaitable.py` (historical) | none | the decomp's `src/aicommands2.h`, the repo's `src/game/chrai.c`, GE-X 6a (`geaicmds.py`, `pdaicmds.py`, `gexdata.py`, `gexprops.py`, `n64objsizes.txt`) |
 

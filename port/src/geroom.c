@@ -35,10 +35,10 @@ s32 geRoomActive(void)
 
 /**
  * Whether a converted stage loads the Community Edition's copies of its files
- * (modloaderGetStageCeFile()): the release's look on and the Community
- * Edition applied, as the stage loads. The user, 2026-10-01: the Community
- * Edition's fixes belong to the HD look only, and the N64 look is the
- * cartridge as it is. Like everything a stage reads from its setup, pads and
+ * (modloaderGetStageCeFile()): the release's look on, as the stage loads. The
+ * user, 2026-10-01: the Community Edition's fixes belong to the HD look only,
+ * and the N64 look is the cartridge as it is; 2026-10-10: the Community
+ * Edition is built in, silently on in the HD look (no zip, no setting). Like everything a stage reads from its setup, pads and
  * tiles, the choice is made at the load: a switch of look in a mission takes
  * effect at the next one (or at a restart of it).
  */
@@ -52,7 +52,7 @@ s32 geRoomCeData(void)
 		return (look & NETLOOK_GECE) != 0;
 	}
 
-	return xblaMeshGetEnabled() && gebeanCeIsActive();
+	return xblaMeshGetEnabled();
 }
 
 struct geroomfloor {

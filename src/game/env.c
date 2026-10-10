@@ -18,10 +18,6 @@
 bool g_FogEnabled;
 bool g_EnvHasTransparency;
 struct distfadesettings *g_EnvDistFadeSettingsPtr;
-#ifndef PLATFORM_N64
-// The far plane of the fog row the fade came with - see envGetDistFadeSettings().
-static f32 g_EnvDistFadeFogFar;
-#endif
 struct distfadesettings g_EnvDistFadeSettings;
 u32 var800a65fc;
 
@@ -251,10 +247,6 @@ void envApplyFogEnvironment(struct fogenvironment *env)
 		g_EnvDistFadeSettings.refdist = env->refdist;
 		g_EnvDistFadeSettingsPtr = &g_EnvDistFadeSettings;
 	}
-
-#ifndef PLATFORM_N64
-	g_EnvDistFadeFogFar = env->far;
-#endif
 
 	envTick();
 }
@@ -710,6 +702,17 @@ bool envIsPosInDrawDistance(struct coord *pos, f32 tolerance)
 }
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * The level's own object fade, as the N64 look has it - what a chr is in view
+ * by for the AI's purposes whatever the look draws (CHRH2FLAG_PASTLEVELFOG).
+ */
+struct distfadesettings *envGetDistFadeSettingsOwn(void)
+{
+	return modIsFogDisabled() ? NULL : g_EnvDistFadeSettingsPtr;
+}
+#endif
+
 struct distfadesettings *envGetDistFadeSettings(void)
 {
 #ifndef PLATFORM_N64
@@ -722,15 +725,20 @@ struct distfadesettings *envGetDistFadeSettings(void)
 		return NULL;
 	}
 
-	// GoldenEye's levels in the HD look are fogged at the release's own
-	// distance, which is further out than GoldenEye's far plane - Depot's is
-	// 3000, and its guards were gone at 2000 while the yard past them was
-	// still drawn, so they shot from nothing (F3 report 20260927-024938). The
-	// fade moves out with the fog, by the same share.
-	if (g_EnvDistFadeSettingsPtr && g_EnvDistFadeFogFar > 0
-			&& gebeanStageFog(&start, &end, rgb) && end > g_EnvDistFadeFogFar) {
+	// GoldenEye's levels in the HD look are seen out to where the release's
+	// fog is whole, while GoldenEye's own object fade drops chrs and props
+	// well inside it: Depot's guards were gone at 2000 while the yard past
+	// them was still drawn, so they shot from nothing (F3 report
+	// 20260927-024938), and Statue Park's at about 2500 under a fog whole at
+	// 3500 (F3 20261010-102617). The whole fade moves out so that it starts
+	// no nearer than the fog's end: everything the fog lets be seen is drawn,
+	// and what fades, fades inside the fog. Scaling all three of its numbers
+	// by k moves the point a prop of any size goes by k. What the AI goes by
+	// is still the level's own (envGetDistFadeSettingsOwn()).
+	if (g_EnvDistFadeSettingsPtr && g_EnvDistFadeSettingsPtr->refdist > 0
+			&& gebeanStageFog(&start, &end, rgb) && end > g_EnvDistFadeSettingsPtr->refdist) {
 		static struct distfadesettings scaled;
-		const f32 k = end / g_EnvDistFadeFogFar;
+		const f32 k = end / g_EnvDistFadeSettingsPtr->refdist;
 
 		scaled.opaperc = g_EnvDistFadeSettingsPtr->opaperc * k;
 		scaled.xluperc = g_EnvDistFadeSettingsPtr->xluperc * k;

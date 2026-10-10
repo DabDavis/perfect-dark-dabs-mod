@@ -194,12 +194,12 @@
 	PROPROW("Pgx221Z", "prop/hatberetblue", 0, 1, 2, 1, 1, 1, 0.21290f, 0.00f, 0.00f, 0.00f, -0.25f, -670.79f, -45.42f), // hatberetblue, 100%
 	PROPROW("Pgx222Z", "prop/hatberetred", 0, 1, 2, 1, 1, 1, 0.21297f, 0.00f, 0.00f, 0.00f, -0.04f, -671.17f, -45.35f), // hatberetred, 100%
 	PROPROW("Pgx223Z", "prop/hatpeaked", 0, 1, 2, 1, 1, 1, 0.21301f, 0.00f, 0.00f, 0.00f, 0.00f, -665.04f, -32.01f), // hatpeaked, 100%
-	PROPROW("Pgx226Z", "prop/chrbombcase", 1, 0, 2, 1, -1, 1, 0.21328f, 0.00f, 0.00f, 0.00f, 387.27f, -239.42f, -76.90f), // chrbombcase, 95%
+	PROPROW("Pgx226Z", "prop/chrbriefcase", 1, 0, 2, 1, -1, 1, 0.21328f, 0.00f, 0.00f, 0.00f, 387.27f, -239.42f, -76.90f), // chrbombcase, 95%, the release's chrbriefcase
 	PROPROW("Pgx234Z", "prop/chrdoordecoder", 1, 0, 2, 1, -1, 1, 0.21300f, 0.00f, 0.00f, 0.00f, 260.36f, -259.08f, -48.66f), // chrdoordecoder, 95%
 	PROPROW("Pgx235Z", "prop/chrbombdefuser", 0, 1, 2, 1, 1, 1, 0.21189f, 0.00f, 0.00f, 0.00f, -0.01f, -24.37f, 57.25f), // chrbombdefuser, 100%
-	PROPROW("Pgx237Z", "prop/chrsafecrackercase", 1, 0, 2, 1, -1, 1, 0.21328f, 0.00f, 0.00f, 0.00f, 387.27f, -239.42f, -76.90f), // chrsafecrackercase, 95%
+	PROPROW("Pgx237Z", "prop/chrbriefcase", 1, 0, 2, 1, -1, 1, 0.21328f, 0.00f, 0.00f, 0.00f, 387.27f, -239.42f, -76.90f), // chrsafecrackercase, 95%, the release's chrbriefcase
 	PROPROW("Pgx238Z", "prop/chrcamera", 0, 1, 2, 1, 1, 1, 0.21203f, 0.00f, 0.00f, 0.00f, 7.73f, -0.01f, 13.63f), // chrcamera, 100%
-	PROPROW("Pgx241Z", "prop/chrkeyanalysercase", 1, 0, 2, 1, -1, 1, 0.21328f, 0.00f, 0.00f, 0.00f, 387.27f, -239.42f, -76.90f), // chrkeyanalysercase, 95%
+	PROPROW("Pgx241Z", "prop/chrbriefcase", 1, 0, 2, 1, -1, 1, 0.21328f, 0.00f, 0.00f, 0.00f, 387.27f, -239.42f, -76.90f), // chrkeyanalysercase, 95%, the release's chrbriefcase
 	PROPROW("Pgx242Z", "prop/chrweaponcase", 0, 1, 2, 1, 1, 1, 0.21322f, 0.00f, 0.00f, 0.00f, 244.85f, 397.91f, 3.04f), // chrweaponcase, 100%
 	PROPROW("Pgx243Z", "prop/chrkeyyale", 0, 1, 2, 1, 1, 1, 0.42680f, 0.00f, 0.00f, 0.00f, 109.64f, 0.21f, 108.18f), // chrkeyyale, 72%
 	PROPROW("Pgx244Z", "prop/chrkeybolt", 0, 1, 2, 1, 1, 1, 0.42658f, 0.00f, 0.00f, 0.00f, 99.84f, 0.83f, 26.24f), // chrkeybolt, 100%
