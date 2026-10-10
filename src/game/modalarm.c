@@ -33,6 +33,7 @@
 #include "gexplus.h"
 #include "modloader.h"
 #include "game/propobj.h"
+#include "net/net.h"
 #include <stdlib.h>
 #include <string.h>
 #endif
@@ -1915,6 +1916,27 @@ static s32 modAlarmOwnHead(s32 bodynum)
 }
 
 /**
+ * A head of its own for a guard in a match: loaded, offset for the body, and
+ * kept in the table for every guard after it to share.
+ */
+static struct modeldef *modAlarmLoadHead(s32 headnum, s32 bodynum)
+{
+	struct modeldef *modeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+
+	if (modeldef == NULL) {
+		return NULL;
+	}
+
+	bodyCalculateHeadOffset(modeldef, headnum, bodynum);
+
+	g_ModAlarmHeads[g_ModAlarmNumHeads].headnum = headnum;
+	g_ModAlarmHeads[g_ModAlarmNumHeads].modeldef = modeldef;
+	g_ModAlarmNumHeads++;
+
+	return modeldef;
+}
+
+/**
  * A head for the next guard, and its modeldef where this has to hold one.
  *
  * Solo hands back NULL for the modeldef and lets body0f02ce8c() share the
@@ -1955,20 +1977,46 @@ static s32 modAlarmChooseHead(s32 bodynum, struct modeldef **headmodeldef)
 		return g_ModAlarmHeads[i].headnum;
 	}
 
-	*headmodeldef = modeldefLoadToNew(g_HeadsAndBodies[headnum].filenum);
+	*headmodeldef = modAlarmLoadHead(headnum, bodynum);
 
 	if (*headmodeldef == NULL) {
 		return -1;
 	}
 
-	bodyCalculateHeadOffset(*headmodeldef, headnum, bodynum);
-
-	g_ModAlarmHeads[g_ModAlarmNumHeads].headnum = headnum;
-	g_ModAlarmHeads[g_ModAlarmNumHeads].modeldef = *headmodeldef;
-	g_ModAlarmNumHeads++;
-
 	return headnum;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * netplay: the head a match's guard of the host's wears, for its puppet on
+ * a client (netPupMakeBody). The client spawns no guards of its own; it
+ * takes the copies the host took, one per head number out of the same
+ * table, so a wave costs a client what it costs the host and no more.
+ * NULL when the table is full or the stage pool is low (the guard is then
+ * not made here).
+ */
+struct modeldef *modAlarmNetHead(s32 headnum, s32 bodynum)
+{
+	s32 i;
+
+	if (headnum <= 0 || headnum >= NUM_HEADSANDBODIES || bodynum < 0 || bodynum >= NUM_HEADSANDBODIES
+			|| g_HeadsAndBodies[headnum].filenum == 0) {
+		return NULL;
+	}
+
+	for (i = 0; i < g_ModAlarmNumHeads; i++) {
+		if (g_ModAlarmHeads[i].headnum == headnum) {
+			return g_ModAlarmHeads[i].modeldef;
+		}
+	}
+
+	if (g_ModAlarmNumHeads >= MODALARM_MAXHEADS || mempGetStageFreeTotal() < MODALARM_MEMFLOOR) {
+		return NULL;
+	}
+
+	return modAlarmLoadHead(headnum, bodynum);
+}
+#endif
 
 /**
  * The player nearest a point, and how far. Dead players do not count: a guard
@@ -2680,6 +2728,16 @@ void modAlarmTick(void)
 	if (!modIsGuardsAlertedOn() || lvIsPaused() || g_Vars.in_cutscene) {
 		return;
 	}
+
+#ifndef PLATFORM_N64
+	// netplay: a client's world is the host's. Its guards come in the
+	// snapshots (netPupMakeBody); one spawned here was a chr of this machine
+	// alone, its list never run, standing in the T pose where nobody else
+	// had a guard (F3 20261010-034140, -034931)
+	if (NET_CLIENT) {
+		return;
+	}
+#endif
 
 	if (g_ModAlarmReserve > 0 && maxalive > g_ModAlarmReserve) {
 		maxalive = g_ModAlarmReserve;

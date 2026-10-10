@@ -369,6 +369,12 @@ void netRecPack(s32 rec, const struct netentstate *s, u8 *out)
 		out[2] = (u8)s->doormode;
 		out[3] = s->laserfade;
 		out[4] = (u8)s->flags;
+		// (protocol 28) where it stands: GoldenEye's fall-away doors
+		// (Surface's vent hatch) fall out of their frame when let go
+		putPos(out + 6, s->pos[0]);
+		putPos(out + 9, s->pos[1]);
+		putPos(out + 12, s->pos[2]);
+		put16(out + 15, (u16)(s16)s->room);
 		break;
 	case NETREC_LIFT:
 		putPos(out + 0, s->pos[0]);
@@ -440,6 +446,10 @@ void netRecUnpack(s32 rec, const u8 *in, struct netentstate *s)
 		s->doormode = (s8)in[2];
 		s->laserfade = in[3];
 		s->flags = in[4];
+		s->pos[0] = getPos(in + 6);
+		s->pos[1] = getPos(in + 9);
+		s->pos[2] = getPos(in + 12);
+		s->room = (s16)get16(in + 15);
 		break;
 	case NETREC_LIFT:
 		s->pos[0] = getPos(in + 0);

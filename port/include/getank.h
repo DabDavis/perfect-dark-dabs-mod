@@ -106,4 +106,7 @@ void geTankNetLoad(s32 playernum, const struct getanknet *in);
 // the player driving this tank prop, -1 when none
 s32 geTankDriverOf(struct prop *prop);
 
+// netplay: the host has this player out of the tank it climbed into here
+void geTankNetLeave(s32 playernum);
+
 #endif

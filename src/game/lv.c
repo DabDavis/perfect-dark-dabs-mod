@@ -1879,7 +1879,15 @@ Gfx *lvRender(Gfx *gdl)
 									((PAL ? 26.0f : 30.0f) - g_Vars.speedpillchange) * (PAL ? 0.0076923076994717f : 0.0066666668280959f));
 						}
 
+#ifndef PLATFORM_N64
+						// netplay: the machine's own player's pass, which on
+						// a client is not player 0's: there the boost never
+						// came on, so its clock (bgunTickBoost) never ran
+						// down and the boost never ended (F3 20261010-071659)
+						if (NET_LOCAL_UI(g_Vars.currentplayernum)) {
+#else
 						if (g_Vars.currentplayernum == 0) {
+#endif
 							if (g_Vars.speedpillwant) {
 								g_Vars.speedpillchange++;
 							} else {

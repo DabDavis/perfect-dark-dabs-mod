@@ -679,6 +679,13 @@ static struct prop *tankNear(void)
 			continue;
 		}
 
+		// somebody is in it already: one driver to a tank. GoldenEye has
+		// one player on its missions; co-op (online) seats several, and a
+		// second had climbed into the tank another drove (F3 20261010-050254)
+		if (prop->obj->hidden & OBJHFLAG_MOUNTED) {
+			continue;
+		}
+
 		tankSize((struct tankobj *)prop->obj, &halfwidth, &halflength, &height, &bottom);
 
 		dx = prop->pos.x - playerprop->pos.x;
@@ -2105,6 +2112,25 @@ void geTankNetLoad(s32 playernum, const struct getanknet *in)
 	tank->hullyaw = tankWrap(in->hullyaw);
 	tank->speed = in->speed;
 	tank->turretyaw = tankWrap(in->turretyaw);
+}
+
+/**
+ * netplay: the host never let this machine's player in (another got there
+ * first, or the press found no tank there): out again, as the host has it
+ * (netpredict.c). Its place is the host's to give back.
+ */
+void geTankNetLeave(s32 playernum)
+{
+	const s32 prevplayernum = g_Vars.currentplayernum;
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS || playernum >= PLAYERCOUNT()
+			|| g_Tank[playernum].state == TANK_OUT || !g_Vars.players[playernum]) {
+		return;
+	}
+
+	setCurrentPlayerNum(playernum);
+	tankExit(1);
+	setCurrentPlayerNum(prevplayernum);
 }
 
 s32 geTankDriverOf(struct prop *prop)
