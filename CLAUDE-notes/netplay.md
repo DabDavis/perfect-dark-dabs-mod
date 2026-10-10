@@ -423,6 +423,17 @@ then lists, joins, READYs and plays; the Linux host is
   mpchr slot is `MAX_PLAYERS`; the solo/co-op stash is
   `[MPINDEX_SOLO]`/`[+1]` = 12/13 (it was 4/5: `gamefile.c` and the solo
   options' items, which still say 4 and 5, map through `SOLO_OPTIONS_INDEX`).
+- **A number in the host's list is not one in yours (2026-10-10).** A
+  weapon set's number - Random 5, Random and Custom above all - follows
+  however many sets the machine's own list holds (`WEAPONSET_CUSTOM` is
+  `g_MpNumWeaponSets + 2`: a PD mod's sets, GoldenEye's fourteen appended or
+  not), so RULES' set is the host's numbering: `netRulesRead` bounds it by
+  `MP_MAX_WEAPONSETS + 2`, and `netRulesApply` makes one past this machine's
+  list its Custom (the slots in RULES are the host's guns). Bounded by the
+  guest's own Custom, a guest inside the host's PerfectBear mod (Custom 14)
+  refused the host's (28) - "the host's RULES did not parse" - and so did
+  any guest without GoldenEye converted against a GoldenEye set (F3
+  20261009-215118). Any list a mod or a conversion grows is the same trap.
 - **The owner nibble (phase 8).** `obj->hidden >> 28` is an owner mpchr
   index (a thrown or placed weapon's, an object's last attacker, the HTM
   terminal's activator), and a room of 12 humans and sims passes 16 chrs.
@@ -982,6 +993,42 @@ progression").
   placed afresh) when a record comes without the bit (`enable_object`).
   Counters: the host's snap slot line "setup objects out of the world", the
   puppets line "taken out" and "put back".
+- **F3 pass 35 (2026-10-10, fix/f3-1010a-netplay, no wire change).**
+  *The Cinema page in a campaign room* (crash 20261009-233623): the
+  folder's Cinema page starts its stage through Accept Mission, so a
+  campaign host's "Dam's ending" became the room's next co-op match (four
+  seats), and the cinema goes back to the folder by `gexFrontGoBack`,
+  never `mainEndStage`: the Institute loaded with `mplayerisrunning` up
+  skipped `mpReset`, and the `lvmpbotlevel` the host's own Combat Simulator
+  sims had raised sent `lvReset` into `mpCalculateTeamIsOnlyAi` over the
+  cinema's four stale player chrs (aibot NULL). Repro: a `--host
+  --net-test-campaign ge` host, gdb `mpSetSimSlotOn(0,1)` and
+  `'gexfront.c'::frontStartCinema(0,1)`, then `gecinemaEndingOver()`. Now
+  the Cinema page's cinemas and credits are the host's own
+  (`gexFrontStartingCinema`, `netCoopAcceptMission`), `gexFrontGoBack`
+  online ends a match its stage still runs and takes the match's flags down
+  (`netCoopFolderBack`), an online co-op mission never has `lvmpbotlevel`
+  (the host's sims had made every object of the mission regenerate and
+  dropped guns fade - offline co-op has the same leak: `g_MpSimSlots` is not
+  what co-op's chrslots mask clears; not changed), and
+  `mpCalculateTeamIsOnlyAi` passes over a chr with no aibot.
+  *Players inside each other*: a camera inside another player's body (the
+  stacked spawn, pass-through) showed slivers of it in first person, and a
+  guest's opening swirl circled its Bond with the host's player standing
+  through him (F3 20261009-230503/-230613, both machines on the card, never
+  offline): `playerGetNetBodyAlphaFrac` hides another player's body while
+  the camera is within its radius (whole 15 units out) and during this
+  machine's GoldenEye opening; the name tag passes over it.
+  *Runtime chrs on a guest* (F3 20261009-232342, "only the weapons
+  dropping"): GoldenEye's clones and reinforcements take the next of the
+  level's heads, so no chr on a guest wore their pair and `netPupMakeBody`
+  never made them; outside a match it now builds the pair from the tables
+  (one modeldef per head in a mission), a living one as a level's chr.
+  *A guard's dropped gun*: `netPupHeld` freed the setup object the host had
+  dropped when the guard's record came before the gun's, and the gun's
+  record then found nothing; it is let go of and hidden for that record
+  (`netEntsIsSetupProp`). A dropped KF7 then has the model's scale on the
+  guest (bdee81af4's fix, F3 20261009-230911).
 - **Left for later.** Counter-op; GoldenEye's missions (gewatch/gecinema
   read pad 0); AI buddies; the host's cheats are not synced to clients;
   spectators were not tried on a mission; a client's START in a cutscene
@@ -1461,6 +1508,14 @@ nothing is ever sent from one machine to another but names and hashes.
   its end screen then (fixed since: "A room's second GoldenEye match", in
   the section on GoldenEye's end of a mission online). Not guarded: the served segments
   and modconfig.txt go to the decomp's loaders as they come.
+- **The wait at the barrier said nothing (F3 20261009-222518, 2026-10-10).**
+  A host whose guest was still being served an 18 MB map folder through the
+  lobby's relay (128 KB/s for relayed serves) sat on the stage's first frame
+  with no HUD for minutes: "frozen". `netSessionWaitLine` (drawn by
+  `netHudRender` while the HUD is not live): the host names who it waits for
+  and how far the folder it sends has got, a loaded guest says it waits for
+  the others, a fetching guest shows `netContentFetchStatus` (which had no
+  caller) over whatever it is on, menus included.
 - **Not done.** (The segs/ mods' restart-and-rejoin is moot since protocol
   25.) The MUST_GE keys
   follow now (the looks by the content latch, Mod.GePlusRevisionFixes as
