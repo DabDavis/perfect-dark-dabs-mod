@@ -471,6 +471,10 @@ const struct netcooprules *netRulesKeptCoop(void);
 const struct netcontentneed *netRulesKeptContent(void);
 s32 netRulesAdopt(s32 swapslot);
 void netRulesAdoptEnd(void);
+void netRulesRoomBegin(void); // a room made here: own setup and settings kept aside, Room Rules from stock
+s32 netRulesRoomSet(const char *key, const char *value); // a Room Rule set (tests)
+s32 netRulesRoomOn(void);
+void netSessionNameSaveSwap(s32 begin); // configSave: the player's own Net.Name in (1), the account's back (0)     // own setup and settings kept aside (a room made or taken over)
 
 // netmigrate.c: host migration (CLAUDE-notes/netplay.md "Host migration")
 void netMigrateKeep(const char *room, u32 matchid, s32 stage, s32 myslot, s32 resume, const u8 *seats, s32 pastsnap);

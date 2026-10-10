@@ -378,9 +378,11 @@ s32 configSave(const char *fname)
 	s32 ok;
 
 	// netplay: the player's own values go to pd.ini, never the host's rules
-	if (g_NetMode != NETMODE_NONE) netRulesConfigSaveBegin();
+	// nor a room's own (Room Rules, from the Create Room page on, before any
+	// session is open: netRulesRoomBegin). Both do nothing with none saved.
+	netRulesConfigSaveBegin();
 	ok = configSaveFile(fname);
-	if (g_NetMode != NETMODE_NONE) netRulesConfigSaveEnd();
+	netRulesConfigSaveEnd();
 
 	return ok;
 }
@@ -475,6 +477,9 @@ s32 configLoad(const char *fname)
 
 void configInit(void)
 {
+	// the registered values before pd.ini's: stock, a new room's Room Rules
+	netRulesCaptureStock();
+
 	if (fsFileSize(CONFIG_PATH) > 0) {
 		configLoad(CONFIG_PATH);
 	}

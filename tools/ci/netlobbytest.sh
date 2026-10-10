@@ -42,6 +42,8 @@ export SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-offscreen} SDL_GAMECONTROLLER_IGNORE_D
 	SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT=0x0000/0x0000 SDL_JOYSTICK_HIDAPI=0
 
 status=0
+# the rules pair's host's own settings: none of them stock
+RULESINI='JumpHeight=3\nStartArmed=2\nAkimbo=1\nSimBrain=modern\n'
 fail() { echo "FAIL $*"; status=1; }
 pass() { echo "ok   $*"; }
 
@@ -75,7 +77,7 @@ game() {
 	for f in eeprom.bin mpsetups.bin; do
 		[ -f "$HOME/.local/share/perfectdark/$f" ] && cp "$HOME/.local/share/perfectdark/$f" "$save/"
 	done
-	printf '[Mod]\nGhostUser=%s\nGhostPin=1234\n[Net]\nLobbyServer=http://127.0.0.1:%s\nPort=%s\n' "$user" "$LPORT" "$port" > "$save/pd.ini"
+	printf '[Mod]\nGhostUser=%s\nGhostPin=1234\n%b[Net]\nLobbyServer=http://127.0.0.1:%s\nPort=%s\n' "$user" "${MODINI:-}" "$LPORT" "$port" > "$save/pd.ini"
 	cd "$BUILD" || exit 2
 	exec timeout -k 5 "$t" stdbuf -oL -eL "$BIN" --savedir "$save" --skip-intro --no-sound --moddir "$MODDIR" "$@" > "$OUT/$label.log" 2>&1
 }
@@ -91,7 +93,16 @@ P3=$!
 game rematch-join joiner2 $((GPORT + 1)) 300 --net-lobby-script join --net-lobby-room "Rematch Test" \
 	--net-lobby-matches 2 --net-lobby-leave-frame 0 &
 P4=$!
-wait $P1; r1=$?; wait $P2; r2=$?; wait $P3; r3=$?; wait $P4; r4=$?
+# the room's own rules (owner, F3 20261010-053136): the host plays with
+# non-stock settings offline; its room starts at stock, one rule is changed
+# for the room, the match plays it, and after the host leaves pd.ini and its
+# settings are its own; a Create Room opened again starts at stock
+MODINI="$RULESINI" game rules-host hostguy3 $((GPORT + 2)) 300 --net-lobby-script host --net-lobby-room "Rules Test" \
+	--net-lobby-rules "Mod.JumpHeight=2" --net-lobby-end-frame 300 --net-lobby-host-leaves --net-test-stage 0x32 --net-test-sims 2 --rng-seed 9 &
+P5=$!
+game rules-join joiner3 $((GPORT + 2)) 300 --net-lobby-script join --net-lobby-room "Rules Test" --net-lobby-leave-frame 0 &
+P6=$!
+wait $P1; r1=$?; wait $P2; r2=$?; wait $P3; r3=$?; wait $P4; r4=$?; wait $P5; r5=$?; wait $P6; r6=$?
 kill $LOBBY 2>/dev/null; wait $LOBBY 2>/dev/null
 echo "     exits: leave host $r1 join $r2, rematch host $r3 join $r4"
 
@@ -154,4 +165,32 @@ grep -q "lobby script: host back in room $ROOMID after match 2" "$H" && pass "re
 grep -q "lobby script: client back in room $ROOMID after match 2" "$J" && pass "rematch: $(line "$J" "client back in room $ROOMID after match 2")" || fail "rematch: join not back after match 2"
 [ "$(grep -c "lobby: back in room $ROOMID's lobby" "$J")" = 2 ] && pass "rematch: join: Game Lobby menu after each match" || fail "rematch: join: Game Lobby menu count $(grep -c "lobby: back in room $ROOMID's lobby" "$J")"
 [ "$r3" = 0 ] && [ "$r4" = 0 ] || fail "rematch: exit codes host $r3 join $r4"
+meet rules joiner3
+H=$OUT/rules-host.log; J=$OUT/rules-join.log; I=$OUT/save-rules-host/pd.ini
+for kv in "Mod.JumpHeight 3 -> 0" "Mod.StartArmed 2 -> 0" "Mod.Akimbo 1 -> 0" 'Mod.SimBrain "modern" -> "stock"'; do
+	[ "$(grep -c "net: rules: $kv (the new room's)" "$H")" = 2 ] && pass "rules: both rooms started at stock: $kv" \
+		|| fail "rules: '$kv (the new room's)' seen $(grep -c "net: rules: $kv (the new room's)" "$H") times, not 2"
+done
+grep -q "net: rules: Mod.JumpHeight 0 -> 2 (the host's, for the match)" "$J" && pass "rules: the match played the room's Jump (2)" \
+	|| fail "rules: the client did not take the room's Mod.JumpHeight 2: $(grep -m1 'net: rules: Mod.JumpHeight' "$J")"
+grep -q "net: rules: Mod.StartArmed\|net: rules: Mod.Akimbo" "$J" && fail "rules: the host's own Start Armed or Akimbo reached the match" \
+	|| pass "rules: the host's own Start Armed and Akimbo stayed out of the match"
+[ "$(grep -c "hosting over; this machine's own setup and settings are back" "$H")" = 2 ] && pass "rules: own setup back after the room and after Create Room's Back" \
+	|| fail "rules: own setup back $(grep -c "hosting over; this machine's own setup" "$H") times, not 2"
+if grep -qx "JumpHeight=3" "$I" && grep -qx "StartArmed=2" "$I" && grep -qx "Akimbo=1" "$I" && grep -qx 'SimBrain="\?modern"\?' "$I"; then
+	pass "rules: pd.ini still has the host's own values"
+else
+	fail "rules: pd.ini lost the host's own values: $(grep -E '^(JumpHeight|StartArmed|Akimbo|SimBrain)=' "$I" | tr '\n' ' ')"
+fi
+# byte for byte: pd.ini before any room, written in a room (Create Room's
+# own rules on), and after the rooms were left
+S=$OUT/save-rules-host
+if [ -s "$S/pd-before.ini" ] && cmp -s "$S/pd-before.ini" "$S/pd-inroom.ini" && cmp -s "$S/pd-before.ini" "$I"; then
+	pass "rules: pd.ini byte-identical before the room, written in a room, and after ($(wc -c < "$I") bytes)"
+else
+	fail "rules: pd.ini differs: $(diff "$S/pd-before.ini" "$I" 2>&1 | head -4 | tr '\n' ' ') / in room: $(diff "$S/pd-before.ini" "$S/pd-inroom.ini" 2>&1 | head -4 | tr '\n' ' ')"
+fi
+b=$(grep -o "host: setup before the room: .*" "$H" | cut -d: -f3-); a=$(grep -o "host: setup after the rooms: .*" "$H" | cut -d: -f3-)
+[ -n "$b" ] && [ "$b" = "$a" ] && pass "rules: the Combat Simulator setup is the host's own again:$a" || fail "rules: setup before '$b', after '$a'"
+[ "$r5" = 0 ] || fail "rules: host exit $r5"
 exit $status

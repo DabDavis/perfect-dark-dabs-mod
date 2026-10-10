@@ -7901,9 +7901,13 @@ void optionsMenuInit()
  * match's rules online, on Create Room and Room Settings - the SYNC keys of
  * netrules.c's table (what F3's [netplay] prints as "rules in force"), and
  * Simulant AI, which the host alone plays by. The rows are the Dab's Mod
- * menu's own handlers, so they read and act the same, and they edit the
- * host's own settings as that menu does (pd.ini at the page's close): RULES
- * takes them at the match's start, as it always has. A player's own
+ * menu's own handlers, so they read and act the same, but what they edit is
+ * the room's own (owner, F3 20261010-053136): from Create Room on, this
+ * machine's own setup and settings are kept aside and the rules start at
+ * stock (netrules.c netRulesRoomBegin); RULES takes the room's at each
+ * match's start, pd.ini is written with the player's own all along (the
+ * page's close too: configSave's swap), and leaving the room puts the own
+ * back. The next room starts at stock again. A player's own
  * (NETKEY_PLAYER: COD aiming, the third person camera...) and the picture
  * stay in each player's own menu. Mission Respawn and Lives only for a co-op
  * room, GoldenEye's only for a GoldenEye room, Simulant AI only for a match.

@@ -2272,9 +2272,10 @@ settings would remain static."
   Handicaps, Teams, Load and Save Settings beside the five there were, and
   a **Room Rules** page (optionsmenu.c `g_NetRoomRulesMenuDialog`): the
   SYNC keys above plus Simulant AI, each row the Dab's Mod menu's own
-  handler. It edits the host's own values (pd.ini at the page's close), as
-  the Dab's Mod menu does; RULES takes them at the match start, so a client
-  plays them and H12 gives it its own back. Mission Respawn/Lives only in a
+  handler. Since 2026-10-10 it edits the room's own values, which start at
+  stock, never the host's pd.ini or offline settings (see "Room Rules are
+  the room's own" under F3 pass 36); RULES takes them at the match start, so
+  a client plays them and H12 gives it its own back. Mission Respawn/Lives only in a
   co-op room, GoldenEye's three only in a GoldenEye room, Simulant AI only
   in a match. Everything the setup pages write was on the wire already
   (`g_MpSetup.options`, the scenario's save bits, each slot's team and
@@ -2686,6 +2687,24 @@ in their own sections' notes.
   (netcontenttest `modreclaim`; `modfetch` is a guest with no mods served
   PD_Kakariko). The Game Lobby's status line shows the fetch's progress
   instead of "waiting for the host to start".
-- Room Rules editing the host's own pd.ini settings (Start Armed reaching
-  the solo campaign) is as designed in optionsmenu.c; keeping a room's rules
-  apart is an owner's call.
+- **Room Rules are the room's own** (owner, 2026-10-10; F3 20261010-053136:
+  a room's Start Armed reached the solo campaign, and its Combat Simulator
+  setup the local one). From the Create Room page on (`netLobbyRoomRulesBegin`;
+  the lobby script calls it before its create) this machine's own setup and
+  settings go aside in `s_Own` - the struct a taken-over room's host keeps
+  its own in - and the Room Rules keys (the SYNC keys and Mod.SimBrain) start
+  at their stock values, captured in `configInit` before pd.ini is read
+  (`netRulesCaptureStock`). The Room Rules page and the room's Combat
+  Simulator pages edit the live values, which RULES carries as before.
+  `configSave` always calls the swap now (the Create Room page has no session
+  yet), so pd.ini gets the own values; leaving the room ends it at the
+  session's close (`s_AdoptEndDue`, as an adopted room does), Back out of
+  Create Room at once (`netLobbyRoomRulesCancel`). The next room starts at
+  stock: nothing is remembered between rooms. Net.Name had the same leak (a
+  lobby session wrote the account's name over it for good): kept and put back
+  the same way (`netSessionNameSet`). No wire change. netlobbytest `rules`:
+  a host with Jump 3, Start Armed 2, Akimbo, modern sims offline; its room
+  at stock with `--net-lobby-rules Mod.JumpHeight=2`, the client playing Jump
+  2 and nothing of the host's own; pd.ini byte-identical before any room,
+  written inside one and after; the Combat Simulator setup its own again; a
+  second Create Room at stock again.

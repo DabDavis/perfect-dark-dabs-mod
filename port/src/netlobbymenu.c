@@ -807,6 +807,12 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 		netLobbyCancelPending();
 	}
 
+	// closed with no room made (Back): this machine's own setup and
+	// settings again
+	if (operation == MENUOP_CLOSE && !netLobbyInRoom()) {
+		netLobbyRoomRulesCancel();
+	}
+
 	return 0;
 }
 
@@ -1013,6 +1019,10 @@ static MenuDialogHandlerResult dialogCreate(s32 operation, struct menudialogdef 
 {
 	if (operation == MENUOP_OPEN) {
 		netLobbyClearMessage();
+
+		// the room's own Room Rules and Combat Simulator setup from here,
+		// this machine's own kept aside (owner, F3 20261010-053136)
+		netLobbyRoomRulesBegin();
 
 		if (!s_Create.name[0]) {
 			snprintf(s_Create.name, sizeof(s_Create.name), "%.12s's Room", netLobbyAccount());

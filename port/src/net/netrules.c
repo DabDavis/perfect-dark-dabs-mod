@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <PR/ultratypes.h>
@@ -1348,6 +1349,12 @@ static void netRulesSaveInto(struct netrulessaved *out)
 		}
 	}
 
+	// and Simulant AI, a Room Rule the host alone plays by (a client never
+	// changes its own: simbrainWanted())
+	if (out->nkeys < NET_MAXKEYS && netRulesReadKey("Mod.SimBrain", &out->keys[out->nkeys])) {
+		out->nkeys++;
+	}
+
 	out->client = 1;
 	out->swapped = 0;
 }
@@ -1653,6 +1660,8 @@ void netRulesConfigSaveBegin(void)
 {
 	struct netrulessaved *saved = netRulesOwnValues();
 
+	netSessionNameSaveSwap(1);
+
 	if (saved && !saved->swapped) {
 		netRulesSwap(saved);
 		saved->swapped = 1;
@@ -1662,6 +1671,8 @@ void netRulesConfigSaveBegin(void)
 void netRulesConfigSaveEnd(void)
 {
 	struct netrulessaved *saved = netRulesOwnValues();
+
+	netSessionNameSaveSwap(0);
 
 	if (saved && saved->swapped) {
 		netRulesSwap(saved);
@@ -1736,7 +1747,103 @@ s32 netRulesAdopt(s32 swapslot)
 	return 1;
 }
 
-// This machine stops hosting the room it took over: its own setup back
+/*
+ * Room Rules (owner, 2026-10-10, F3 20261010-053136): a room's rules are its
+ * own. From the Create Room page on, this machine's own setup and settings
+ * are saved (s_Own, as a taken-over room's host keeps them) and the Room
+ * Rules keys start at their stock values - what they were registered with,
+ * before pd.ini was read - whatever this machine plays with offline. The
+ * Room Rules page and the room's Combat Simulator pages edit the room's
+ * copies, which its matches' RULES carry, for as long as the room lasts;
+ * pd.ini is written with this machine's own all along (configSave's swap),
+ * and leaving the room (netRulesAdoptEnd, at its session's close) puts its
+ * own setup and settings back. The next room starts at stock again.
+ */
+static struct netkeyvalue s_Stock[NET_MAXKEYS];
+static s32 s_NumStock;
+
+void netRulesCaptureStock(void)
+{
+	u32 k;
+
+	s_NumStock = 0;
+
+	for (k = 0; k < ARRAYCOUNT(s_NetKeys) && s_NumStock < NET_MAXKEYS; k++) {
+		if (s_NetKeys[k].cls == NETKEY_SYNC && netRulesReadKey(s_NetKeys[k].key, &s_Stock[s_NumStock])) {
+			s_NumStock++;
+		}
+	}
+
+	if (s_NumStock < NET_MAXKEYS && netRulesReadKey("Mod.SimBrain", &s_Stock[s_NumStock])) {
+		s_NumStock++;
+	}
+}
+
+// A room this machine is making or hosts holds its own rules (or it took
+// one over): its own setup and settings are kept aside
+s32 netRulesRoomOn(void)
+{
+	return s_Own.client;
+}
+
+void netRulesRoomBegin(void)
+{
+	char a[64];
+	char b[64];
+	struct netkeyvalue cur;
+	s32 i;
+
+	if (s_Own.client) {
+		return;
+	}
+
+	netRulesSaveInto(&s_Own);
+
+	for (i = 0; i < s_NumStock; i++) {
+		if (netRulesReadKey(s_Stock[i].key, &cur) && !netRulesValuesEqual(&cur, &s_Stock[i])) {
+			netRulesValueString(&cur, a, sizeof(a));
+			netRulesValueString(&s_Stock[i], b, sizeof(b));
+			sysLogPrintf(LOG_NOTE, "net: rules: %s %s -> %s (the new room's)", s_Stock[i].key, a, b);
+		}
+
+		netRulesWriteKey(&s_Stock[i]);
+	}
+
+	netRulesApplyCheatGuns(s_Stock, s_NumStock, "the new room's");
+	netRulesApplyCsHackGuns(s_Stock, s_NumStock, "the new room's");
+	sysLogPrintf(LOG_NOTE, "net: rules: a new room: its Room Rules start at the stock values; this machine's own setup and settings come back when it leaves");
+}
+
+/**
+ * A Room Rule set as its page sets one, by key and text (tests:
+ * --net-lobby-rules). 1 when set.
+ */
+s32 netRulesRoomSet(const char *key, const char *value)
+{
+	struct netkeyvalue kv;
+
+	if (!s_Own.client || !netRulesReadKey(key, &kv)) {
+		return 0;
+	}
+
+	switch (kv.type) {
+	case CONFIG_TYPE_S32: kv.s = strtol(value, NULL, 0); break;
+	case CONFIG_TYPE_U32: kv.u = strtoul(value, NULL, 0); break;
+	case CONFIG_TYPE_F32: kv.f = strtof(value, NULL); break;
+	case CONFIG_TYPE_STR: snprintf(kv.str, sizeof(kv.str), "%s", value); break;
+	default: return 0;
+	}
+
+	netRulesWriteKey(&kv);
+	netRulesApplyCheatGuns(&kv, 1, "the room's");
+	netRulesApplyCsHackGuns(&kv, 1, "the room's");
+	sysLogPrintf(LOG_NOTE, "net: rules: the room's %s set to %s", key, value);
+
+	return 1;
+}
+
+// This machine stops hosting the room it took over, made, or was making:
+// its own setup back
 void netRulesAdoptEnd(void)
 {
 	if (!s_Own.client) {
