@@ -122,7 +122,15 @@ struct modalarmguard {
 	struct chrdata *chr;
 	s32 chrnum;   // the chr's number when it was spawned; a reused slot changes it
 	s32 spawned60; // lvframe60 it arrived, so the oldest corpse can be found
+	// where it stood at the last progress check (matches: modAlarmIsStuck())
+	struct coord checkpos;
+	s32 check60;
+	s32 stuckchecks;
 };
+
+#define MODALARM_STUCKCHECK60 600   // a progress check every ten seconds
+#define MODALARM_STUCKDIST    150.0f // closer to where it stood than this is no progress
+#define MODALARM_STUCKCHECKS  2     // checks in a row without progress: out of the count
 
 struct modalarmhead {
 	s32 headnum;
@@ -1808,6 +1816,8 @@ void modAlarmReset(void)
 		g_ModAlarmGuards[i].chr = NULL;
 		g_ModAlarmGuards[i].chrnum = -1;
 		g_ModAlarmGuards[i].spawned60 = 0;
+		g_ModAlarmGuards[i].check60 = 0;
+		g_ModAlarmGuards[i].stuckchecks = 0;
 	}
 
 	for (i = 0; i < MAX_MPCHRS; i++) {
@@ -2530,6 +2540,9 @@ static bool modAlarmSpawnOne(s32 bodynum, const void *tmpl)
 				g_ModAlarmGuards[i].chr = chr;
 				g_ModAlarmGuards[i].chrnum = chr->chrnum;
 				g_ModAlarmGuards[i].spawned60 = g_Vars.lvframe60;
+				g_ModAlarmGuards[i].checkpos = chr->prop->pos;
+				g_ModAlarmGuards[i].check60 = g_Vars.lvframe60;
+				g_ModAlarmGuards[i].stuckchecks = 0;
 				break;
 			}
 		}
@@ -2712,6 +2725,70 @@ struct chrdata *modAlarmFindGuardForBot(struct chrdata *botchr, f32 maxdist)
 }
 
 /**
+ * A match's guard that has got nowhere: on its way somewhere (or standing)
+ * and no more than 150 units from where it was twenty seconds ago, and on
+ * nobody's screen. Ravine's ravine is
+ * one room with its floor 2500 under the arena's: a guard that walked off
+ * an edge after a player, or appeared on a waypoint whose piece of the graph
+ * has no route up, ran on the spot at the bottom for the rest of the match,
+ * holding its place in Alerted Guards' count - four of them and the waves
+ * stopped (F3 20261010-035509, offline as online). It is taken out quietly
+ * and the next one comes, where the spawn rule puts it.
+ *
+ * Matches only: a mission's guards are its own story (and the replay test's
+ * optsolo case runs Guards Alerted! on a mission, bit for bit).
+ */
+static bool modAlarmIsStuck(struct modalarmguard *guard)
+{
+	struct chrdata *chr = guard->chr;
+	struct prop *prop = chr->prop;
+	f32 dx;
+	f32 dy;
+	f32 dz;
+
+	if (!g_Vars.normmplayerisrunning) {
+		return false;
+	}
+
+	if (g_Vars.lvframe60 - guard->check60 < TICKS(MODALARM_STUCKCHECK60)) {
+		return false;
+	}
+
+	dx = prop->pos.x - guard->checkpos.x;
+	dy = prop->pos.y - guard->checkpos.y;
+	dz = prop->pos.z - guard->checkpos.z;
+
+	guard->checkpos = prop->pos;
+	guard->check60 = g_Vars.lvframe60;
+
+	// only while it is on its way somewhere or standing: one fighting,
+	// being hit or playing an animation is in the match
+	if ((chr->actiontype != ACT_GOPOS && chr->actiontype != ACT_RUNPOS
+				&& chr->actiontype != ACT_PATROL && chr->actiontype != ACT_STAND)
+			|| dx * dx + dy * dy + dz * dz > MODALARM_STUCKDIST * MODALARM_STUCKDIST) {
+		guard->stuckchecks = 0;
+		return false;
+	}
+
+	guard->stuckchecks++;
+
+	if (guard->stuckchecks < MODALARM_STUCKCHECKS
+			|| (prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ONANYSCREENTHISTICK | PROPFLAG_ONANYSCREENPREVTICK))) {
+		return false;
+	}
+
+#ifndef PLATFORM_N64
+	if (g_ChrSpawnTrace) {
+		sysLogPrintf(LOG_NOTE, "alarm: guard %d stuck at %.0f %.0f %.0f (room %d, action %d) for %d s: taken out",
+				chr->chrnum, prop->pos.x, prop->pos.y, prop->pos.z, prop->rooms[0], chr->actiontype,
+				guard->stuckchecks * MODALARM_STUCKCHECK60 / 60);
+	}
+#endif
+
+	return true;
+}
+
+/**
  * Once a frame from alarmTick(), after the alarm itself has been kept on.
  */
 void modAlarmTick(void)
@@ -2765,6 +2842,13 @@ void modAlarmTick(void)
 			// this, and the next one comes.
 			if (guard->chr->manground < MODALARM_VOID) {
 				guard->chr->hidden |= CHRHFLAG_DELETING;
+				continue;
+			}
+
+			if (modAlarmIsStuck(guard)) {
+				guard->chr->hidden |= CHRHFLAG_DELETING;
+				guard->chr = NULL;
+				guard->chrnum = -1;
 				continue;
 			}
 
