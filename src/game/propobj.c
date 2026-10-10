@@ -9086,7 +9086,11 @@ void liftTick(struct prop *prop)
 			prevdist = lift->dist;
 #endif
 
+#ifndef PLATFORM_N64
+			applySpeedSmooth(&lift->dist, segdist, &lift->speed, lift->accel, lift->accel, lift->maxspeed);
+#else
 			applySpeed(&lift->dist, segdist, &lift->speed, lift->accel, lift->accel, lift->maxspeed);
+#endif
 
 			// If arriving at the destination, set the distance explicitly
 			if (lift->speed < 1 && lift->speed > -1) {
