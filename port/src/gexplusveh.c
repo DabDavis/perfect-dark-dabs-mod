@@ -392,14 +392,36 @@ static bool vehTruckGround(struct truckobj *truck, struct coord *pos, RoomNum *r
  * S08: a guard had opened the gate 25 seconds before the truck reached it,
  * and its auto-close came round as the truck went through). A truck is
  * never held by a door it is driving away from.
+ *
+ * Nor by one it is already through: a gate whose line is behind the truck's
+ * nose. Held in the gateway with its nose through (Bond or a guard in front
+ * of it, or the gate's 25 seconds running out as it crept through), the gate
+ * shut onto its side and stopped there, blocked by the truck, and every step
+ * of the truck's touched the gate, now counted ahead of its middle: neither
+ * moved again (F3 20261009-203043, Dam online; offline the same). A shut gate
+ * ahead stops the nose short of its line, so it still holds the truck.
  */
 #define VEH_TRUCK_MAXBEHIND 4
+
+/** How far the truck's nose is ahead of its middle: part 10's box, at the model's scale. */
+static f32 vehTruckNose(struct truckobj *truck)
+{
+	f32 (*m)[3] = truck->base.realrot;
+	union modelrodata *box = truck->base.model ? vehPartRodata(truck->base.model, 10, MODELNODETYPE_BBOX) : NULL;
+
+	if (!box) {
+		return 0.0f;
+	}
+
+	return box->bbox.zmax * sqrtf(m[2][0] * m[2][0] + m[2][1] * m[2][1] + m[2][2] * m[2][2]);
+}
 
 static s32 vehTruckBlocked(struct truckobj *truck, struct coord *from)
 {
 	struct prop *prop = truck->base.prop;
 	struct prop *behind[VEH_TRUCK_MAXBEHIND];
 	const f32 fx = sinf(truck->roty), fz = cosf(truck->roty);
+	const f32 nose = vehTruckNose(truck);
 	s32 numbehind = 0;
 	s32 cdresult;
 
@@ -412,7 +434,7 @@ static s32 vehTruckBlocked(struct truckobj *truck, struct coord *from)
 
 		if (!obstacle || obstacle->type != PROPTYPE_DOOR || numbehind >= VEH_TRUCK_MAXBEHIND
 				|| (obstacle->obj->hidden & OBJHFLAG_PERIMDISABLED)
-				|| (obstacle->pos.x - from->x) * fx + (obstacle->pos.z - from->z) * fz >= 0.0f) {
+				|| (obstacle->pos.x - from->x) * fx + (obstacle->pos.z - from->z) * fz >= (nose > 0.0f ? nose : 0.0f)) {
 			break;
 		}
 

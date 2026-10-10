@@ -51,6 +51,11 @@ s32 geWatchHidesGun(void);
 // All the way up with the level stopped, and neither opening nor closing
 s32 geWatchIsSettled(void);
 
+// the same for a given player (a playernum) rather than the current one:
+// online F3's report, whose tick runs with whichever player the last loop
+// left current
+s32 geWatchIsSettledFor(s32 playernum);
+
 /**
  * The sleeve GoldenEye's hands wear (bondviewSelectCuff()), as the first of
  * six cuff switches counts: 0 boiler suit, 1 tuxedo, 2 Connery, 3 blue, 4

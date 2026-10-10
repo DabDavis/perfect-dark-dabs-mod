@@ -1313,6 +1313,26 @@ nothing is ever sent from one machine to another but names and hashes.
   player's own look" below); the host's own player is unarmed to the
   others while its watch is up; the static flash stays off online (the
   host's RNG).
+  F3 over the watch online (F3 20261009-185625): `traceReportTick` runs
+  in lvTick with whichever player the last loop left current (a host's
+  last open seat), so `geWatchIsOpen()` said no and the report fell to the
+  in-play branch, which waits for `pausemode` UNPAUSED - the watch's
+  PAUSED held it until the watch closed. Online it asks by number
+  (`geWatchHoldsPlayer(pnum)`, `geWatchIsSettledFor(pnum)`, pnum the local
+  slot): the report opens over the watch, the level runs on (no pause of
+  its own), and closing it leaves the watch up (`func0f0fa6ac` skips the
+  unpause only for the watch's owner; anyone else's PAUSED is untouched).
+- **Dam's truck in a gateway (F3 20261009-203043, not online-only).** A
+  truck held with its nose through gate 1 (by Bond or a guard, or reaching
+  the gate as its 25 s auto-close fired) had the gate close onto its side
+  and stop there, blocked by the truck; the truck's next step, still
+  turning onto the gate road, touched the gate - ahead of its middle, so not
+  "behind" - and neither moved again. gexplusveh.c `vehTruckBlocked` now
+  lets a door whose line is behind the truck's **nose** go too (part 10's
+  box zmax at scale); a shut gate ahead stops the nose ~58 short of its
+  line, so it still holds the truck. By design otherwise: the truck waits at
+  each shut gate until the player opens it from that gate's console, and
+  the gates are an airlock (gate 2 opens only once gate 1 is shut).
 - **An out-of-play seat's view is not built (the same day).** The user,
   on hearing a host builds every player's view: "is that the most optimal
   way?" Half of it has to stay - PD's simulation is per view (bgTick's
