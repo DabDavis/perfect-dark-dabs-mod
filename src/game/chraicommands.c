@@ -4573,6 +4573,21 @@ bool aiShowHudmsg(void)
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
 	}
 
+#ifndef PLATFORM_N64
+	// netplay: a converted GoldenEye mission's lines are every player's
+	// (GoldenEye had the one), the Cinema page's cinemas' among them
+	if (g_NetMode == NETMODE_SERVER && netCoopListTextToAll()) {
+		for (s32 i = 0; i < PLAYERCOUNT(); i++) {
+			setCurrentPlayerNum(i);
+			hudmsgCreate(text, HUDMSGTYPE_DEFAULT);
+		}
+
+		setCurrentPlayerNum(prevplayernum);
+		g_Vars.aioffset += 5;
+		return false;
+	}
+#endif
+
 	setCurrentPlayerNum(playernum);
 	hudmsgCreate(text, HUDMSGTYPE_DEFAULT);
 	setCurrentPlayerNum(prevplayernum);
@@ -4621,6 +4636,20 @@ bool aiShowHudmsgTopMiddle(void)
 	if (chr && chr->prop && (chr->prop->type & 0xff) == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
 	}
+
+#ifndef PLATFORM_N64
+	// netplay: GoldenEye's top line (its text_print_top) is every player's
+	if (g_NetMode == NETMODE_SERVER && netCoopListTextToAll()) {
+		for (s32 i = 0; i < PLAYERCOUNT(); i++) {
+			setCurrentPlayerNum(i);
+			hudmsgCreateWithColour(text, HUDMSGTYPE_INGAMESUBTITLE, cmd[5]);
+		}
+
+		setCurrentPlayerNum(prevplayernum);
+		g_Vars.aioffset += 6;
+		return false;
+	}
+#endif
 
 	setCurrentPlayerNum(playernum);
 	hudmsgCreateWithColour(text, HUDMSGTYPE_INGAMESUBTITLE, cmd[5]);

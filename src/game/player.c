@@ -4400,8 +4400,26 @@ f32 playerGetNetBodyAlphaFrac(struct prop *prop)
 	f32 radius;
 	f32 ymax;
 	f32 ymin;
+	s32 cinema;
 
-	if (prop->type != PROPTYPE_PLAYER || prop == g_Vars.currentplayer->prop) {
+	if (prop->type != PROPTYPE_PLAYER) {
+		return 1;
+	}
+
+	// A Cinema-page cinema the room watches (protocol 27) has one Bond: an
+	// opening's is this machine's own player, whom its swirl comes down to; an
+	// ending's and the credits' is the host's, whom the host's lists move (a
+	// puppet here). Everyone else is out of the picture - they stand stacked
+	// on the mission's spawn, one through the other.
+	cinema = netCoopCinemaKind();
+
+	if (cinema != GECINEMA_NET_NONE) {
+		const s32 actor = cinema == GECINEMA_NET_OPENING ? g_Vars.currentplayernum : g_Vars.bondplayernum;
+
+		return playermgrGetPlayerNumByProp(prop) == actor ? 1 : 0;
+	}
+
+	if (prop == g_Vars.currentplayer->prop) {
 		return 1;
 	}
 

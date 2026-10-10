@@ -846,7 +846,12 @@ void mainEndStage(void)
 			// (H10), so its end screen reads the host's end (netcoop.c)
 			if (g_NetMode != NETMODE_NONE) netCoopMatchEnded();
 
-			for (i = 0; i < PLAYERCOUNT(); i++) {
+			// netplay: a Cinema-page cinema the room watched ends on no
+			// report: the host back to its folder, a guest to the room
+			// (netcoop.c, as the report's way out below)
+			const s32 cinema = g_NetMode != NETMODE_NONE && netCoopCinemaEnded();
+
+			for (i = 0; i < PLAYERCOUNT() && !cinema; i++) {
 				// netplay: another machine's player has its end screen there
 				if (g_NetMode != NETMODE_NONE && !netIsLocalPad(g_Vars.playerstats[i].mpindex)) continue;
 				setCurrentPlayerNum(i);
@@ -863,7 +868,9 @@ void mainEndStage(void)
 
 			setCurrentPlayerNum(prevplayernum);
 
-			if (report) {
+			if (cinema) {
+				// out already
+			} else if (report) {
 				netCoopLeaveMission();
 			} else {
 				musicStartMenu();

@@ -83,6 +83,7 @@ void netSessionEvent(const struct netevent *ev);
 void netSessionTick(void);
 void netSessionTickBegin(void);
 s32 netSessionMatchActive(void);
+s32 netSessionHostEnded(void);              // host: the running match's MATCH_END has gone
 s32 netSessionBarrierHeld(void);
 s32 netSessionMatchLoading(void);  // a match's stage is the one loaded or loading (from H1/H3 to H12)
 u32 netSessionMatchId(void);
@@ -246,8 +247,12 @@ struct netcooprules {
 	u8 radar;
 	u8 friendlyfire;
 	char game[16]; // protocol 14: the mission's set ("" Perfect Dark's, else a conversion's tag)
+	u8 cinema;        // protocol 27: GECINEMA_NET_* - the Cinema page's opening, ending or credits, 0 a mission
+	u8 cinemaloop;    // its Loop row (GECINEMA_LOOP_*), an opening's
+	u8 cinemaminutes; // and its Time row (Loop All's minutes a level)
 };
 s32 netCoopHostMatch(void);                 // host: the match being started/run is a co-op mission
+void netCoopHostCinema(u8 *kind, u8 *loop, u8 *minutes); // host: ... and the Cinema page's cinema it is (protocol 27)
 const char *netCoopHostGame(void);          // host: its mission's set tag ("" Perfect Dark's)
 s32 netCoopCampaignOpen(const char *game, s32 radar, s32 friendlyfire); // host: a campaign room's launch
 s32 netCoopRulesOk(const struct netcooprules *r);

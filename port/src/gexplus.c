@@ -1907,7 +1907,8 @@ static s32 gexPlusExitPressed(void)
 					|| inputKeyJustPressed(VK_ESCAPE)) {
 				return 1;
 			}
-		} else if (netPlayersHostPressed(i, GE_EXIT_BUTTONS)) {
+		} else if (netCoopCinemaKind() == GECINEMA_NET_NONE && netPlayersHostPressed(i, GE_EXIT_BUTTONS)) {
+			// (the Cinema page's ending the room watches is the host's to leave)
 			return 1;
 		}
 	}

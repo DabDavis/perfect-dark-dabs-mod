@@ -53,6 +53,7 @@
 #include "game/pad.h"
 #include "game/player.h"
 #include "gecredits.h"
+#include "net/net.h"
 #include "geroom.h"
 #include "gexfront.h"
 #include "input.h"
@@ -369,6 +370,13 @@ s32 gecreditsHaveRolled(void)
 
 void gecreditsTick(void)
 {
+	// online, the room watches the host's credits: no seat walks through them
+	if (g_Credits.on && g_NetMode == NETMODE_SERVER) {
+		for (s32 k = 0; k < PLAYERCOUNT() && k < MAX_PLAYERS; k++) {
+			g_PlayersWithControl[k] = false;
+		}
+	}
+
 	if (g_Credits.on && g_Credits.state == 1) {
 		g_Credits.frame += g_Vars.lvupdate60freal * CREDITS_PER_60;
 	}
@@ -392,6 +400,65 @@ void gecreditsTick(void)
 				gexFrontLeaveCredits();
 			}
 		}
+	}
+}
+
+/** The host's camera and roll, for its mission block (netcoop.c) */
+void gecreditsNetState(struct gecreditsnet *out)
+{
+	memset(out, 0, sizeof(*out));
+
+	if (!g_Credits.on) {
+		return;
+	}
+
+	out->orbit = g_Credits.orbit;
+	out->padnum = g_Credits.padnum;
+	out->distance = (s32)g_Credits.distance;
+	out->height = (s32)g_Credits.height;
+	out->lookheight = (s32)g_Credits.lookheight;
+	out->speed = g_Credits.speed;
+	out->angle = g_Credits.angle;
+	out->state = g_Credits.state;
+	out->frame = g_Credits.frame;
+}
+
+/**
+ * A guest: the host's camera and roll. The list that starts them is the
+ * host's (a guest runs none), so the orbit begins here when the host's has,
+ * its angle and the roll's place taken from the host each block and carried
+ * on by this machine's own clock between them.
+ */
+void gecreditsNetFollow(const struct gecreditsnet *in)
+{
+	if (!g_Credits.on) {
+		return;
+	}
+
+	if (in->orbit && !g_Credits.orbit) {
+		g_Credits.orbit = 1;
+		g_Credits.padnum = in->padnum;
+		g_Credits.distance = in->distance;
+		g_Credits.height = in->height;
+		g_Credits.lookheight = in->lookheight;
+		g_Credits.speed = in->speed;
+		g_Credits.angle = in->angle;
+		playerSetTickMode(TICKMODE_WARP);
+		sysLogPrintf(LOG_NOTE, "gecredits: the host's camera goes round pad %d", in->padnum);
+	} else if (in->orbit) {
+		g_Credits.speed = in->speed;
+		g_Credits.angle = in->angle;
+	}
+
+	if (in->state != g_Credits.state) {
+		if (in->state == 1 && g_Credits.state == 0) {
+			sysLogPrintf(LOG_NOTE, "gecredits: the host's roll begins");
+		}
+
+		g_Credits.state = in->state;
+		g_Credits.frame = in->frame;
+	} else if (in->state == 1 && fabsf(in->frame - g_Credits.frame) > 8.0f) {
+		g_Credits.frame = in->frame;
 	}
 }
 

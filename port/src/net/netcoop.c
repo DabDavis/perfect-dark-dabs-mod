@@ -13,6 +13,8 @@
 #include "modmode.h"
 #include "gexplusrom.h"
 #include "gexfront.h"
+#include "gecinema.h"
+#include "gecredits.h"
 #include "gexplus.h"
 #include "geconvert.h"
 #include "game/bg.h"
@@ -84,6 +86,21 @@
  *                                 mission's lists asked for (aiFadeScreen)
  *    44  u32 fadecolour           the last one's colour
  *    48  s16 fadeframes           and length
+ *    50  u8  cinema               (protocol 27) the Cinema page's cinema the
+ *                                 match is (GECINEMA_NET_*), 0 a mission
+ *    51  u8  cineshot             the opening's gallery: the shot showing
+ *    52  u8  cineseq              counts the shots started (a guest takes
+ *                                 the shot afresh when it changes)
+ *    53  u8  cineflags            1 the host backed out of the gallery, 2 the
+ *                                 credits' camera goes round, 4 their roll is
+ *                                 on, 8 it is over
+ *    54  s16 credpad              the credits' orbit (CameraOrbitPad): its pad,
+ *    56  s16 creddistance         distance,
+ *    58  s16 credheight           height
+ *    60  s16 credlookheight       and the height it looks at
+ *    62  f32 credspeed            radians a 60th
+ *    66  f32 credangle            where it is now
+ *    70  f32 credframe            how far the roll is
  */
 
 #define MIS_TICKMODE  0
@@ -100,7 +117,23 @@
 #define MIS_FADESEQ   (MIS_WARPDIR + 2)
 #define MIS_FADECOL   (MIS_FADESEQ + 2)
 #define MIS_FADELEN   (MIS_FADECOL + 4)
-#define MIS_SIZE      (MIS_FADELEN + 2)
+#define MIS_CINE      (MIS_FADELEN + 2)  // protocol 27: the Cinema page's cinema the match is
+#define MIS_CINESHOT  (MIS_CINE + 1)
+#define MIS_CINESEQ   (MIS_CINESHOT + 1)
+#define MIS_CINEFLAGS (MIS_CINESEQ + 1)
+#define MIS_CREDPAD   (MIS_CINEFLAGS + 1)
+#define MIS_CREDDIST  (MIS_CREDPAD + 2)
+#define MIS_CREDHIGH  (MIS_CREDDIST + 2)
+#define MIS_CREDLOOK  (MIS_CREDHIGH + 2)
+#define MIS_CREDSPEED (MIS_CREDLOOK + 2)
+#define MIS_CREDANGLE (MIS_CREDSPEED + 4)
+#define MIS_CREDFRAME (MIS_CREDANGLE + 4)
+#define MIS_SIZE      (MIS_CREDFRAME + 4)
+
+#define MISC_LEFT     0x01 // the host backed out of the gallery
+#define MISC_ORBIT    0x02 // the credits' camera goes round its pad
+#define MISC_ROLLING  0x04 // their roll is on
+#define MISC_ROLLED   0x08 // ... and over
 
 #define MISF_INCUTSCENE 0x01
 #define MISF_COUNTDOWN  0x02
@@ -130,6 +163,20 @@ static RoomNum s_StackRooms[8];
 static f32 s_StackAngle;
 static s32 s_StackValid = 0;
 static char s_HostGame[16];       // host: the mission's set ("" Perfect Dark's, else a conversion's tag)
+
+// A Cinema-page cinema played as the room's match (protocol 27): what it is
+// (GECINEMA_NET_*), its Loop row and Time row
+struct netcoopcine {
+	s32 kind;
+	s32 loop;
+	s32 minutes;
+};
+
+static struct netcoopcine s_HostCineNext;   // host: the start under way is the Cinema page's
+static struct netcoopcine s_HostCine;       // host: the match running is that cinema
+static struct netcoopcine s_ClientCine;     // client: RULES said the match is a cinema
+static s32 s_ClientLoopBefore = -1;         // client: its own Loop and Time rows, back after
+static s32 s_ClientMinutesBefore;
 static const char *s_HostVariantBefore; // host: g_GexPlusVariant before a conversion's mission, put back after
 
 // a campaign room: the host plays its set's missions from its own menus
@@ -198,6 +245,57 @@ s32 netCoopHostMatch(void)
 const char *netCoopHostGame(void)
 {
 	return s_HostGame;
+}
+
+static const char *netCoopCinemaName(s32 kind)
+{
+	switch (kind) {
+	case GECINEMA_NET_OPENING: return "opening";
+	case GECINEMA_NET_ENDING:  return "ending";
+	case GECINEMA_NET_CREDITS: return "credits";
+	default:                   return "mission";
+	}
+}
+
+// host: the match H1 is starting is the Cinema page's cinema (RULES, protocol 27)
+void netCoopHostCinema(u8 *kind, u8 *loop, u8 *minutes)
+{
+	const s32 on = s_HostMatch && s_HostCine.kind;
+
+	*kind = on ? (u8)s_HostCine.kind : 0;
+	*loop = on ? (u8)s_HostCine.loop : 0;
+	*minutes = on ? (u8)s_HostCine.minutes : 0;
+}
+
+/**
+ * The host, an AI list's line on a co-op match (chraicommands.c): every
+ * player's, on a converted GoldenEye mission (GoldenEye had one player, whose
+ * line it was; online a guest saw none of them - Cuba's dialogue under the
+ * room's credits, a mission's "Trevelyan has activated the antenna control
+ * console!") or a Cinema-page cinema. Perfect Dark's own missions keep their
+ * lines to the player they name.
+ */
+s32 netCoopListTextToAll(void)
+{
+	return g_NetMode == NETMODE_SERVER && s_HostMatch
+		&& (s_HostCine.kind != GECINEMA_NET_NONE || modloaderStageIsRemake(g_Vars.stagenum));
+}
+
+/**
+ * The cinema this machine's match is, GECINEMA_NET_* (0 a mission, or no
+ * co-op match): the host's from its own start, a guest's from RULES
+ */
+s32 netCoopCinemaKind(void)
+{
+	if (g_NetMode == NETMODE_SERVER) {
+		return s_HostMatch ? s_HostCine.kind : 0;
+	}
+
+	if (g_NetMode == NETMODE_CLIENT) {
+		return s_ClientMatch ? s_ClientCine.kind : 0;
+	}
+
+	return 0;
 }
 
 /*
@@ -333,6 +431,12 @@ s32 netCoopRulesOk(const struct netcooprules *r)
 		return 0;
 	}
 
+	// protocol 27: the Cinema page's cinemas are a conversion's
+	if (r->cinema > GECINEMA_NET_CREDITS || r->cinemaloop >= GECINEMA_NUM_LOOPS
+			|| (r->cinema && netCoopIsPdGame(r->game))) {
+		return 0;
+	}
+
 	if (netCoopIsPdGame(r->game)) {
 		return r->stageindex <= SOLOSTAGEINDEX_WAR;
 	}
@@ -366,6 +470,29 @@ void netCoopClientApplyRules(const struct netcooprules *r)
 	g_Vars.coopfriendlyfire = r->friendlyfire ? true : false;
 	g_Vars.numaibuddies = 0;
 	s_ClientMatch = 1;
+
+	// protocol 27: the host's Cinema-page cinema, which this machine plays
+	// too, following the host's mission block (the opening's and ending's
+	// armed as the folder arms them; the credits are Cuba's stage itself)
+	s_ClientCine.kind = r->cinema;
+	s_ClientCine.loop = r->cinemaloop;
+	s_ClientCine.minutes = r->cinemaminutes;
+
+	if (r->cinema == GECINEMA_NET_OPENING || r->cinema == GECINEMA_NET_ENDING) {
+		if (s_ClientLoopBefore < 0) {
+			s_ClientLoopBefore = gecinemaGetLoop();
+			s_ClientMinutesBefore = gecinemaGetMinutes();
+		}
+
+		gecinemaSetLoop(r->cinemaloop);
+		gecinemaSetMinutes(r->cinemaminutes);
+		gecinemaArm(r->stageindex, r->cinema == GECINEMA_NET_ENDING ? GECINEMA_ENDING : GECINEMA_OPENING);
+	}
+
+	if (r->cinema) {
+		sysLogPrintf(LOG_NOTE, "net: co-op: the host's mission is the Cinema page's %s: watched here with the host",
+				netCoopCinemaName(r->cinema));
+	}
 
 	{
 		char name[48];
@@ -461,6 +588,10 @@ s32 netCoopHostStart(const char *game, s32 stageindex, s32 difficulty, s32 radar
 
 	snprintf(s_HostGame, sizeof(s_HostGame), "%s", game);
 
+	// the Cinema page's start (netCoopAcceptMission) or a mission's
+	s_HostCine = s_HostCineNext;
+	memset(&s_HostCineNext, 0, sizeof(s_HostCineNext));
+
 	// a conversion's mission plays under its set's mode (netCoopClientApplyRules)
 	if (!netCoopIsPdGame(game)) {
 		s_HostVariantBefore = g_GexPlusVariant;
@@ -545,18 +676,24 @@ s32 netCoopAcceptMission(void)
 	if (s_Campaign.on) {
 		const char *game = "";
 
-		// but what the folder's Cinema page plays (a mission's opening or
-		// ending, the credits) is watched, not played: the host's own, as
-		// offline, while the room waits for its next mission - its start
-		// made a match the guests stood in on the mission's spawn, which the
-		// cinema's end (back to the folder, never mainEndStage) left running
-		// with its flags up, and the Institute loaded under them read the
-		// cinema's players as simulants (crash 20261009-233623)
-		if (gexFrontStartingCinema()) {
-			sysLogPrintf(LOG_NOTE, "net: co-op: campaign: the Cinema page's stage 0x%02x is the host's own to watch, not a match",
-					g_MissionConfig.stagenum);
-			return 0;
+		// What the folder's Cinema page plays (a mission's opening or ending,
+		// the credits) is watched, not played, and the room watches it with
+		// the host (the user, 2026-10-10: "let's pull guests in also"): the
+		// room's next match, RULES saying which cinema (protocol 27), every
+		// guest playing it in step with the host's mission block and back in
+		// the room at its end. (Before, the guests stood in the mission and
+		// never saw it, and the cinema's way back to the folder left the
+		// match's flags up: crash 20261009-233623.)
+		const s32 cine = gexFrontStartingCinema();
+
+		if (cine) {
+			s_HostCineNext.kind = cine;
+			s_HostCineNext.loop = cine == GECINEMA_NET_OPENING ? gecinemaGetLoop() : GECINEMA_LOOP_OFF;
+			s_HostCineNext.minutes = gecinemaGetMinutes();
+			sysLogPrintf(LOG_NOTE, "net: co-op: campaign: the Cinema page's %s of stage 0x%02x is the room's to watch (loop %d)",
+					netCoopCinemaName(cine), g_MissionConfig.stagenum, s_HostCineNext.loop);
 		}
+
 		const char *dir = modloaderStageIsMission(g_MissionConfig.stagenum) ? modloaderGetStageModDir(g_MissionConfig.stagenum) : NULL;
 		const char *tag = dir ? gexPlusRomDirTag(dir) : NULL;
 
@@ -572,6 +709,7 @@ s32 netCoopAcceptMission(void)
 			netSessionNoticeSet("This mission cannot be played online.");
 		}
 
+		memset(&s_HostCineNext, 0, sizeof(s_HostCineNext));
 		return 1;
 	}
 
@@ -767,7 +905,7 @@ void netCoopLeaveMission(void)
  */
 void netCoopFolderBack(void)
 {
-	if (g_NetMode == NETMODE_SERVER && netSessionMatchActive()) {
+	if (g_NetMode == NETMODE_SERVER && netSessionMatchActive() && !netSessionHostEnded()) {
 		sysLogPrintf(LOG_NOTE, "net: co-op: the match's stage goes back to the folder: the match ends");
 		netHostMatchEnded();
 	}
@@ -783,6 +921,36 @@ void netCoopFolderBack(void)
 	g_Vars.lvmpbotlevel = 0;
 }
 
+/**
+ * pdmain.c mainEndStage's co-op branch, after MATCH_END (the host's) or its
+ * final block (a client's): a Cinema-page cinema ends on no report. A guest
+ * goes back to the room as from a mission's end, the host to its folder the
+ * way the cinema itself goes there offline (the credits' end, Cuba's list's
+ * own EndLevel, is the one that comes this way). 1 when it was a cinema.
+ */
+s32 netCoopCinemaEnded(void)
+{
+	if (g_NetMode == NETMODE_CLIENT && s_ClientMatch && s_ClientCine.kind) {
+		sysLogPrintf(LOG_NOTE, "net: co-op: the host's %s is over: back to the room", netCoopCinemaName(s_ClientCine.kind));
+		netCoopLeaveMission();
+		return 1;
+	}
+
+	if (g_NetMode == NETMODE_SERVER && s_HostMatch && s_HostCine.kind) {
+		sysLogPrintf(LOG_NOTE, "net: co-op: the room's %s is over: back to the folder", netCoopCinemaName(s_HostCine.kind));
+
+		if (s_HostCine.kind == GECINEMA_NET_CREDITS) {
+			gexFrontCreditsOver();
+		} else if (!gecinemaEndingOver()) {
+			netCoopLeaveMission();
+		}
+
+		return 1;
+	}
+
+	return 0;
+}
+
 // H12: the match's flags off
 void netCoopMatchStopped(void)
 {
@@ -796,6 +964,21 @@ void netCoopMatchStopped(void)
 	if (g_NetMode == NETMODE_SERVER && s_HostMatch && s_HostGame[0]) {
 		g_GexPlusVariant = s_HostVariantBefore;
 	}
+
+	// a guest's cinema: nothing armed for the stage after it, and its own
+	// Loop and Time rows back
+	if (g_NetMode == NETMODE_CLIENT && s_ClientCine.kind) {
+		gecinemaArm(-1, GECINEMA_OPENING);
+
+		if (s_ClientLoopBefore >= 0) {
+			gecinemaSetLoop(s_ClientLoopBefore);
+			gecinemaSetMinutes(s_ClientMinutesBefore);
+		}
+	}
+
+	s_ClientLoopBefore = -1;
+	memset(&s_HostCine, 0, sizeof(s_HostCine));
+	memset(&s_ClientCine, 0, sizeof(s_ClientCine));
 
 	s_HostMatch = 0;
 	s_JoinNear = 0;
@@ -1009,6 +1192,39 @@ void netCoopCapture(u8 *body)
 	body[MIS_FADESEQ] = s_HostFadeSeq;
 	put32(body + MIS_FADECOL, s_HostFadeColour);
 	put16(body + MIS_FADELEN, (u16)s_HostFadeFrames);
+
+	// the Cinema page's cinema the room watches (protocol 27)
+	if (s_HostMatch && s_HostCine.kind) {
+		u8 cflags = 0;
+
+		body[MIS_CINE] = (u8)s_HostCine.kind;
+
+		if (s_HostCine.kind == GECINEMA_NET_CREDITS) {
+			struct gecreditsnet cn;
+
+			gecreditsNetState(&cn);
+			cflags |= cn.orbit ? MISC_ORBIT : 0;
+			cflags |= cn.state == 1 ? MISC_ROLLING : cn.state == 2 ? MISC_ROLLED : 0;
+			put16(body + MIS_CREDPAD, (u16)cn.padnum);
+			put16(body + MIS_CREDDIST, (u16)(s16)cn.distance);
+			put16(body + MIS_CREDHIGH, (u16)(s16)cn.height);
+			put16(body + MIS_CREDLOOK, (u16)(s16)cn.lookheight);
+			putf(body + MIS_CREDSPEED, cn.speed);
+			putf(body + MIS_CREDANGLE, cn.angle);
+			putf(body + MIS_CREDFRAME, cn.frame);
+		} else {
+			s32 shot;
+			s32 seq;
+			s32 gflags;
+
+			gecinemaNetState(&shot, &seq, &gflags);
+			body[MIS_CINESHOT] = (u8)shot;
+			body[MIS_CINESEQ] = (u8)seq;
+			cflags |= (gflags & GECINEMA_NETF_LEFT) ? MISC_LEFT : 0;
+		}
+
+		body[MIS_CINEFLAGS] = cflags;
+	}
 }
 
 /**
@@ -1204,6 +1420,10 @@ s32 netCoopBlockOk(const u8 *body)
 		}
 	}
 
+	if (body[MIS_CINE] > GECINEMA_NET_CREDITS) {
+		return 0;
+	}
+
 	return 1;
 }
 
@@ -1323,6 +1543,46 @@ static void netCoopApplyFade(const u8 *body)
 	s_FadeSeq = seq;
 }
 
+/**
+ * A client: the host's Cinema-page cinema as its block carries it (protocol
+ * 27) - the opening's gallery shot (gecinema.c follows it), or Cuba's camera
+ * and roll (gecredits.c) - while this machine plays the cinema RULES named
+ */
+static void netCoopApplyCinema(const u8 *body)
+{
+	const s32 kind = body[MIS_CINE];
+	const u8 cflags = body[MIS_CINEFLAGS];
+
+	if (!s_ClientCine.kind || kind != s_ClientCine.kind || g_MainIsEndscreen) {
+		return;
+	}
+
+	if (kind == GECINEMA_NET_CREDITS) {
+		struct gecreditsnet cn;
+		const s32 prev = g_Vars.currentplayernum;
+
+		cn.orbit = (cflags & MISC_ORBIT) != 0;
+		cn.padnum = gets16(body + MIS_CREDPAD);
+		cn.distance = gets16(body + MIS_CREDDIST);
+		cn.height = gets16(body + MIS_CREDHIGH);
+		cn.lookheight = gets16(body + MIS_CREDLOOK);
+		cn.speed = getf(body + MIS_CREDSPEED);
+		cn.angle = getf(body + MIS_CREDANGLE);
+		cn.state = (cflags & MISC_ROLLED) ? 2 : (cflags & MISC_ROLLING) ? 1 : 0;
+		cn.frame = getf(body + MIS_CREDFRAME);
+
+		if (g_NetLocalSlot >= 0 && g_NetLocalSlot < PLAYERCOUNT() && g_Vars.players[g_NetLocalSlot]) {
+			setCurrentPlayerNum(g_NetLocalSlot);
+			gecreditsNetFollow(&cn);
+			setCurrentPlayerNum(prev);
+		}
+
+		return;
+	}
+
+	gecinemaNetFollow(body[MIS_CINESHOT], body[MIS_CINESEQ], (cflags & MISC_LEFT) ? GECINEMA_NETF_LEFT : 0);
+}
+
 /** The client: the host's word on whose death lost the mission */
 static void netCoopApplyLost(const u8 *body)
 {
@@ -1371,6 +1631,7 @@ void netCoopApply(const u8 *body)
 	netCoopApplyCutscene(body);
 	netCoopApplyWarp(body);
 	netCoopApplyFade(body);
+	netCoopApplyCinema(body);
 
 	for (i = 0; i < MAX_OBJECTIVES; i++) {
 		s_ObjStatus[i] = body[MIS_OBJ + i];

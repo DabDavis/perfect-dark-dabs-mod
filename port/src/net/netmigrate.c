@@ -273,6 +273,13 @@ s32 netMigrateAdopt(const char *room, s32 campaign, char *text, s32 textsize)
 	memset(&s_Res, 0, sizeof(s_Res));
 	s_Res.pending = s_Kept.resume;
 
+	// a Cinema-page cinema the room was watching (protocol 27) is not started
+	// again as a mission: the new host is back on its menus, the room waiting
+	if (coop && coop->cinema) {
+		s_Res.pending = 0;
+		sysLogPrintf(LOG_NOTE, "net: migrate: the room was watching the old host's cinema; not started again");
+	}
+
 	sysLogPrintf(LOG_NOTE, "net: migrate: room %s's setup is this host's now%s", room,
 			!s_Kept.resume ? "" : coop ? "; its mission starts again at the relaunch" : "; its match carries on at the relaunch");
 

@@ -113,6 +113,26 @@ static s32 g_GeCinemaLeft;            // the player backed out rather than watch
 static s32 g_GeCinemaInvincible;      // the player is invincible because the cinema made him so
 
 /**
+ * Online, a campaign room's guests watch the host's Cinema-page cinema
+ * (netcoop.c, protocol 27). The host counts the gallery's shot starts and its
+ * mission block carries them; a guest shows the host's shot rather than
+ * timing its own, reads no presses (the host's are the cinema's), leaves the
+ * ending's cast and list to the host (they reach it as puppets and camera
+ * shots), and at its own end holds on black for the host's: the match's end
+ * takes it back to the room.
+ */
+static u8 g_GeCinemaSeq;              // host: the gallery's shots started this cinema
+static s32 g_GeNetFollow;             // guest: the shot is the host's (gecinemaNetFollow)
+static s32 g_GeNetShot;
+static s32 g_GeNetSeq;
+static s32 g_GeNetSeqSeen;
+static s32 g_GeNetFlags;
+static s32 g_GeNetHold;               // guest: over here, the host's end to come
+static s32 g_GeNetBlack;              // guest: held in black for the GO, to come in from it
+
+#define GECINEMA_GUEST() (g_NetMode == NETMODE_CLIENT && g_GeCinemaMission >= 0)
+
+/**
  * The Loop row (gexfront.c): an opening's shots go round and round with the
  * level's own music under them, and never swirl down to Bond - Level until
  * the player backs out. On All a level's turn ends where its music comes back
@@ -271,9 +291,17 @@ s32 gecinemaGetMinutes(void)
 /** Every stage load: this one is a cinema if the folder armed one. */
 void gecinemaStageStart(void)
 {
-	g_GeCinemaMission = g_GeCinemaArmed;
-	g_GeCinemaWhat = g_GeCinemaArmedWhat;
-	g_GeCinemaArmed = -1;
+	// online, a guest's cinema armed from RULES waits for its mission's stage:
+	// a stage the session loads first (the Institute under a mod's swap) is
+	// not the cinema's
+	if (g_NetMode != NETMODE_NONE && g_GeCinemaArmed >= 0 && !modloaderStageIsMission(g_Vars.stagenum)) {
+		g_GeCinemaMission = -1;
+	} else {
+		g_GeCinemaMission = g_GeCinemaArmed;
+		g_GeCinemaWhat = g_GeCinemaArmedWhat;
+		g_GeCinemaArmed = -1;
+	}
+
 	g_GeEndingKicked = 0;
 
 	// for a probe that boots straight into a mission: play it as the Cinema
@@ -298,6 +326,14 @@ void gecinemaStageStart(void)
 	g_GeCinemaEntered = 0;
 	g_GeCinemaLeft = 0;
 	g_GeCinemaInvincible = 0;
+	g_GeCinemaSeq = 0;
+	g_GeNetFollow = 0;
+	g_GeNetShot = 0;
+	g_GeNetSeq = -1;
+	g_GeNetSeqSeen = -1;
+	g_GeNetFlags = 0;
+	g_GeNetHold = 0;
+	g_GeNetBlack = 0;
 	g_GeCinemaCamRoom = -1;
 	g_GeCinemaFogOn = 0;
 
@@ -898,6 +934,18 @@ static void gecinemaShowLine(const u8 *shot, s32 line)
  */
 static void gecinemaFinish(void)
 {
+	// a guest's cinema ends with the host's: the match's end takes it back to
+	// the room (netcoop.c), and the folder is not its to open
+	if (GECINEMA_GUEST()) {
+		if (!g_GeNetHold) {
+			g_GeNetHold = 1;
+			lvConfigureFade(0x000000ff, 30);
+			sysLogPrintf(LOG_NOTE, "gecinema: over here at frame %d; holding for the host's end", g_Vars.lvframenum);
+		}
+
+		return;
+	}
+
 	if (!g_GeCinemaWantFolder) {
 		g_GeCinemaWantFolder = 1;
 		sysLogPrintf(LOG_NOTE, "gecinema: over at frame %d, back to the folder", g_Vars.lvframenum);
@@ -1121,12 +1169,22 @@ static void gecinemaEndingTick(void)
 {
 	if (g_GeEndingKicked == 0) {
 		// the lists fade in from black themselves once their camera is up, and
-		// what is on the screen until then is a level nobody is playing
+		// what is on the screen until then is a level nobody is playing (a
+		// guest joining part way through takes the host's shot as it is)
 		g_GeEndingKicked = 1;
-		lvConfigureFade(0x000000ff, 1);
+
+		if (!GECINEMA_GUEST() || !netClientJoinedInProgress()) {
+			lvConfigureFade(0x000000ff, 1);
+		}
 	}
 
 	g_GeCinemaTotal60 += g_Vars.diffframe60f;
+
+	// a guest's ending is the host's lists': their cast reaches it as
+	// puppets, their camera switches and fades from the host's mission block
+	if (GECINEMA_GUEST()) {
+		return;
+	}
 
 	// a level's chrs and lists settle over its first frames (its guards are
 	// made, its background chrs number themselves); the cast the ending needs
@@ -1435,7 +1493,7 @@ s32 gecinemaSwirlTick(void)
 		return 1;
 	}
 
-	if (gecinemaIsOn() && !traceReportHoldsInput() && gecinemaLeavePressed()) {
+	if (gecinemaIsOn() && !GECINEMA_GUEST() && !traceReportHoldsInput() && gecinemaLeavePressed()) {
 		gecinemaIntroEnd();
 		return 1;
 	}
@@ -1503,7 +1561,7 @@ s32 gecinemaSwirlTick(void)
 			gecinemaIntroEnd();
 			return g_GeIntroStage == GEINTRO_HOLD;
 		}
-	} else if (left > 60.0f && !lvIsPaused() && !traceReportHoldsInput() && gecinemaPressed()) {
+	} else if (left > 60.0f && !lvIsPaused() && !traceReportHoldsInput() && !GECINEMA_GUEST() && gecinemaPressed()) {
 		g_GeIntroFadingOut = 1;
 		playerSetFadeColour(0, 0, 0, pl->colourscreenfrac);
 		playerSetFadeFrac(playerIsFadeComplete() ? 60 : pl->colourfadetime60, 1);
@@ -1657,6 +1715,19 @@ static void gecinemaTickOwn(void)
 		return;
 	}
 
+	// a guest's cinema waits for the host's GO, in black, and comes in from
+	// it at the GO; once over here it holds for the host's end
+	if (GECINEMA_GUEST() && (netClientAwaitingGo() || g_GeNetHold)) {
+		playerSetFadeColour(0, 0, 0, 1);
+		g_GeNetBlack = 1;
+		return;
+	}
+
+	if (g_GeNetBlack) {
+		g_GeNetBlack = 0;
+		playerSetFadeFrac(30, 0);
+	}
+
 	if (g_GeCinemaNumShots < 0) {
 		gecinemaCollect();
 	}
@@ -1665,12 +1736,36 @@ static void gecinemaTickOwn(void)
 		gecinemaEnter();
 	}
 
+	// online, the room watches: no seat's commands walk or shoot through the
+	// host's cinema (a guest's own machine holds its player the same way)
+	if (g_NetMode == NETMODE_SERVER) {
+		for (s32 k = 0; k < PLAYERCOUNT() && k < MAX_PLAYERS; k++) {
+			g_PlayersWithControl[k] = false;
+		}
+	}
+
 	if (g_GeCinemaWhat == GECINEMA_ENDING) {
 		gecinemaEndingTick();
 		return;
 	}
 
-	if (g_GeCinemaLooping && !g_GeCinemaLeft) {
+	// a guest: the shot is the host's (its mission block), taken afresh each
+	// time the host starts one; the loop's rounds and ends are the host's
+	if (GECINEMA_GUEST() && g_GeNetFollow && g_GeNetSeq != g_GeNetSeqSeen) {
+		g_GeNetSeqSeen = g_GeNetSeq;
+		g_GeCinemaShot = g_GeNetShot;
+		g_GeCinemaTime60 = 0;
+		g_GeCinemaLine = 0;
+		g_GeCinemaLeft = (g_GeNetFlags & GECINEMA_NETF_LEFT) != 0;
+		sysLogPrintf(LOG_NOTE, "gecinema: the host's shot %d of %d (start %d) at frame %d", g_GeCinemaShot, g_GeCinemaNumShots,
+				g_GeNetSeq, g_Vars.lvframenum);
+
+		if (g_GeCinemaLooping && !g_GeCinemaLeft && g_GeCinemaNumShots > 0 && g_GeCinemaShot >= g_GeCinemaNumShots) {
+			g_GeCinemaShot = 0;   // the host goes round again on its next tick
+		}
+	}
+
+	if (g_GeCinemaLooping && !g_GeCinemaLeft && !GECINEMA_GUEST()) {
 		if (g_GeCinemaWantFolder || g_GeLoopEnding > 1) {
 			return;   // the stage changes at the end of the frame
 		}
@@ -1738,15 +1833,17 @@ static void gecinemaTickOwn(void)
 		// the folder
 		const u32 ui = contpad == 0 ? ~0u : ~(u32)(BUTTON_UI_CANCEL | BUTTON_UI_ACCEPT);
 
-		if (g_GeCinemaTotal60 > 10.0f
+		// (a guest's presses are not the cinema's: the host's are)
+		if (g_GeCinemaTotal60 > 10.0f && !GECINEMA_GUEST()
 				&& (joyGetButtonsPressedThisFrame(contpad, LEAVE_BUTTONS & ui)
 					|| (inputKeyPressedThisFrame(VK_ESCAPE) && !netHudAteEscape()))) {
 			g_GeCinemaShot = g_GeCinemaNumShots;
 			g_GeCinemaLeft = 1;
+			g_GeCinemaSeq++;
 			return;
 		}
 
-		skip = g_GeCinemaTime60 > 10.0f
+		skip = g_GeCinemaTime60 > 10.0f && !GECINEMA_GUEST()
 			&& (joyGetButtonsPressedThisFrame(contpad, SKIP_BUTTONS & ui) != 0
 				|| inputKeyPressedThisFrame(VK_MOUSE_LEFT));
 	}
@@ -1754,11 +1851,35 @@ static void gecinemaTickOwn(void)
 	g_GeCinemaTime60 += g_Vars.diffframe60f;
 	g_GeCinemaTotal60 += g_Vars.diffframe60f;
 
-	if (skip || g_GeCinemaTime60 >= end) {
+	// a guest stays on its shot until the host starts the next
+	if ((skip || g_GeCinemaTime60 >= end) && !GECINEMA_GUEST()) {
 		g_GeCinemaShot++;
 		g_GeCinemaTime60 = 0;
 		g_GeCinemaLine = 0;
+		g_GeCinemaSeq++;
 	}
+}
+
+/** The host's gallery, for its mission block (netcoop.c) */
+void gecinemaNetState(s32 *shot, s32 *seq, s32 *flags)
+{
+	*shot = g_GeCinemaShot < 0 ? 0 : g_GeCinemaShot > 255 ? 255 : g_GeCinemaShot;
+	*seq = g_GeCinemaSeq;
+	*flags = g_GeCinemaLeft ? GECINEMA_NETF_LEFT : 0;
+}
+
+/** A guest: the host's gallery as its mission block carries it */
+void gecinemaNetFollow(s32 shot, s32 seq, s32 flags)
+{
+	g_GeNetFollow = 1;
+	g_GeNetShot = shot;
+	g_GeNetSeq = seq;
+	g_GeNetFlags = flags;
+}
+
+s32 gecinemaNetHolding(void)
+{
+	return g_GeNetHold;
 }
 
 #endif

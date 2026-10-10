@@ -29,6 +29,14 @@
 #define GECINEMA_MINUTES_MIN 1
 #define GECINEMA_MINUTES_MAX 20
 
+// What a start from the Cinema page is, online (a campaign room plays it on
+// every guest's screen: netcoop.c, RULES' mission block, protocol 27): 0 a
+// mission played, else one of these
+#define GECINEMA_NET_NONE    0
+#define GECINEMA_NET_OPENING 1
+#define GECINEMA_NET_ENDING  2
+#define GECINEMA_NET_CREDITS 3
+
 void gecinemaSetMinutes(s32 minutes);
 s32 gecinemaGetMinutes(void);
 void gecinemaSetLoop(s32 loop);
@@ -69,6 +77,15 @@ s32 gecinemaPropAlpha(struct prop *prop);
 // either command runs; every stage starts without one.
 void gecinemaSetBondBodyWeapon(s32 weaponnum);
 s32 gecinemaBondBodyWeapon(void);
+
+// Online (netcoop.c): the host's opening gallery as its mission block carries
+// it - the shot showing, a count of the shots started, and whether the host
+// backed out - and a guest following it rather than its own clock and presses
+#define GECINEMA_NETF_LEFT 1
+void gecinemaNetState(s32 *shot, s32 *seq, s32 *flags);
+void gecinemaNetFollow(s32 shot, s32 seq, s32 flags);
+// a guest's cinema is over here, the host's not yet: held on black for its end
+s32 gecinemaNetHolding(void);
 
 // Whether the folder should open again on the Cinema page, and the mission it
 // should be showing; taking it clears both.

@@ -24,6 +24,7 @@
 #include "game/propobj.h"
 #include "game/radar.h"
 #include "net/net.h"
+#include "gecinema.h"
 #include "netint.h"
 
 /**
@@ -786,6 +787,7 @@ void netHudAimFrame(void)
 	}
 
 	if (!s_PlayerNames || !netSessionHudLive() || netSessionSpectating()
+			|| netCoopCinemaKind() != GECINEMA_NET_NONE
 			|| player->isdead || g_Vars.tickmode == TICKMODE_CUTSCENE
 			|| player->cameramode == CAMERAMODE_EYESPY
 			|| modSpectateIsOnForPlayer(g_Vars.currentplayernum)) {

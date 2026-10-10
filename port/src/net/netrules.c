@@ -988,6 +988,18 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 	netWriteStr(b, netCoopHostGame(), NET_MAXCOMPNAME); // protocol 14: the mission's set
 
 	{
+		// protocol 27: the Cinema page's cinema the match is, watched by the room
+		u8 kind;
+		u8 loop;
+		u8 minutes;
+
+		netCoopHostCinema(&kind, &loop, &minutes);
+		netBufWriteU8(b, kind);
+		netBufWriteU8(b, loop);
+		netBufWriteU8(b, minutes);
+	}
+
+	{
 		// the content block (protocol 13, netcontent.c): the mod and the
 		// ROM hack mode the client is to play this match in
 		struct netcontentneed need;
@@ -1116,6 +1128,9 @@ s32 netRulesRead(struct netbuf *b)
 	s_NetRules.coop.radar = netBufReadU8(b);
 	s_NetRules.coop.friendlyfire = netBufReadU8(b);
 	netBufReadString(b, s_NetRules.coop.game, sizeof(s_NetRules.coop.game));
+	s_NetRules.coop.cinema = netBufReadU8(b);
+	s_NetRules.coop.cinemaloop = netBufReadU8(b);
+	s_NetRules.coop.cinemaminutes = netBufReadU8(b);
 	netContentRead(b, &s_NetRules.content, 1);
 
 	if (s_NetRules.coop.on && !netCoopRulesOk(&s_NetRules.coop)) {
