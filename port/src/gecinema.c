@@ -436,6 +436,18 @@ static void gecinemaCollect(void)
 
 		if (type == 6 && g_GeCinemaNumShots < MAX_SHOTS) {
 			g_GeCinemaShots[g_GeCinemaNumShots++] = cmd;
+
+			// a line's text the mission's bank has no slot for shows nothing
+			// (lang.c); said, as it means the conversion and the bank disagree
+			for (s32 k = 0; k < 2; k++) {
+				const u32 textid = *(const u32 *)(cmd + 0x1c + 4 * k);
+
+				if (textid && ((textid >> 9) != LANGBANK_GEMISSION
+							|| (s32)(textid & 0x1ff) >= gexPlusMissionLangCount())) {
+					sysLogPrintf(LOG_WARNING, "gecinema: shot %d's line %d is text 0x%x, which the mission's bank (%d slots) has not",
+							g_GeCinemaNumShots - 1, k + 1, textid, gexPlusMissionLangCount());
+				}
+			}
 		}
 
 		if (type == 3 && g_GeNumSwirl < MAX_SWIRL) {

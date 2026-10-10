@@ -616,6 +616,14 @@ bool envIsPosInFogMaxDistance(struct coord *pos, f32 tolerance)
 
 	mtx = camGetWorldToScreenMtxf();
 
+#ifndef PLATFORM_N64
+	// netplay: a seat whose view was never built has no matrix (lv.c keeps a
+	// built view current for the AI; this is the backstop)
+	if (mtx == NULL) {
+		return true;
+	}
+#endif
+
 	sp24.x = pos->x - campos->x;
 	sp24.y = pos->y - campos->y;
 	sp24.z = pos->z - campos->z;

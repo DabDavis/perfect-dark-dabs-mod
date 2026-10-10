@@ -458,6 +458,17 @@ void amApply(s32 slot)
 	}
 }
 
+#ifndef PLATFORM_N64
+// A mod's weapon or function can name an empty text id, which langGet() gives
+// as NULL (crashes 20261010-070526/070558/071802, mod "Air Force Twenty One")
+static char *amSafeText(char *text)
+{
+	return text ? text : "";
+}
+#else
+#define amSafeText(text) (text)
+#endif
+
 void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 {
 	u32 weaponnum;
@@ -502,7 +513,7 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 				modulo = (qty - (secs * TICKS(60))) * 100 / TICKS(60);
 				sprintf(label, langGet(L_OPTIONS_491), secs + (modulo > 0 ? 1 : 0)); // "cloak %d"
 			} else {
-				strcpy(label, invGetShortNameByIndex(g_AmMenus[g_AmIndex].invindexes[slot]));
+				strcpy(label, amSafeText(invGetShortNameByIndex(g_AmMenus[g_AmIndex].invindexes[slot])));
 			}
 		}
 
@@ -547,7 +558,7 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 				}
 
 				if (prifunc) {
-					strcpy(label, langGet(prifunc->name));
+					strcpy(label, amSafeText(langGet(prifunc->name)));
 				}
 			} else {
 				if (!prifunc || secondary) {
@@ -555,7 +566,7 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 				}
 
 				if (secfunc) {
-					strcpy(label, langGet(secfunc->name));
+					strcpy(label, amSafeText(langGet(secfunc->name)));
 				}
 			}
 		}

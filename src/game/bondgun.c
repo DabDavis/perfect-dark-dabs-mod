@@ -7933,7 +7933,19 @@ char *bgunGetName(s32 weaponnum)
 	struct weapon *weapon = g_Weapons[weaponnum];
 
 	if (weapon) {
+#ifndef PLATFORM_N64
+		// A mod's weapon (or its language file) can leave the name empty,
+		// which langGet() gives as NULL: the short name, else nothing.
+		char *name = langGet(weapon->name);
+
+		if (name == NULL) {
+			name = langGet(weapon->shortname);
+		}
+
+		return name ? name : "";
+#else
 		return langGet(weapon->name);
+#endif
 	}
 
 	return "** error\n";
@@ -7955,7 +7967,18 @@ char *bgunGetShortName(s32 weaponnum)
 	struct weapon *weapon = g_Weapons[weaponnum];
 
 	if (weapon) {
+#ifndef PLATFORM_N64
+		// As bgunGetName: an empty short name falls back to the full name
+		char *name = langGet(weapon->shortname);
+
+		if (name == NULL) {
+			name = langGet(weapon->name);
+		}
+
+		return name ? name : "";
+#else
 		return langGet(weapon->shortname);
+#endif
 	}
 
 	return "** error\n";

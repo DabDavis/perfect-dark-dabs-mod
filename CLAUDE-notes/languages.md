@@ -220,6 +220,18 @@ through `LANGBANK_GEMISSION`), GE gun/gadget/function names, GE and PD head and
 body names (`mpGetHeadName()`, `mpGetBodyName()`), the Randomizer's objective
 and score texts.
 
+**`LANGBANK_GEMISSION` is bounded (F3 pass 36, crash 20261010-130513).**
+`langGet()` reads a bank's offset table with no length, so a slot past the
+end takes string bytes as an offset. The mission bank's slot count is kept
+at load (`gexPlusMissionLangCount()`, the first non-zero widened offset over
+the pointer size) and a slot past it is NULL. The crash was a GoldenEye
+cinema's opening line on Archives (Windows): its log said "1 opening shots,
+0 swirl points" and 10 chrs where the US conversion has 2 shots, 11 swirl
+points and 30 chrs, so that player's setup was not the one converted here -
+unexplained. Every US mission's shot lines are in their banks (checked all
+20 with `--boot-ge-mission N --cinema-opening`); `gecinemaCollect()` now warns
+on a shot line its bank has no slot for.
+
 **Japanese, 2026-09-29 (`lang/ja`, the pack and what it needed):**
 - Line breaking is shared: `langfontIsCjkBreakable()`, `langfontNoBreakBefore()`
   (closing punctuation, small kana, ー) and `langfontNoBreakAfter()` (opening

@@ -546,6 +546,14 @@ lists the stock seventeen and nothing after "Random".
   headings ("Dark" 0-12, "Classic" 13-15, "Random" 16-) are the port's, as
   they are the ROM's: All Solos shows Felicity under "Random" on a console
   too, and Kakariko renamed "Random" to "Kakariko Village" in its `LmpmenuE`.
+- **A mod's empty text id is NULL from `langGet()`** (F3 pass 36, crashes
+  20261010-070526/070558/071802, mod "Air Force Twenty One": the weapon
+  menu's `strcpy` of a NULL short name). `bgunGetName()`/`bgunGetShortName()`
+  fall back to each other and then "", a text override's empty
+  `inventorytext` falls back to the weapon's own name in
+  `invGetNameByIndex()`/`invGetShortNameByIndex()`, and `amGetSlotDetails()`
+  copies through `amSafeText()`. Stock text is never NULL, so PD is unchanged.
+  The hudmsg case was 586f32f98.
 - The snapshot for mod swaps covers `g_MpArenas`, the count and the imported
   flag. `g_MpArenas` is sized in `data.h` now (`MP_NUM_ARENAS_STATIC +
   MAX_MODSTAGES`) so `mod.c` can take `sizeof` it.

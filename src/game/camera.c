@@ -516,6 +516,13 @@ bool camIsPosInScreenBox(struct coord *pos, f32 arg1, struct drawslot *drawslot)
 	f32 sp1c;
 	f32 sp18;
 
+#ifndef PLATFORM_N64
+	// netplay: a seat whose view was never built has no matrices
+	if (g_Vars.currentplayer->projectionmtx == NULL) {
+		return false;
+	}
+#endif
+
 	if (var8009dd6c + arg1 < g_Vars.currentplayer->projectionmtx->m[2][0] * pos->f[0] + g_Vars.currentplayer->projectionmtx->m[2][1] * pos->f[1] + g_Vars.currentplayer->projectionmtx->m[2][2] * pos->f[2]) {
 		return false;
 	}

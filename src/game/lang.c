@@ -537,6 +537,12 @@ char *langGet(s32 textid)
 		return NULL;
 	}
 
+	// a converted GoldenEye mission's bank is the conversion's file, and a
+	// slot past its table is no text, not string bytes read as an offset
+	if (bankindex == LANGBANK_GEMISSION && textindex >= gexPlusMissionLangCount()) {
+		return NULL;
+	}
+
 	// The selected language's own translation of the ROM's string, when the
 	// ROM's is what is loaded: a mod's own text is never replaced (its file
 	// is not stock), and GoldenEye's mission bank has GoldenEye's ids.
