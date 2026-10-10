@@ -146,7 +146,12 @@
 //    (its Loop and Time rows); the scenario block's mission body carries the
 //    host's gallery shot and a count of its shot starts, and the credits'
 //    orbit and roll (netcoop.c, bytes 50-73), which a guest plays in step
-#define NET_PROTOCOL_VERSION 27
+// 28 (F3 pass 36, 2026-10-11): an OBJ record's byte 0 has 0x40
+//    (NETOBJ_MOUNTED) while someone drives the object (GoldenEye's tank: one
+//    driver online); a DOOR record grows from 6 to 17 bytes to carry the
+//    door's place, so a fall-away door (Surface's vent hatch) lies where the
+//    host's fell
+#define NET_PROTOCOL_VERSION 28
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
