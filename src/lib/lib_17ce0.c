@@ -10,7 +10,46 @@
 
 u8 var8005ef20 = 254;
 
+#ifdef PLATFORM_N64
 u8 var8009a4e0[456][2];
+#else
+#include <stdlib.h>
+#include <string.h>
+#include "system.h"
+
+/**
+ * portal00018148()'s per-portal cache of the line's crossing, by portal
+ * number. Stock's was 456 portals in bss, enough for Perfect Dark's stages,
+ * and nothing bounded the index: a converted GoldenEye level or a mod's map
+ * with more portals wrote past it into the mema heap's free-space table that
+ * follows it, and vtxstoreAllocate() was handed address 0x450 for a hit's
+ * blood (crash 20261010-083117), or the stage pools' descriptors further on.
+ * It is grown to the stage's count when the portals are counted (bg.c).
+ */
+static u8 s_PortalIsectStock[456][2];
+static u8 (*var8009a4e0)[2] = s_PortalIsectStock;
+static s32 s_PortalIsectCap = ARRAYCOUNT(s_PortalIsectStock);
+
+void portalReserveIsectCache(s32 numportals)
+{
+	if (numportals > s_PortalIsectCap) {
+		u8 (*grown)[2] = malloc((size_t)numportals * sizeof(*grown));
+
+		if (grown) {
+			memcpy(grown, var8009a4e0, (size_t)s_PortalIsectCap * sizeof(*grown));
+			// 0xff is no tick's mark (var8005ef20 runs 0 to 254): not cached
+			memset(grown + s_PortalIsectCap, 0xff, (size_t)(numportals - s_PortalIsectCap) * sizeof(*grown));
+
+			if (var8009a4e0 != s_PortalIsectStock) {
+				free(var8009a4e0);
+			}
+
+			var8009a4e0 = grown;
+			s_PortalIsectCap = numportals;
+		}
+	}
+}
+#endif
 
 void portalGetAvgVertexPos(s32 portalnum, struct coord *avg)
 {
@@ -193,6 +232,11 @@ void portal00018148(struct coord *pos1, struct coord *pos2, RoomNum *rooms1, Roo
 
 	if (var8005ef20 == 255) {
 		for (i = 0; i < g_BgNumPortalCameraCacheItems; i++) {
+#ifndef PLATFORM_N64
+			if (i >= s_PortalIsectCap) {
+				break;
+			}
+#endif
 			var8009a4e0[i][0] = 0xff;
 		}
 
@@ -203,12 +247,42 @@ void portal00018148(struct coord *pos1, struct coord *pos2, RoomNum *rooms1, Roo
 		rooms7c[0] = -1;
 
 		for (j = 0; (roomnum = rooms9c[j]) != -1 && j < 16; j++) {
+#ifndef PLATFORM_N64
+			// A room number that is not the stage's reads a portal list from
+			// past g_Rooms, and its portal numbers index the cache below
+			if (roomnum < 0 || roomnum >= g_Vars.roomcount) {
+				static s32 logged;
+
+				if (logged++ < 4) {
+					sysLogPrintf(LOG_WARNING, "portal: room %d in a line's rooms is not one of the stage's %d; skipped",
+							roomnum, g_Vars.roomcount);
+				}
+
+				continue;
+			}
+#endif
 			numportals = g_Rooms[roomnum].numportals;
 			portalnums = &g_RoomPortals[g_Rooms[roomnum].roomportallistoffset];
 
 			for (i = 0; i < numportals; i++) {
 				s32 portalnum = *portalnums;
+#ifdef PLATFORM_N64
 				u8 *s1 = var8009a4e0[portalnum];
+#else
+				u8 spare[2] = { 0xff, 0 };
+				u8 *s1 = spare;
+
+				if (portalnum >= 0 && portalnum < s_PortalIsectCap) {
+					s1 = var8009a4e0[portalnum];
+				} else {
+					static s32 logged;
+
+					if (logged++ < 4) {
+						sysLogPrintf(LOG_WARNING, "portal: room %d lists portal %d, past the line cache's %d",
+								roomnum, portalnum, s_PortalIsectCap);
+					}
+				}
+#endif
 
 				if (s1[0] != var8005ef20) {
 					s1[0] = var8005ef20;

@@ -572,3 +572,18 @@ is the entity and `$esi` the prop type) and filter in `stop()`; a breakpoint at
 a line inside it can see `g_Vars.chrdata` still 0 (the store is not made yet),
 and a `condition` set on a Python breakpoint that has a `stop()` method did
 not filter anything here - filter in `stop()`.
+
+## The line's portal cache was 456 portals in bss, right before the mema heap (2026-10-10)
+
+portal00018148() (src/lib/lib_17ce0.c), the room walk every line test and
+chr move uses, caches each portal's crossing in `var8009a4e0[456][2]`, by
+portal number, with no bound. In every build (Linux and Windows) the linker
+puts `g_MemaHeap`, the mema free-space table, straight after it, then
+g_MemaHeapStart/Size and the memp pool descriptors. A stage with more than
+~464 portals, or a bad room number reaching the walk, wrote counter and
+crossing bytes into that table. The PC build grows the cache to the stage's
+portal count when bg.c counts them (portalReserveIsectCache) and bounds both
+the room and the portal index, logging the first few "portal:" warnings.
+GoldenEye's 20 missions have 27-194 portals, so it was not the cause of the
+one crash it was looked at for (20261010-083117, Dam: vtxstoreAllocate handed
+address 0x450, a mema space at address 0); a mod map with more would be.

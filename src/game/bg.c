@@ -2115,6 +2115,9 @@ void bgBuildTables(s32 stagenum)
 		}
 
 		g_BgNumPortalCameraCacheItems = numportals;
+#ifndef PLATFORM_N64
+		portalReserveIsectCache(numportals);
+#endif
 		g_PortalCameraCache = mempAlloc(ALIGN16(g_BgNumPortalCameraCacheItems * sizeof(struct portalcamcacheitem)), MEMPOOL_STAGE);
 
 		// Iterate the portals and update their verticesoffset value. In
