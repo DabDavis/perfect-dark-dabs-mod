@@ -150,7 +150,10 @@
 //    (NETOBJ_MOUNTED) while someone drives the object (GoldenEye's tank: one
 //    driver online); a DOOR record grows from 6 to 17 bytes to carry the
 //    door's place, so a fall-away door (Surface's vent hatch) lies where the
-//    host's fell
+//    host's fell; the local-player block's bytes 50-51 carry the left hand's
+//    gun (weaponleft), so a client's Akimbo pair is the host's; RULES ends
+//    with the host's cheat banks (u32 cheats0, cheats1), which every machine
+//    plays the match by
 #define NET_PROTOCOL_VERSION 28
 
 #define NETMSG_CONNECT    1
