@@ -74,7 +74,8 @@
 #           through it: a crash within a second, the co-op Defection crashes
 #           of 2026-10-09).
 #   nomodroom  a Perfect Dark campaign room whose host plays with a mod the
-#           guest lacks (F3 20261009-070735): the guest leaves NOMOD, its
+#           guest cannot follow (F3 20261009-070735; since protocol 25 a guest
+#           started with --moddir, the host serves the others): it leaves NOMOD, its
 #           Game Lobby's status line says why (not "connecting to the
 #           host"), and it does not connect to the same launch again.
 #   campleave  a campaign room's host leaves it and joins another host's
@@ -901,7 +902,7 @@ PY
 case_nomodroom() {
 	local name=nomodroom port=$((PORT + 9)) L=$OUT/nomodroom-pdlobbyd.log H=$OUT/nomodroom-host.log J=$OUT/nomodroom-join.log
 	echo "== $name"
-	mkdir -p "$OUT/mod_nomodroom/files"
+	mkdir -p "$OUT/mod_nomodroom/files" "$OUT/mod_nomodroom_other/files"
 	python3 -u "$ROOT/tools/pdlobbyd/pdlobbyd.py" --host 127.0.0.1 --port 0 --udp-host 127.0.0.1 --udp-port 0 --auth open --relay-ports 0 \
 		> "$L" 2>&1 &
 	local lobby=$!
@@ -917,8 +918,10 @@ case_nomodroom() {
 	if ! waitfor "$H" "net: co-op: the Perfect Dark campaign begins" 90; then
 		fail "$name: no campaign on the host"
 	else
+		# protocol 25 serves the host's mod to a guest that lacks it, so the
+		# guest that cannot follow is one started with --moddir (another mod)
 		game nomodroom-join 200 "[Mod]\nGhostUser=modless\nGhostPin=1234\nModDir=\nMapMods=\n[Net]\nLobbyServer=http://127.0.0.1:$lport\n" \
-			--net-lobby-script join --net-lobby-room "Nomod Test" --net-lobby-leave-frame 0 &
+			--moddir "$OUT/mod_nomodroom_other" --net-lobby-script join --net-lobby-room "Nomod Test" --net-lobby-leave-frame 0 &
 		join=$!
 		waitfor "$J" "net: session ended \[nomod\]" 90 || echo "     the joiner's session did not end [nomod]"
 		sleep 2
@@ -941,7 +944,7 @@ case_nomodroom() {
 	crashed "$H" && fail "$name: the host crashed"; crashed "$J" && fail "$name: the joiner crashed"
 	grep -q "net: content: leaving \[nomod mod_nomodroom\]" "$J" && pass "$name: the joiner left NOMOD naming the host's mod" \
 		|| fail "$name: $(grep -E 'net: (content: leaving|session ended)' "$J" | head -2 | tr '\n' ';')"
-	echo "$st" | grep -q "status line: The host plays with the mod mod_nomodroom, which is not installed here" \
+	echo "$st" | grep -q "status line: The host plays with the mod mod_nomodroom, and this game's mods came from --moddir" \
 		&& pass "$name: the Game Lobby says why" || fail "$name: the Game Lobby's status: ${st:-none}"
 	echo "$st" | grep -qi "connecting to the host" && fail "$name: the Game Lobby still says it is connecting"
 	local n; n=$(grep -c "lobby: room [0-9a-f]* launched; connecting to" "$J")
