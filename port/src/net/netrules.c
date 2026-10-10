@@ -1150,7 +1150,14 @@ s32 netRulesRead(struct netbuf *b)
 		}
 	}
 
-	if (s_NetRules.weaponsetnum < 0 || s_NetRules.weaponsetnum > WEAPONSET_CUSTOM
+	// the set's number is the host's: its Random and Custom follow however
+	// many sets its own list holds (a PD mod's, GoldenEye's appended), so
+	// this machine's WEAPONSET_CUSTOM is no bound for it - a guest inside the
+	// host's Perfect Dark mod lacked GoldenEye's fourteen and refused the
+	// host's Custom (28) as past its own (14): "the host's RULES did not
+	// parse" between two matches (F3 20261009-215118); netRulesApply puts it
+	// in this machine's list
+	if (s_NetRules.weaponsetnum < 0 || s_NetRules.weaponsetnum > MP_MAX_WEAPONSETS + 2
 			|| s_NetRules.maxexplosions < 6 || s_NetRules.maxexplosions > 96
 			|| s_NetRules.gexplusscenario >= GEXPLUS_NUMSCENARIOS) {
 		b->error = 1;
@@ -1316,7 +1323,16 @@ static void netRulesPut(const struct netrulesmsg *rules, s32 coop)
 	sb.bitpos = 0;
 	scenarioReadSave(&sb, 1);
 
+	// the host's set by its own list's numbering (netRulesRead): one past
+	// this machine's list is its guns as RULES give them, which is Custom
+	// here (the slots above are the host's whatever the set is called)
 	g_MpWeaponSetNum = rules->weaponsetnum;
+
+	if (g_MpWeaponSetNum > WEAPONSET_CUSTOM) {
+		sysLogPrintf(LOG_NOTE, "net: rules: the host's weapon set %d is past this machine's list of %d: its guns as sent, Custom here",
+				rules->weaponsetnum, g_MpNumWeaponSets);
+		g_MpWeaponSetNum = WEAPONSET_CUSTOM;
+	}
 
 	for (i = 0; i < NUM_MPWEAPONS && i < 64; i++) {
 		g_MpWeaponSetRandomFilters[i] = (rules->filters >> i) & 1;
