@@ -986,5 +986,6 @@
  "Speakers: not reported": "Lautsprecher: nicht gemeldet",
  "Speakers: %d channels": "Lautsprecher: %d Kanäle",
  "Headphone Surround": "Kopfhörer-Surround",
- "Now playing headphone surround": "Wiedergabe als Kopfhörer-Surround"
+ "Now playing headphone surround": "Wiedergabe als Kopfhörer-Surround",
+ "Headphone Room": "Raum (Kopfhörer)"
 }

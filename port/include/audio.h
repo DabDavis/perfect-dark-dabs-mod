@@ -26,6 +26,8 @@ s32 audioGetSurroundOutput(void);
 void audioSetSurroundOutput(s32 output);
 s32 audioGetSurroundLfe(void);
 void audioSetSurroundLfe(s32 percent);
+s32 audioGetHeadphoneRoom(void);
+void audioSetHeadphoneRoom(s32 percent); // Headphone Surround's room reflections, 0 none, 50 as made
 s32 audioGetChannels(void);
 s32 audioGetSurroundWanted(void);
 s32 audioGetDeviceChannels(void);

@@ -119,8 +119,11 @@ measured). No measured HRTF is shipped, so there is no data licence to
 carry. A sphere cannot tell front from back, and the pinna cues that do sit
 above what 22 kHz sampling holds, so the rear pair gets a -5 dB shelf at
 2.5 kHz and +2 dB at 1 kHz (behind measures 6 dB duller than ahead). Six
-fixed reflection taps a side (3-21 ms, low passed at 4 kHz, `HP_ROOM`) take
-the sound out of the head.
+fixed reflection taps a side (3-21 ms, low passed at 4 kHz) take the sound out
+of the head; their level is the Headphone Room slider (`Audio.HeadphoneRoom`,
+percent of a gain of 1.4, default 50 = 0.7): measured on an impulse from the
+front left, none at 0%, -15.2 dB against the direct sound at 50%, -9.2 dB at
+100%. The calibration below was made at 50%.
 
 Calibration (pink noise, the harness in the commit message): the sphere puts
 the rear speakers 20 degrees off the ear's axis, where its near-ear treble

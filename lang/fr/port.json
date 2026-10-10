@@ -986,5 +986,6 @@
  "Speakers: not reported": "Enceintes : non signalées",
  "Speakers: %d channels": "Enceintes : %d canaux",
  "Headphone Surround": "Surround casque",
- "Now playing headphone surround": "Lecture en surround casque"
+ "Now playing headphone surround": "Lecture en surround casque",
+ "Headphone Room": "Salle (casque)"
 }

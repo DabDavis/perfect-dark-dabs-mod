@@ -1760,6 +1760,23 @@ static MenuItemHandlerResult menuhandlerSurroundLfe(s32 operation, struct menuit
 	return 0;
 }
 
+static MenuItemHandlerResult menuhandlerHeadphoneRoom(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = audioGetHeadphoneRoom();
+		break;
+	case MENUOP_SET:
+		audioSetHeadphoneRoom(data->slider.value);
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d%%", data->slider.value);
+		break;
+	}
+
+	return 0;
+}
+
 static const char *menutextSurroundNow(struct menuitem *item)
 {
 	if (!audioGetSurroundWanted()) {
@@ -1828,6 +1845,14 @@ struct menuitem g_ExtendedAudioMenuItems[] = {
 		(uintptr_t)"Subwoofer",
 		100,
 		menuhandlerSurroundLfe,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Headphone Room",
+		100,
+		menuhandlerHeadphoneRoom,
 	},
 	{
 		MENUITEMTYPE_LABEL,
