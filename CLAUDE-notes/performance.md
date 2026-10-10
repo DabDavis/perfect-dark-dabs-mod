@@ -6,6 +6,7 @@ The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
 - **Measuring a crowded match, `--rng-seed`/`--fixed-step`/`--exit-frame`, where the frame goes** — [performance.md](CLAUDE-notes/performance.md): compare instructions per frame on a seeded fixed-step match; the renderer is 60% of the main thread and is built at -O2; why the decomp at -O2 played a different game (game-defined sinf/cosf, an uninitialised pad flag) and how a divergence is bisected; run to a level frame rather than a wall-clock span, and check a renderer change with a pixel diff; why every model is full detail (the distance checks, and the GE code that turned them back on)
+- **Above 60 FPS** — performance.md, "Above 60 FPS: the player's own view", "...: weather, credits and menu text" and "Props above 60 FPS: the shapes the fixes took" (2026-10-10): `--fixed-fps N` for a repeatable high-framerate run; 60 FPS must stay bit-identical (replay test); the three shapes (smooth a step, per-240th constants, gate a discrete event to `lvupdate60 > 0`); chrs and off-screen props in chrs-and-memory.md
 
 
 A Combat Simulator match with 80 simulants and 80 alerted guards is the
@@ -556,3 +557,11 @@ puts Jo on a lift).
 Left as they were (seen, not in this pass): escalator steps (escastepTick,
 frame += lvupdate60), hoverprop bob (hov->bob* through applySpeed), autogun
 turning (applyRotation), the projectile's lastwooshframe/bounceframe gates.
+
+The replay test at 30 FPS (`EXTRA="--fixed-fps 30"`, to show a fix leaves 30
+as it was) can judge six of its eight cases. randmission never reaches its
+exit frame there: its player dies near frame 800 at 30 FPS and the end screen
+stops the count, so both runs end at the timeout. randrun is not repeatable
+there: one of five runs of 82b7a71a9 hashed another value at frame 300 than
+the other four (2026-10-10, fix/highfps-bgturns, six instances running at
+once), so a DIFF in it alone is rerun before it is believed.

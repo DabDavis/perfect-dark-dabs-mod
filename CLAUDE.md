@@ -15,7 +15,7 @@ section it names. The notes are large (`ge-bean.md` is 850KB): grep the digest
 or a section heading, don't read one whole.
 
 - [windows-build.md](CLAUDE-notes/windows-build.md) — The Windows build, wine, the pd.ini format
-- [chrs-and-memory.md](CLAUDE-notes/chrs-and-memory.md) — chrs, bodies, heads, simulants, memory pools, mpconfig; Simulants running on the spot at the head of a ladder; A head on a body it was not made for; A simulant's stat sliders, and what the player count really changes; A head past the Combat Simulator's list
+- [chrs-and-memory.md](CLAUDE-notes/chrs-and-memory.md) — chrs, bodies, heads, simulants, memory pools, mpconfig; Simulants running on the spot at the head of a ladder; A head on a body it was not made for; A simulant's stat sliders, and what the player count really changes; A head past the Combat Simulator's list; Chrs above 60 FPS (AI lists and off-screen props' turns once per 60th)
 - [save-format.md](CLAUDE-notes/save-format.md) — Saves, eeprom, where pd.ini lives, the migration
 - [text-rendering.md](CLAUDE-notes/text-rendering.md) — Menu text, `textMeasure()`, reaching the widescreen pillars
 - [stage-numbers.md](CLAUDE-notes/stage-numbers.md) — Adding stages
@@ -35,7 +35,7 @@ or a section heading, don't read one whole.
 - [level-sheen.md](CLAUDE-notes/level-sheen.md) — Level Reflections, and the all-surface Level Sheen that was removed
 - [model-packs.md](CLAUDE-notes/model-packs.md) — Model packs and the asset dump
 - [fojo-collab.md](CLAUDE-notes/fojo-collab.md) — The Friends of Joanna collab tree, `../pd-fojo-monorepo-collab/`
-- [performance.md](CLAUDE-notes/performance.md) — Measuring a crowded match, `--rng-seed`/`--fixed-step`/`--exit-frame`, where the frame goes
+- [performance.md](CLAUDE-notes/performance.md) — Measuring a crowded match, `--rng-seed`/`--fixed-step`/`--exit-frame`, where the frame goes; above 60 FPS: `--fixed-fps N` and the shapes the framerate fixes took
 - [third-person.md](CLAUDE-notes/third-person.md) — The third person camera, and why melee, rockets and beams came out of it; Sitting in the Institute's chairs
 - [settings.md](CLAUDE-notes/settings.md) — Defaults and the Settings Preset
 - [weapons.md](CLAUDE-notes/weapons.md) — Weapon numbers, `flags2`, converting a `weaponnum` comparison
