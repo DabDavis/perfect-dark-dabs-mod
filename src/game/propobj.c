@@ -22579,13 +22579,26 @@ bool doorCalcIntendedFrac(struct doorobj *door)
 		f32 end = door->mode == DOORMODE_OPENING ? door->maxfrac : 0;
 
 		// Skedar Ruins random door stuckage
+#ifndef PLATFORM_N64
+		// The roll is once a frame against the frame counter, so above 60 FPS
+		// a door stuck as many times more often per second as there were
+		// frames to the 60th (and lvframe60's "& 3" held for four frames
+		// running at 240). A frame of a fraction of a 60th rolls only when a
+		// 60th comes round, against the 60 Hz counter, which advances by one
+		// there as lvframenum does at 60 FPS. A frame of whole 60ths (60 FPS
+		// included) rolls as before, rngRandom() call for call.
+		if ((door->base.flags3 & OBJFLAG3_DOOR_STICKY)
+				&& ((g_Vars.lvupdate240 & 3) == 0 || g_Vars.lvupdate60 > 0)) {
+			s32 value = (rngRandom() % 64) + 30;
+			s32 framenum = (g_Vars.lvupdate240 & 3) == 0 ? g_Vars.lvframenum : g_Vars.lvframe60;
+
+			// emulate low fps cal rate for stuckage test
+			if (((framenum % value) == 0)
+				&& ((g_Vars.lvframe60 & 3) == 0)) {
+#else
 		if (door->base.flags3 & OBJFLAG3_DOOR_STICKY) {
 			s32 value = (rngRandom() % 64) + 30;
 
-#ifndef PLATFORM_N64 // emulate low fps cal rate for stuckage test
-			if (((g_Vars.lvframenum % value) == 0)
-				&& ((g_Vars.lvframe60 & 3) == 0)) {
-#else
 			if ((g_Vars.lvframenum % value) == 0) {
 #endif
 				bool dothething = false;
