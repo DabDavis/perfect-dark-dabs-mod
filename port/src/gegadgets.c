@@ -1042,6 +1042,20 @@ s32 gegadgetsPropModel(s32 weaponnum)
 {
 	s32 prop;
 
+	// by the item the weapon is on the mission, as gun.c's throw picks the
+	// prop: a ROM hack's bomb case shares the covert modem's number
+	// (geconvert.c's soloGadgetWeapon()) - Goldfinger 64's Knockout Gas on
+	// Club, which its code throws as PROP_CHRBOMBCASE (converter 124)
+	switch (gegadgetsItem(weaponnum)) {
+	case 33: // ITEM_BOMBCASE
+		prop = 226; // PROP_CHRBOMBCASE
+
+		if (g_ModelStates[MODEL_REMAKE_FIRST + prop].fileid) {
+			return MODEL_REMAKE_FIRST + prop;
+		}
+		break;
+	}
+
 	switch (weaponnum) {
 	case WEAPON_GE_COVERTMODEM:  prop = 245; break; // PROP_CHRBUG
 	case WEAPON_GE_PLASTIQUE:    prop = 273; break; // PROP_CHRPLASTIQUE

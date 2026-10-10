@@ -1460,6 +1460,36 @@ void bwalkUpdateVertical(void)
 				&g_Vars.currentplayer->floorflags, &g_Vars.currentplayer->floorroom,
 				&newinlift, &lift);
 
+		// GoldenEye's Bond stands on the tile his walk is on, and on no floor
+		// it does not reach: a floor of the level's own over his tile, found
+		// by the body's circle under his eye but joined to his tile by no link
+		// within reach - a street run over a stairwell in plan (Goldfinger
+		// 64's Vaults) - is not his ground; his tile's surface is, and the
+		// floor's colour, type and room are asked again just over it
+		// (geStanPlayerFloor())
+		{
+			struct prop *floorprop = NULL;
+			struct geo *floorgeo = geRoomGroundGeo(&floorprop);
+			f32 tileground;
+
+			if (!newinlift && floorprop == NULL
+					&& geStanPlayerFloor(g_Vars.currentplayernum, floorgeo, &testpos,
+						g_Vars.currentplayer->bond2.radius, ground,
+						g_Vars.currentplayer->isfalling || g_Vars.currentplayer->bdeltapos.y > 0.0f,
+						&tileground)) {
+				struct coord over = testpos;
+				f32 again;
+
+				over.y = tileground + 10.0f;
+				again = geRoomGround(&over, 1.0f, rooms,
+						&g_Vars.currentplayer->floorcol, &g_Vars.currentplayer->floortype,
+						&g_Vars.currentplayer->floorflags, &g_Vars.currentplayer->floorroom,
+						&newinlift, &lift);
+
+				ground = (again > tileground - 1.0f && again < tileground + 1.0f) ? again : tileground;
+			}
+		}
+
 		// A fall is not caught by a floor over the feet. Perfect Dark's ground
 		// is the highest floor its cylinder touches under the body's middle
 		// height, so a player falling past a lip is stepped up onto it the

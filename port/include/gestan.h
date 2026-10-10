@@ -137,6 +137,9 @@ bool geStanObjectTile(struct coord *padpos, s32 padroom, struct coord *centre, s
 /** A tile's room, or -1. */
 s32 geStanTileRoom(s32 tile);
 
+/** The room of the tile under `pos` standing on its floor (`prefer`'s where two hold it), or -1. */
+s32 geStanTileRoomAt(struct coord *pos, s32 prefer);
+
 /** The rooms of the tiles within `radius` of x/z, walking from `tile` (stan.c's sub_GAME_7F0B21B0()). */
 s32 geStanLocusRooms(s32 tile, f32 x, f32 z, f32 radius, s32 *rooms, s32 max);
 
@@ -225,6 +228,32 @@ s32 geStanPickupReaches(struct coord *from, f32 ground, struct coord *to);
  * graph or the pad is over no tile.
  */
 s32 geStanSpawnLegal(struct coord *pos, s32 padroom, f32 radius);
+
+/**
+ * Where GoldenEye's TRYTeleportingChrToPad puts a chr: the pad, or the first
+ * legal of eight points sixty out (chrAdjustPosForSpawn()). 1 found, 0 none,
+ * -1 no graph or no tile under the pad.
+ */
+s32 geStanTeleportSpot(struct coord *pos, s32 padroom, f32 facing, f32 radius, struct prop *self, struct coord *out);
+
+/**
+ * The surface of the player's own tile, where the floor the ground search
+ * found (`geo`) is a tile their walk does not reach and is over it (GoldenEye's
+ * height is the walked tile's). False: keep `found`.
+ */
+bool geStanPlayerFloor(s32 playernum, const struct geo *geo, struct coord *pos, f32 radius, f32 found, bool airborne,
+		f32 *ground);
+
+/**
+ * A guard's floor the same way: from the tile under where it stood, walked to
+ * where it goes; a floor the search found that the walk does not reach, risen
+ * more than a step, is not its ground (the walked tile's surface and room are).
+ */
+bool geStanChrFloor(const struct geo *geo, struct coord *from, f32 fromground, struct coord *to, f32 radius,
+		f32 found, f32 *ground, s32 *room);
+
+/** Moves `pos` the least it takes for a circle of `radius` to clear the tile graph's walls (false: unmoved). */
+bool geStanClearOfWalls(struct coord *pos, s32 room, f32 radius);
 
 extern s32 g_GeStanAsked;
 extern s32 g_GeStanSkipped;

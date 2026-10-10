@@ -2348,6 +2348,14 @@ bool cd0002a13c(struct coord *pos, f32 radius, f32 ymax, f32 ymin, RoomNum *room
 	return false;
 }
 
+#ifndef PLATFORM_N64
+// the floor the last cdFindGroundInfoAtCyl() stood on, and the prop it is
+// part of (NULL for the bg's own): a converted level asks whose tile it is
+// (geStanPlayerFloor())
+struct geo *g_CdGroundGeo;
+struct prop *g_CdGroundProp;
+#endif
+
 f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol,
 		u8 *floortype, u16 *floorflags, RoomNum *floorroom, s32 *inlift, struct prop **lift)
 {
@@ -2362,6 +2370,11 @@ f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms, u16 *fl
 	if (sp72) {
 		geo = sp72->geo;
 	}
+
+#ifndef PLATFORM_N64
+	g_CdGroundGeo = geo;
+	g_CdGroundProp = sp72 ? sp72->prop : NULL;
+#endif
 
 	if (floorcol) {
 		cdGetFloorCol(geo, floorcol);

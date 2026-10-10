@@ -33,8 +33,14 @@ bool geRoomDoorRoomsGiven(struct doorobj *door);
 /** A door's rooms as GoldenEye's setupDoor() sets them (the conversion's). */
 void geRoomDoorGivenRooms(struct prop *prop, struct doorobj *door);
 
+/** The floor geRoomGround() last stood a body on, and the prop it belongs to (NULL: the level's own). */
+struct geo *geRoomGroundGeo(struct prop **prop);
+
 /** A converted object's rooms as GoldenEye counts them at its setup (chrpropUpdateRoomList()). */
 void geRoomObjRooms(struct defaultobj *obj);
+
+/** A converted object GoldenEye cannot walk from its pad to where it meant to set it stays at the pad. */
+void geRoomObjStayUnreached(struct defaultobj *obj, struct coord *padpos, s32 padroom, struct coord *centre);
 
 /** bg.c's sub_GAME_7F0BA2D4(): rooms through open portals whose box meets [min, max]. */
 s32 geRoomPortalsOverBox(struct coord *min, struct coord *max, s32 *rooms, s32 count, s32 maxcount);

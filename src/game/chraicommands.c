@@ -63,6 +63,7 @@
 #include "gecinema.h"
 #include "gecredits.h"
 #include "geroom.h"
+#include "gestan.h"
 #include "geguns.h"
 #include "modloader.h"
 #include "game/modbodies.h"
@@ -2503,6 +2504,14 @@ bool aiObjectMoveToPad(void)
 		rooms[0] = pad.room;
 		rooms[1] = -1;
 		func0f06a730(obj, &pad.pos, &matrix, rooms, &pad.pos);
+
+#ifndef PLATFORM_N64
+		// GoldenEye's MoveObject goes through the same sub_GAME_7F04088C()
+		// as the setup, from the pad's own position and tile
+		if (geRoomActive()) {
+			geRoomObjStayUnreached(obj, &pad.pos, pad.room, NULL);
+		}
+#endif
 	}
 
 	g_Vars.aioffset += 5;
@@ -5508,6 +5517,45 @@ bool aiChrMoveToPad(void)
 
 				rooms[0] = pad.room;
 				rooms[1] = -1;
+
+#ifndef PLATFORM_N64
+				// GoldenEye's TRYTeleportingChrToPad, which the conversion
+				// writes with a 1 here, asks chrAdjustPosForSpawn() for a
+				// spot that may be on screen (its TRUE) with the walls tested
+				// - the tile graph's edges within twenty of it - so a pad
+				// beside a wall puts the chr sixty units clear of it, or the
+				// teleport fails (geStanTeleportSpot()). Perfect Dark's 1 is
+				// "force", whose test leaves the walls out, and even without
+				// it a converted level's walls are only seen from the floor
+				// the test's height finds, two hundred under the pad here:
+				// Goldfinger 64's Miami ending stood Bond on pad 0x3b6, eight
+				// units from the corridor wall, every step of his walk into
+				// the room collided with it, so he never came in and the
+				// ending never ended (F3 20261004-235154). GoldenEye's circle
+				// is twenty; a body of ours that is wider (the player's
+				// thirty) is then moved off any wall nearer than its own
+				// reach, or the walk that follows meets the wall it was put
+				// beside.
+				struct coord spot;
+				const s32 found = cmd[5] && geRoomActive()
+					? geStanTeleportSpot(&pad.pos, pad.room, theta, 20, chr->prop, &spot)
+					: -1;
+
+				if (found > 0) {
+					s32 room;
+
+					if (chr->radius > 20) {
+						geStanClearOfWalls(&spot, pad.room, chr->radius);
+					}
+
+					room = geStanTileRoomAt(&spot, pad.room);
+
+					rooms[0] = room > 0 ? room : pad.room;
+					pass = chrMoveToPos(chr, &spot, rooms, theta, cmd[5]);
+				} else if (found == 0) {
+					pass = false;
+				} else
+#endif
 				pass = chrMoveToPos(chr, &pad.pos, rooms, theta, cmd[5]);
 			}
 		}

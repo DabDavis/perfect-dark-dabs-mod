@@ -1377,6 +1377,9 @@ bool modRunTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle)
 
 	*angle = atan2f(pad.look.x, pad.look.z);
 
+	// off a door or a wall standing on the pad, on a converted level
+	modRandomSpawnClear(pos, rooms, *angle);
+
 	g_ModRunLandPos = *pos;
 	g_ModRunLandPosSet = true;
 
