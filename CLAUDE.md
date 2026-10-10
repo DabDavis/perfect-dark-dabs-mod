@@ -88,6 +88,12 @@ mod zip: a clean rebuild takes them with it.
 
 The Windows cross-build is in [CLAUDE-notes/windows-build.md](CLAUDE-notes/windows-build.md).
 
+PAL and Japanese builds (`-DROMID=pal-final` or `jpn-final`, each in a build dir of its own) compile and
+link again since 2026-10-10 (eda19ac00). The releases are NTSC only and there is no PAL or JPN ROM here, so
+they are compile-checked, not played. Port code that leans on something only the NTSC build has (the
+importer's NTSC symbols, a function the PAL cartridge lacks, a name PAL uses for its own) needs a version
+guard: build pal-final after touching such code.
+
 ## This is a decompilation
 
 Much of `src/` is decompiled N64 code. Two consequences that matter:
