@@ -11025,6 +11025,15 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 	chopper->gunturnyspeed60 = gunturnyspeed60;
 	chopper->gunturnxspeed60 = gunturnxspeed60;
 
+#ifndef PLATFORM_N64
+	// The gun fires on every other tick of this counter, which went up once
+	// a frame: 120 shots a second at 240 FPS instead of 30. A frame of a
+	// fraction of a 60th moves it (and fires) only when a 60th comes round;
+	// the flash keeps showing the counter's parity in between.
+	{
+		const bool cadencestep = (g_Vars.lvupdate240 & 3) == 0 || g_Vars.lvupdate60 > 0;
+#endif
+
 	if (!(chopper->fireslotthing->unk00 % 2)) {
 		firing = false;
 	}
@@ -11043,6 +11052,9 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 		rot.y = sinf(totalrotx);
 		rot.z = cosf(totalroty) * cosf(totalrotx);
 
+#ifndef PLATFORM_N64
+		if (cadencestep)
+#endif
 		projectileCreate(chopperprop, chopper->fireslotthing, &gunpos, &rot, WEAPON_CHOPPERGUN, targetprop);
 
 		if (rwdata != NULL) {
@@ -11054,7 +11066,13 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	if (cadencestep)
+#endif
 	chopper->fireslotthing->unk00++;
+#ifndef PLATFORM_N64
+	}
+#endif
 }
 
 #ifndef PLATFORM_N64
