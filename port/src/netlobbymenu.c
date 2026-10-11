@@ -82,6 +82,7 @@ static void hostTeamSend(void);
 
 extern struct menudialogdef g_NetBriefingMenuDialog;
 extern struct menudialogdef g_NetCreateMenuDialog;
+extern struct menudialogdef g_MpPlayerSetupViaQuickGoMenuDialog;
 extern struct menudialogdef g_NetRoomMenuDialog;
 extern struct menudialogdef g_NetJoinPasswordMenuDialog;
 extern struct menudialogdef g_NetKickMenuDialog;
@@ -607,6 +608,21 @@ static Gfx *lobbyTitleLine(Gfx *gdl, const char *name, const char *tail, s32 tx,
 static Gfx *lobbySettingsBlock(Gfx *gdl, struct menudialog *dialog, const struct netlobbyroom *room, s32 tx, s32 y, s32 inner, s32 maxrows, s32 *rows);
 static Gfx *lobbyPairsBlock(Gfx *gdl, struct menudialog *dialog, const struct lobbysetting *settings, s32 nsettings,
 		s32 tx, s32 y, s32 inner, s32 maxrows, s32 *rows);
+/**
+ * A setting's width as lobbyPairsBlock draws it: the label with its ": "
+ * and the value apart, each rounded at the text size (measured whole, the
+ * pair came out a unit narrower than its two parts and a short value was
+ * cut to "..": F3 20261011-214715, "Simulants: ..")
+ */
+static s32 lobbyPairWidth(const struct lobbysetting *setting)
+{
+	char buf[128];
+
+	snprintf(buf, sizeof(buf), "%s: ", setting->label);
+
+	return lobbyTextWidth(buf, LOBBYFONT_XS) + lobbyTextWidth(setting->value, LOBBYFONT_XS);
+}
+
 static s32 lobbyPairsCols(const struct lobbysetting *settings, s32 nsettings, s32 inner, s32 maxrows);
 static Gfx *lobbyModsBlock(Gfx *gdl, struct menudialog *dialog, const struct netcontentrow *rows, s32 nrows,
 		s32 tx, s32 y, s32 inner, s32 fit, s32 empties);
@@ -1371,6 +1387,10 @@ static MenuDialogHandlerResult dialogOnline(s32 operation, struct menudialogdef 
 static struct menuitem s_OnlineItems[] = {
 	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER | MENUITEMFLAG_LIST_LEAVEATENDS, NAMEBOX_W, NAMEBOX_H, handlerNameBox },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE, (uintptr_t)"Next\n", 0, handlerNameNext },
+	// the player's own character and controls (Reverse Pitch), which go to
+	// the host as this player's (netWriteSlotCfg: player 1's): Combat
+	// Simulator's Player Setup (F3 20261011-225920: "y invert" online)
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_OPENSDIALOG, (uintptr_t)"Player Setup...\n", 0, (void *)&g_MpPlayerSetupViaQuickGoMenuDialog },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
 	{ MENUITEMTYPE_END },
 };
@@ -3159,7 +3179,6 @@ static Gfx *lobbyTitleLine(Gfx *gdl, const char *name, const char *tail, s32 tx,
  */
 static s32 lobbyPairsCols(const struct lobbysetting *settings, s32 nsettings, s32 inner, s32 maxrows)
 {
-	char buf[128];
 	s32 cols = inner >= lobbyRow(140) ? 2 : 1;
 	s32 i;
 
@@ -3167,17 +3186,13 @@ static s32 lobbyPairsCols(const struct lobbysetting *settings, s32 nsettings, s3
 		s32 right = 0;
 
 		for (i = (nsettings + 1) / 2; i < nsettings; i++) {
-			snprintf(buf, sizeof(buf), "%s: %s", settings[i].label, settings[i].value);
-
-			if (lobbyTextWidth(buf, LOBBYFONT_XS) > right) {
-				right = lobbyTextWidth(buf, LOBBYFONT_XS);
+			if (lobbyPairWidth(&settings[i]) > right) {
+				right = lobbyPairWidth(&settings[i]);
 			}
 		}
 
 		for (i = 0; i < (nsettings + 1) / 2; i++) {
-			snprintf(buf, sizeof(buf), "%s: %s", settings[i].label, settings[i].value);
-
-			if (lobbyTextWidth(buf, LOBBYFONT_XS) > inner - 6 - (right < inner / 2 ? right : inner / 2)) {
+			if (lobbyPairWidth(&settings[i]) > inner - 6 - (right < inner / 2 ? right : inner / 2)) {
 				cols = 1;
 			}
 		}
@@ -3214,8 +3229,7 @@ static Gfx *lobbyPairsBlock(Gfx *gdl, struct menudialog *dialog, const struct lo
 	for (i = nleft; i < nsettings; i++) {
 		s32 w;
 
-		snprintf(buf, sizeof(buf), "%s: %s", settings[i].label, settings[i].value);
-		w = lobbyTextWidth(buf, LOBBYFONT_XS);
+		w = lobbyPairWidth(&settings[i]);
 
 		if (w > colw2) {
 			colw2 = w;
@@ -3237,8 +3251,7 @@ static Gfx *lobbyPairsBlock(Gfx *gdl, struct menudialog *dialog, const struct lo
 		for (i = 0; i < nleft; i++) {
 			s32 w;
 
-			snprintf(buf, sizeof(buf), "%s: %s", settings[i].label, settings[i].value);
-			w = lobbyTextWidth(buf, LOBBYFONT_XS);
+			w = lobbyPairWidth(&settings[i]);
 
 			if (w > need) {
 				need = w;
@@ -4084,6 +4097,7 @@ static struct menuitem s_RoomItems[] = {
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textReady, 0, handlerReady },
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textTeam, 0, handlerTeam },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Chat\n", 0, handlerChat },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_OPENSDIALOG, (uintptr_t)"Player Setup...\n", 0, (void *)&g_MpPlayerSetupViaQuickGoMenuDialog },
 	{ MENUITEMTYPE_SELECTABLE, 1, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Kick...\n", 0, handlerHostOnly },
 	{ MENUITEMTYPE_SELECTABLE, 2, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Settings...\n", 0, handlerHostOnly },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Back to Campaign\n", 0, handlerCampaign },
