@@ -98,6 +98,9 @@ struct netpup {
 	u32 listtick;        // (protocol 24) the host tick of the record that last decided in or out of the world
 	u16 listgen;         // ... its generation
 	u8 listout;          // ... and what it said
+	u8 deform;           // (protocol 29) the record's NETDEFORM_* byte as applied here
+	u16 deformgen;       // ... for this host generation
+	u32 deformtick;      // ... from a record of this host tick
 };
 
 static struct netpup *s_Pup = NULL;
@@ -1218,6 +1221,11 @@ static void netPupObj(struct netpup *u, struct prop *prop, const struct netentst
 		obj->damage = s->damage;
 	}
 
+	// (protocol 29) a camera's lens shot out on the host
+	if (obj->type == OBJTYPE_CCTV) {
+		netWorldClientLens(obj, (s->flags & NETOBJ_LENSGONE) != 0, u->havestate);
+	}
+
 	// GoldenEye's tank (protocol 23): one this machine's player drives is
 	// its own walk's, put under him every tick (geTankTick) and squared with
 	// the host's through the local-player block; posed from the record it
@@ -1353,6 +1361,12 @@ static void netPupDoor(struct netpup *u, struct prop *prop, const struct netents
 
 	door->mode = s->doormode;
 	door->laserfade = s->laserfade;
+
+	// (protocol 29) a windowed door's pane shot out on the host: as it
+	// broke when this machine had the door whole before, else as it stands
+	if (s->flags & NETDOOR_GLASSGONE) {
+		netWorldClientDoorGlass(door, u->havestate);
+	}
 
 	if (!u->havestate || frac != door->frac) {
 		door->frac = frac;
@@ -2141,6 +2155,11 @@ void netClientPosePuppets(void)
 
 	if (g_NetClientWorld && g_NetPass != NETPASS_PRESENT_ONLY) {
 		netEventsClientDrain(s_PoseRtValid, s_PoseRt);
+
+		// (protocol 29) the world block the render clock has reached
+		if (s_PoseRtValid) {
+			netWorldClientUpTo(s_PoseRt);
+		}
 	}
 }
 
@@ -2528,6 +2547,26 @@ static void netClientPosePuppetsRun(void)
 			break;
 		default:
 			break;
+		}
+
+		// (protocol 29) the host's crumpling of the object, as state
+		// (decided by the newest record at hand, never an older one: a render
+		// clock that steps back a tick posed the record from before a
+		// crumpling again, and the object was made whole and crumpled anew)
+		if ((rec == NETREC_OBJ || rec == NETREC_DOOR) && prop->obj) {
+			const u8 *nr = ra && netStoreTick(ra) > netStoreTick(rb) ? ra : rb;
+			const u32 nt = (u32)netStoreTick(nr);
+
+			if (u->deformgen != gen) {
+				u->deform = 0;
+				u->deformgen = gen;
+				u->deformtick = 0;
+			}
+
+			if (nt >= u->deformtick) {
+				u->deformtick = nt;
+				u->deform = netWorldClientDeform(prop->obj, nr[NETSNAP_STOREHDR + (rec == NETREC_OBJ ? 23 : 5)], u->deform);
+			}
 		}
 
 		netPupTrace(rt, id, kind, prop);

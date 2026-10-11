@@ -115,10 +115,19 @@ static inline void netStoreSetTick(u8 *s, u32 t) { s[4] = (u8)t; s[5] = (u8)(t >
 #define NETOBJ_EMBEDDED   0x10
 #define NETOBJ_DELISTED   0x20 // (protocol 24) a setup object out of the world (disable_object)
 #define NETOBJ_MOUNTED    0x40 // (protocol 28) somebody is in it: GoldenEye's tank driven
+#define NETOBJ_LENSGONE   0x80 // (protocol 29) a camera's lens shot out (cctvHandleLensShot)
 
 // DOOR record byte 4
 #define NETDOOR_ENABLED   0x01
 #define NETDOOR_DELISTED  0x02 // (protocol 24) as NETOBJ_DELISTED
+#define NETDOOR_GLASSGONE 0x04 // (protocol 29) a windowed door's pane shot out (doorDestroyGlass)
+
+// (protocol 29) OBJ record byte 23 / DOOR record byte 5: the object's
+// crumpling (objDeform) since it was last whole: the calls made, saturating
+// at 15, in the low nibble; the last call's level (1-15) in the high one.
+// 0 again once the host's object is whole (a match's regenerated prop)
+#define NETDEFORM_COUNT(b) ((b) & 0x0f)
+#define NETDEFORM_LEVEL(b) (((b) >> 4) & 0x0f)
 
 // CHR anim flags byte
 #define NETANIM_FLIP    0x01
@@ -162,6 +171,7 @@ struct netentstate {
 	u8 laserfade;
 	s8 levelcur;
 	s8 levelaim;
+	u8 deform;     // (protocol 29) NETDEFORM_* (obj, door)
 };
 
 void netRecPack(s32 rec, const struct netentstate *s, u8 *out);   // out: netRecSize(rec) bytes
@@ -345,6 +355,15 @@ void netLpUnpack(const u8 *in, struct netlpstate *out);
 #define NETSCEN_SIZE 768 // protocol 10 (was 640): MAX_MPCHRS 92, MAX_PLAYERS 12
 
 /**
+ * The world block (protocol 29): the world's latest-value-wins state that no
+ * entity record carries, the same for every client, delta'd against the
+ * block in the baseline snapshot like the scenario block but applied as soon
+ * as the render clock reaches its tick, never held for an event (networld.c;
+ * layout in netproto.h, SNAP)
+ */
+#define NETWORLD_SIZE 320
+
+/**
  * The ack block in each CMD (client -> host): the newest snapshot decoded
  * and the 32 before it as bits, reliable.io style, plus descriptors the
  * client needs again (its mapping went stale)
@@ -407,6 +426,8 @@ struct netsnaphost {
 	u16 lpseq[NETBASELINE_SLOTS];
 	u8 scen[NETBASELINE_SLOTS][NETSCEN_SIZE];
 	u16 scenseq[NETBASELINE_SLOTS];
+	u8 world[NETBASELINE_SLOTS][NETWORLD_SIZE]; // (protocol 29)
+	u16 worldseq[NETBASELINE_SLOTS];
 	s32 rate;
 	// the adaptive rate's window
 	u32 winsent;
@@ -444,11 +465,12 @@ void netSnapHostOnAck(struct netsnaphost *h, const struct netsnapack *a);
  * into out, at most cap bytes, and stores it as the client will hold it.
  * lp is this client's NETLP_SIZE block or NULL, scen the NETSCEN_SIZE
  * scenario block or NULL, evseq the EVENTS messages sent to this client
- * before it (sent with the block). Returns the length, or -1 if nothing could be
+ * before it (sent with the block), world the NETWORLD_SIZE world block or
+ * NULL. Returns the length, or -1 if nothing could be
  * built.
  */
 s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsnapent *ents, s32 n,
-		const u8 *lp, const u8 *scen, u32 evseq, u8 *out, s32 cap);
+		const u8 *lp, const u8 *scen, u32 evseq, const u8 *world, u8 *out, s32 cap);
 
 /**
  * Client
@@ -462,8 +484,10 @@ struct netsnapinfo {
 	u8 haslp;
 	u8 hasscen;
 	u32 evseq;      // with the scenario block: EVENTS messages the host had sent before it
+	u8 hasworld;    // (protocol 29)
 	u8 lp[NETLP_SIZE];
 	u8 scen[NETSCEN_SIZE];
+	u8 world[NETWORLD_SIZE];
 };
 
 struct netsnapdescin {

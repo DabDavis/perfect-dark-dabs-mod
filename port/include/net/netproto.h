@@ -154,7 +154,23 @@
 //    gun (weaponleft), so a client's Akimbo pair is the host's; RULES ends
 //    with the host's cheat banks (u32 cheats0, cheats1), which every machine
 //    plays the match by
-#define NET_PROTOCOL_VERSION 28
+// 29 (state and events apart, EQOA's DRDP: CLAUDE-notes/netplay.md "State
+//    and events", 2026-10-11): SNAP ends in a world block (u8 hasworld, a
+//    320-byte delta: broken glass bits, N-bomb storms, the gas; networld.c);
+//    an OBJ record's byte 23 and a DOOR record's byte 5 carry the object's
+//    crumpling (NETDEFORM_*), a DOOR record's byte 4 bit 4 its pane shot out
+//    (NETDOOR_GLASSGONE); DEFORM, NBOMB and GAS events are no longer sent,
+//    GLASS only past the block's 1760 panes; events go in three classes on
+//    channels of their own: EVENTS (deaths, scores, hudmsgs, pickup sounds;
+//    the only ones evseq counts), EVFX on NET_CHAN_EVFX (explosions, hits),
+//    EVSHOT unreliable on NET_CHAN_EVSHOT (shots, sparks, grunts); five
+//    ENet channels; EXPLOSION and CHRDAMAGE go in EVSHOT several times each
+//    inside a SURE event (15: u16 serial, u8 ticks back, the event), and a
+//    joiner's first EVENTS carries the explosions still burning; an OBJ
+//    record's byte 0 bit 0x80 is a camera's lens shot out
+//    (NETOBJ_LENSGONE); MARKS (27, bulk) gives a joiner the host's marks
+//    on the walls and floors
+#define NET_PROTOCOL_VERSION 29
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -170,7 +186,7 @@
 #define NETMSG_CMDACK     12
 #define NETMSG_SLOTCFG    13
 #define NETMSG_SNAP       14 // netsnap.c writes this number itself (NETSNAP_MSGTYPE)
-#define NETMSG_EVENTS     15
+#define NETMSG_EVENTS     15 // and EVFX 25, EVSHOT 26 (protocol 29)
 #define NETMSG_ROSTER     16 // protocol 9: the match's seats, host -> client
 // protocol 14: a conversion or map mod served by the host (netcontent.c)
 #define NETMSG_CONTENT_REQ   17 // client -> host: the dir a stage key named that it lacks
@@ -183,6 +199,10 @@
 #define NETMSG_PLAYERS       23 // host -> client: each seat's ping, the spectators
 // protocol 21: host migration (netmigrate.c)
 #define NETMSG_RESUME        24 // client -> host: its player as the old host last had it
+// protocol 29: the events split by class onto channels of their own (netevents.c)
+#define NETMSG_EVFX          25 // host -> client, NET_CHAN_EVFX, reliable: as EVENTS
+#define NETMSG_EVSHOT        26 // host -> client, NET_CHAN_EVSHOT, unreliable unsequenced: as EVENTS
+#define NETMSG_MARKS         27 // host -> joiner, NET_CHAN_BULK: the host's marks on the walls and floors (networld.c)
 
 /**
  * Refusal and leave reasons: REFUSE's and LEAVE's code byte, and the u32
@@ -734,6 +754,12 @@
  *     changes, by any amount; a toggled bit would lose two in one gap)
  *     (protocol 24: OBJ byte 0 bit 0x20 / DOOR byte 4 bit 2: a setup object
  *     out of the world, in no prop list on the host - taken out here too)
+ *     (protocol 29: OBJ byte 0 bit 0x80, NETOBJ_LENSGONE: a camera's lens
+ *     shot out)
+ *     (protocol 29: OBJ byte 23 / DOOR byte 5, the crumpling: objDeform
+ *     calls since the object was last whole in the low nibble, saturating at
+ *     15, the last call's level in the high one; DOOR byte 4 bit 4,
+ *     NETDOOR_GLASSGONE: a windowed door's pane shot out)
  *     (protocol 28: OBJ byte 0 bit 0x40, NETOBJ_MOUNTED: GoldenEye's tank
  *     with somebody in it, which nobody else may climb into; DOOR bytes
  *     6-14 where the door stands (3 x 24-bit eighths, as OBJ's) and 15-16
@@ -804,6 +830,19 @@
  *     again; at most 120 ticks' wait), after every event of T and before
  *     any later one
  *
+ *   u8      hasworld              (protocol 29) 0 none, 1 keyframe, 2 against
+ *                                 the baseline's
+ *   delta   world                 NETWORLD_SIZE (320) bytes, the world's
+ *                                 state no record carries, the same for every
+ *                                 client (networld.c): u16 nglass, u8 gas, u8 0,
+ *                                 u32 gastick, f32 gaspos[3]; at 20 four storms
+ *                                 { u8 serial (0 none), u8 0[3], u32 tick,
+ *                                 f32 pos[3] }; at 100 a bit per setup glass
+ *                                 (GLASS/TINTEDGLASS commands in order, the
+ *                                 first 1760): broken now. The client applies
+ *                                 the newest block its render clock has
+ *                                 reached, held for no event
+ *
  * Present and not updated: the client copies its base record (it is
  * unchanged, or - deferred - changed and left by the 1100-byte cap for a
  * later packet: then it is the state of the base's tick, and the puppets
@@ -821,7 +860,34 @@
  * for this client, before that tick's SNAP; and before MATCH_END) - what
  * happened in the tick (PLANS/netplay/spec-entities.md §5; netevents.c).
  * The client applies a tick's events once its render clock reaches the
- * tick, after the snapshot records it poses for it, in the order sent.
+ * tick, after the snapshot records it poses for it, in tick order.
+ * (protocol 29) Three classes, each a message type on a channel of its own,
+ * the same body: EVENTS on NET_CHAN_RELIABLE carries DEATH, HUDMSG,
+ * PICKUPSFX and SCORES (and is all evseq counts); EVFX (25) on
+ * NET_CHAN_EVFX, reliable, GLASS past the world block's panes; EVSHOT (26)
+ * on NET_CHAN_EVSHOT, unreliable and unsequenced, at most
+ * NET_MAXUNRELIABLE bytes, FIRESLOT, PLAYERSHOT, SPARKS and CHOKE, and
+ * EXPLOSION and CHRDAMAGE as SURE copies:
+ *  15 SURE       u16 serial (the host's, rising), u8 back (ticks before the
+ *                message's hosttick it happened), then an EXPLOSION or
+ *                CHRDAMAGE event whole; sent in the EVSHOT messages of
+ *                ticks +0, +2, +5 (an explosion) or +0, +3 (a hit on a
+ *                player; a sim's or a guard's goes once, as itself); the
+ *                client keeps the first copy of a serial. A joiner's first
+ *                EVENTS (the SCORES catch-up) adds a SURE copy of each
+ *                explosion still burning; one applied more than 6 ticks
+ *                late is put in at that age (no bang)
+ * DEFORM, NBOMB and GAS are no longer sent (records and the world block
+ * carry them).
+ *
+ * MARKS (protocol 29; host -> joiner, NET_CHAN_BULK, beside its first
+ * EVENTS) - the host's settled marks on the bg (bullet holes, scorches,
+ * splats; none on a prop or a chr), oldest first, at most 1024, in
+ * messages of <= 16 KB:
+ *   u8 NETMSG_MARKS, u32 matchid, u16 n, n x 90 bytes { f32 relpos[3],
+ *   s16 room, u8 texnum, u8 bits (1 xlu, 2 unk6f_01), s8 mtxindex, 4 x
+ *   { s16 x, y, z, s, t, u8 basecolour[4], u8 finalcolour[4] }, u8 0 }
+ *   (wallhit.c wallhitNetList/wallhitNetAdd)
  *   u8      NETMSG_EVENTS
  *   u32     matchid
  *   u32     hosttick              the host's g_NetTick they happened on

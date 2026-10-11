@@ -67,14 +67,96 @@
 #define NETEV_NBOMB      12 // E9
 #define NETEV_GAS        13 // E9
 #define NETEV_SCORES     14 // protocol 9: the kill table, to a joiner or everyone
-#define NETEV_COUNT      15
+#define NETEV_SURE       15 // protocol 29: a wrapper, never queued: u16 serial, u8 back, then an event (EXPLOSION, CHRDAMAGE)
+#define NETEV_COUNT      16
 
 static const char *const s_EvNames[NETEV_COUNT] = {
 	"?", "fireslot", "playershot", "explosion", "sparks", "chrdamage", "choke",
-	"deform", "glass", "death", "hudmsg", "pickupsfx", "nbomb", "gas", "scores",
+	"deform", "glass", "death", "hudmsg", "pickupsfx", "nbomb", "gas", "scores", "sure",
 };
 
 #define NETEV_SCORES_CATCHUP 0x01
+
+/**
+ * (protocol 29) Each event goes in one of three classes, each its own ENet
+ * channel, so a lost packet of one never holds up another (ENet orders a
+ * channel on its own):
+ *   GAME  EVENTS, NET_CHAN_RELIABLE: deaths, the kill table, hudmsgs, pickup
+ *         sounds - the score and what a player is told; counted against
+ *         the SNAP's evseq (the scenario block waits for them)
+ *   FX    EVFX, NET_CHAN_EVFX, reliable: a pane past the world block's count
+ *   SURE  explosions and chr hits (the flinch, the shield, the red flash on
+ *         this machine's player): seen by everyone, so a lost one must not
+ *         be lost, nor wait ~24 ticks for ENet's resend behind its channel.
+ *         Each goes unreliably in the SHOT messages of several ticks (an
+ *         explosion at +0, +2, +5, a hit at +0, +3), wrapped in a SURE
+ *         event (its serial, and how many ticks before the message's it
+ *         happened); the client keeps the first copy. Live explosions also
+ *         go in a joiner's first EVENTS (netEventsHostCatchUp), so it sees
+ *         one still burning, put in at the host's age with no sound
+ *   SHOT  EVSHOT, NET_CHAN_EVSHOT, unreliable and unsequenced: a shot's
+ *         flash, tracer and sound, its sparks, a hit chr's grunt - many
+ *         a second, each one seen once; a lost one is a shot without its
+ *         tracer, which the next shot makes up for, where a resent one
+ *         comes 150+ ms late and held up every event behind it
+ */
+#define NETEV_GAME 0
+#define NETEV_FX   1
+#define NETEV_SHOT 2
+#define NETEV_CLASSES 3
+#define NETEV_SURECLS 3 // not a channel: sent in SHOT messages, several times (s_Sure)
+
+#define NETEV_SUREMAX   192  // an event's bytes, at most, to go this way (else FX)
+#define NETEV_SURERING  2048 // a rocket match makes ~30 hits a tick, more in a burst: five ticks' worth and room
+#define NETEV_BOOMRING  64   // the explosions alone, for a joiner's catch-up
+#define NETEV_SURELIFE  240  // ticks an explosion is kept for a joiner's catch-up, at most
+
+struct netevsure {
+	u16 serial;
+	u8 type;
+	u8 inuse;
+	s8 target;
+	s8 exclude;
+	u16 len;
+	u32 tick;
+	u32 life;    // ticks it is worth catching up on (an explosion's burn; 0 a hit)
+	u8 once;     // a hit on a sim or a guard: one copy only (its flinch; a player's hit has its red flash)
+	u8 bytes[NETEV_SUREMAX];
+};
+
+static struct netevsure s_Sure[NETEV_SURERING];
+static struct netevsure s_Boom[NETEV_BOOMRING];
+static u16 s_BoomN = 0;
+static u16 s_SureSerial = 0;
+static u32 s_SureCopies = 0;  // copies sent (host)
+static u32 s_SureDupes = 0;   // copies dropped as already had (client)
+static u32 s_SureCatchUp = 0; // explosions sent / put in part way (catch-up)
+static u32 s_SeenSure[65536]; // client: per serial, the host tick + 1 of the copy kept
+static void netEvSureHeader(u8 *pre, const struct netevsure *u, u32 back);
+
+static s32 netEvClassOf(s32 type)
+{
+	switch (type) {
+	case NETEV_FIRESLOT:
+	case NETEV_PLAYERSHOT:
+	case NETEV_SPARKS:
+	case NETEV_CHOKE:
+		return NETEV_SHOT;
+	case NETEV_EXPLOSION:
+	case NETEV_CHRDAMAGE:
+		return NETEV_SURECLS;
+	case NETEV_DEFORM:
+	case NETEV_GLASS:
+	case NETEV_NBOMB:
+	case NETEV_GAS:
+		return NETEV_FX;
+	default:
+		return NETEV_GAME;
+	}
+}
+
+static const u8 s_ClassMsg[NETEV_CLASSES] = { NETMSG_EVENTS, NETMSG_EVFX, NETMSG_EVSHOT };
+static const s32 s_ClassChan[NETEV_CLASSES] = { NET_CHAN_RELIABLE, NET_CHAN_EVFX, NET_CHAN_EVSHOT };
 
 // A reference to a prop on the wire
 #define NETREF_NONE   0
@@ -117,6 +199,9 @@ static s32 s_HostEnded = 0;    // MATCH_END has gone: nothing after it is the ma
 static u32 s_HudHash[MAX_PLAYERS];  // the last hudmsg sent to each player, and its tick:
 static u32 s_HudTick[MAX_PLAYERS];  // the same again within a second is not sent
 static u32 s_HudDupes = 0;
+static u32 s_HostClassMsgs[NETEV_CLASSES];
+static u32 s_HostClassBytes[NETEV_CLASSES];
+static u32 s_HostShotTooBig = 0;
 
 /*
  * Client
@@ -160,6 +245,10 @@ static u32 s_Applied[NETEV_COUNT];
 static u32 s_RecvMsgs = 0;
 static u32 s_RecvSeq = 0;      // EVENTS messages of this match received (against the SNAP's evseq)
 static u32 s_RecvBytes = 0;
+static u32 s_RecvClassMsgs[NETEV_CLASSES];
+static u32 s_RecvClassBytes[NETEV_CLASSES];
+static u32 s_ClassLastTick[NETEV_CLASSES];
+static u32 s_Reordered = 0;   // events put before ones of a later tick that came first (another class's)
 static u32 s_OutOfOrder = 0;
 static u32 s_Malformed = 0;
 static u32 s_OtherMatch = 0;
@@ -182,6 +271,9 @@ static f64 s_LagSum = 0;
 static u32 s_LagN = 0;
 static f64 s_LagMax = 0;  // the latest an event was applied, ticks past its own
 static u32 s_LagLate = 0; // events applied more than 6 ticks (100 ms) past their tick
+static f64 s_LagSumBy[NETEV_COUNT]; // the same per type
+static u32 s_LagNBy[NETEV_COUNT];
+static f64 s_LagMaxBy[NETEV_COUNT];
 static u32 s_NextKill = NETEV_KILLEVERY;
 static u32 s_LocalSkipped = 0;  // this machine's own mpstatsRecordDeath calls refused
 #define NETEV_MYSHOTS 64
@@ -384,6 +476,17 @@ static void netWriteNormal(struct netbuf *b, const struct coord *c)
  * pass's player when that is another machine's (its own shot runs there
  * too), else -1
  */
+extern struct explosiontype g_ExplosionTypes[];
+static u32 s_SureLife = 0; // netEvExplosion: the burn of the explosion being recorded
+static s32 s_SureOnce = 0; // netEvChrDamage: the hit being recorded goes once
+
+// The host records the match's events even with nobody to send them to yet
+// (an explosion a joiner may still see burning)
+static s32 netEvHostRecording(void)
+{
+	return g_NetMode == NETMODE_SERVER && netSessionMatchActive() && !netSessionBarrierHeld() && !s_HostEnded;
+}
+
 static s32 netEvOrigin(void)
 {
 	return g_NetPassPlayer;
@@ -400,6 +503,41 @@ static void netEvEnd(struct netbuf *b, s32 type, s32 target, s32 exclude)
 	const s32 len = netBufLen(b);
 
 	if (!netBufOk(b) || len <= 0) {
+		s_Detail[0] = '\0';
+		return;
+	}
+
+	// (protocol 29) explosions and hits: into the ring, sent several times
+	if (netEvClassOf(type) == NETEV_SURECLS && len <= NETEV_SUREMAX) {
+		struct netevsure *u = &s_Sure[s_SureSerial % NETEV_SURERING];
+
+		u->serial = s_SureSerial++;
+		u->type = (u8)type;
+		u->inuse = 1;
+		u->target = (s8)target;
+		u->exclude = (s8)exclude;
+		u->len = (u16)len;
+		u->tick = g_NetTick;
+		u->life = 0;
+		u->once = (u8)s_SureOnce;
+		s_SureOnce = 0;
+		memcpy(u->bytes, s_One, len);
+
+		if (type == NETEV_EXPLOSION) {
+			// the burn, as explosionTick ends it (age past duration + 7
+			// flares), and a copy kept apart from the hits that churn the ring
+			u->life = s_SureLife;
+			s_Boom[s_BoomN++ % NETEV_BOOMRING] = *u;
+		}
+
+		s_HostRecorded[type]++;
+		s_HostRecordedTotal++;
+
+		if (s_Log) {
+			fprintf(s_Log, "E %u %s target %d exclude %d len %d%s%s\n", g_NetTick, s_EvNames[type], target, exclude, len,
+					s_Detail[0] ? " " : "", s_Detail);
+		}
+
 		s_Detail[0] = '\0';
 		return;
 	}
@@ -543,8 +681,15 @@ void netEvExplosion(struct prop *source, struct coord *pos, RoomNum *rooms, s32 
 	s32 i;
 
 	// a bullet hole's flame is made by distance from each viewer's camera
-	if (type == EXPLOSIONTYPE_BULLETHOLE || !netEvHostOn()) {
+	if (type == EXPLOSIONTYPE_BULLETHOLE || type <= EXPLOSIONTYPE_NONE || type > EXPLOSIONTYPE_HUGE25 || !netEvHostRecording()) {
 		return;
+	}
+
+	{
+		const struct explosiontype *et = &g_ExplosionTypes[type];
+		const s32 life = et->duration + (s32)(7.0f * et->flarespeed);
+
+		s_SureLife = life < 1 ? 1 : life > NETEV_SURELIFE ? NETEV_SURELIFE : (u32)life;
 	}
 
 	while (n < NETEV_MAXROOMS && rooms[n] != -1) {
@@ -642,6 +787,12 @@ void netEvChrDamage(struct chrdata *chr, struct prop *aprop, s32 hitpart, s32 da
 				netRefText(aprop, a, sizeof(a)), hitpart);
 	}
 
+	// a blast hits each chr in it every tick of its burn (90 000 hits in a
+	// three-minute rocket match): only a player's hit, whose machine shows
+	// its red flash and hears its grunt, is worth a second copy; a lost
+	// copy of a sim's is a flinch the next hit makes
+	s_SureOnce = chr->prop->type != PROPTYPE_PLAYER;
+
 	netEvBegin(&b, NETEV_CHRDAMAGE);
 	netWriteRef(&b, chr->prop);
 	netWriteRef(&b, aprop);
@@ -668,6 +819,14 @@ void netEvObjDeform(struct defaultobj *obj, s32 level)
 {
 	struct netbuf b;
 
+	if (obj && g_NetMode == NETMODE_SERVER) {
+		netWorldNoteDeform();
+
+		// (protocol 29) state: the object's record carries it (netents.c)
+		netEntsHostNoteDeform(obj, level);
+		return;
+	}
+
 	if (!obj || !obj->prop || !netEvHostOn()) {
 		return;
 	}
@@ -682,7 +841,9 @@ void netEvGlassDestroy(struct defaultobj *obj)
 {
 	struct netbuf b;
 
-	if (!obj || !obj->prop || !netEvHostOn()) {
+	// (protocol 29) state: the world block's bit (networld.c); an event
+	// only for a pane past the block's NETWORLD_MAXGLASS
+	if (!obj || !obj->prop || netWorldGlassCovered(obj) || !netEvHostOn()) {
 		return;
 	}
 
@@ -847,6 +1008,12 @@ void netEvNbomb(struct coord *pos, struct prop *owner)
 {
 	struct netbuf b;
 
+	// (protocol 29) state: a storm slot in the world block (networld.c)
+	if (pos && g_NetMode == NETMODE_SERVER) {
+		netWorldHostStorm(pos);
+		return;
+	}
+
 	if (!pos || !netEvHostOn()) {
 		return;
 	}
@@ -860,6 +1027,12 @@ void netEvNbomb(struct coord *pos, struct prop *owner)
 void netEvGas(struct coord *pos)
 {
 	struct netbuf b;
+
+	// (protocol 29) state: the world block's gas (networld.c)
+	if (pos && g_NetMode == NETMODE_SERVER) {
+		netWorldHostGas(pos);
+		return;
+	}
 
 	if (!pos || !netEvHostOn()) {
 		return;
@@ -975,9 +1148,38 @@ void netEventsHostCatchUp(s32 view)
 	netBufWriteU8(&b, NETMSG_EVENTS);
 	netBufWriteU32(&b, netSessionMatchId());
 	netBufWriteU32(&b, g_NetTick);
-	netBufWriteU16(&b, 1);
-	netBufWriteVarU32(&b, (u32)len);
-	netBufWriteBytes(&b, s_One, len);
+	{
+		u8 *countp = netBufReserve(&b, 2);
+		s32 count = 1;
+		s32 i;
+
+		netBufWriteVarU32(&b, (u32)len);
+		netBufWriteBytes(&b, s_One, len);
+
+		// (protocol 29) the explosions still burning, oldest first: the
+		// joiner puts them in at their age (a SURE copy, ticks back)
+		for (i = 0; i < NETEV_BOOMRING; i++) {
+			const struct netevsure *u = &s_Boom[(s_BoomN + i) % NETEV_BOOMRING];
+			u8 pre[4];
+
+			if (!u->inuse || u->type != NETEV_EXPLOSION || g_NetTick - u->tick >= u->life || g_NetTick - u->tick > 255
+					|| u->target >= 0 || netBufLen(&b) + u->len + 8 > NETEV_MAXMSG) {
+				continue;
+			}
+
+			netEvSureHeader(pre, u, g_NetTick - u->tick);
+			netBufWriteVarU32(&b, (u32)(u->len + 4));
+			netBufWriteBytes(&b, pre, 4);
+			netBufWriteBytes(&b, u->bytes, u->len);
+			count++;
+			s_SureCatchUp++;
+		}
+
+		if (countp) {
+			countp[0] = (u8)count;
+			countp[1] = (u8)(count >> 8);
+		}
+	}
 
 	if (netBufOk(&b)) {
 		netSessionSendSlot(view, NET_CHAN_RELIABLE, s_Msg, netBufLen(&b), NET_SEND_RELIABLE);
@@ -985,6 +1187,9 @@ void netEventsHostCatchUp(s32 view)
 		s_HostSentBytes += netBufLen(&b);
 		s_HostMsgs++;
 		s_HostRecorded[NETEV_SCORES]++;
+
+		// (protocol 29) and the marks on its walls and floors, once
+		netWorldHostSendMarks(view);
 
 		if (s_Log) {
 			fprintf(s_Log, "E %u scores target view%d exclude -1 len %d catch-up\n", g_NetTick, view, len);
@@ -996,56 +1201,153 @@ void netEventsHostCatchUp(s32 view)
  * Host: sending
  */
 
-static void netEvSendSlot(s32 slot, s32 pn)
+static void netEvSendMsg(s32 slot, s32 cls, struct netbuf *b, u8 *countp, s32 count)
 {
-	struct netbuf b;
-	u8 *countp = NULL;
-	s32 count = 0;
-	s32 off = 0;
+	countp[0] = (u8)(count & 0xff);
+	countp[1] = (u8)(count >> 8);
 
-	while (off < s_ArenaLen) {
-		const s32 target = (s8)s_Arena[off];
-		const s32 exclude = (s8)s_Arena[off + 1];
-		const s32 len = s_Arena[off + 2] | (s_Arena[off + 3] << 8);
-		const u8 *ev = s_Arena + off + 4;
-
-		off += 4 + len;
-
-		if ((target >= 0 && target != pn) || (exclude >= 0 && exclude == pn)) {
-			continue;
-		}
-
-		if (countp && (netBufLen(&b) + len + 3 > NETEV_MAXMSG || count == 0xffff)) {
-			countp[0] = (u8)(count & 0xff);
-			countp[1] = (u8)(count >> 8);
-			netSessionSendSlot(slot, NET_CHAN_RELIABLE, s_Msg, netBufLen(&b), NET_SEND_RELIABLE);
-			s_HostSentBytes += netBufLen(&b);
-			s_HostMsgs++;
-			s_HostSeq[slot]++;
-			countp = NULL;
-		}
-
-		if (!countp) {
-			netBufInitWrite(&b, s_Msg, sizeof(s_Msg));
-			netBufWriteU8(&b, NETMSG_EVENTS);
-			netBufWriteU32(&b, netSessionMatchId());
-			netBufWriteU32(&b, g_NetTick);
-			countp = netBufReserve(&b, 2);
-			count = 0;
-		}
-
-		netBufWriteVarU32(&b, (u32)len);
-		netBufWriteBytes(&b, ev, len);
-		count++;
+	if (!netBufOk(b)) {
+		return;
 	}
 
-	if (countp && count && netBufOk(&b)) {
-		countp[0] = (u8)(count & 0xff);
-		countp[1] = (u8)(count >> 8);
-		netSessionSendSlot(slot, NET_CHAN_RELIABLE, s_Msg, netBufLen(&b), NET_SEND_RELIABLE);
-		s_HostSentBytes += netBufLen(&b);
-		s_HostMsgs++;
+	netSessionSendSlot(slot, s_ClassChan[cls], s_Msg, netBufLen(b), cls == NETEV_SHOT ? NET_SEND_UNSEQUENCED : NET_SEND_RELIABLE);
+	s_HostSentBytes += netBufLen(b);
+	s_HostMsgs++;
+	s_HostClassMsgs[cls]++;
+	s_HostClassBytes[cls] += netBufLen(b);
+
+	if (cls == NETEV_GAME) {
 		s_HostSeq[slot]++;
+	}
+}
+
+struct netevmsg {
+	struct netbuf b;
+	u8 *countp;
+	s32 count;
+};
+
+// One event into the class's message for a slot, sending the message first when it is full
+static void netEvAppend(s32 slot, s32 cls, struct netevmsg *m, const u8 *pre, s32 prelen, const u8 *ev, s32 len)
+{
+	const s32 cap = cls == NETEV_SHOT ? NET_MAXUNRELIABLE : NETEV_MAXMSG;
+
+	if (prelen + len + 3 + 11 > cap) {
+		s_HostShotTooBig++;
+		return;
+	}
+
+	if (m->countp && (netBufLen(&m->b) + prelen + len + 3 > cap || m->count == 0xffff)) {
+		netEvSendMsg(slot, cls, &m->b, m->countp, m->count);
+		m->countp = NULL;
+	}
+
+	if (!m->countp) {
+		netBufInitWrite(&m->b, s_Msg, sizeof(s_Msg));
+		netBufWriteU8(&m->b, s_ClassMsg[cls]);
+		netBufWriteU32(&m->b, netSessionMatchId());
+		netBufWriteU32(&m->b, g_NetTick);
+		m->countp = netBufReserve(&m->b, 2);
+		m->count = 0;
+	}
+
+	netBufWriteVarU32(&m->b, (u32)(prelen + len));
+
+	if (prelen) {
+		netBufWriteBytes(&m->b, pre, prelen);
+	}
+
+	netBufWriteBytes(&m->b, ev, len);
+	m->count++;
+}
+
+// A SURE event's copies go this many ticks after it happened
+static s32 netEvSureDue(const struct netevsure *u)
+{
+	const u32 age = g_NetTick - u->tick;
+
+	if (u->type == NETEV_EXPLOSION) {
+		return age == 0 || age == 2 || age == 5;
+	}
+
+	return age == 0 || (age == 3 && !u->once);
+}
+
+static s32 netEvSurePending(void)
+{
+	s32 i;
+
+	for (i = 0; i < NETEV_SURERING; i++) {
+		if (s_Sure[i].inuse && g_NetTick - s_Sure[i].tick <= 5) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static void netEvSureHeader(u8 *pre, const struct netevsure *u, u32 back)
+{
+	pre[0] = NETEV_SURE;
+	pre[1] = (u8)(u->serial & 0xff);
+	pre[2] = (u8)(u->serial >> 8);
+	pre[3] = (u8)back;
+}
+
+static void netEvSendSlot(s32 slot, s32 pn)
+{
+	s32 cls;
+
+	for (cls = 0; cls < NETEV_CLASSES; cls++) {
+		struct netevmsg m;
+		s32 off = 0;
+
+		m.countp = NULL;
+		m.count = 0;
+
+		while (off < s_ArenaLen) {
+			const s32 target = (s8)s_Arena[off];
+			const s32 exclude = (s8)s_Arena[off + 1];
+			const s32 len = s_Arena[off + 2] | (s_Arena[off + 3] << 8);
+			const u8 *ev = s_Arena + off + 4;
+
+			off += 4 + len;
+
+			if ((target >= 0 && target != pn) || (exclude >= 0 && exclude == pn)
+					|| (netEvClassOf(ev[0]) == NETEV_SURECLS ? NETEV_FX : netEvClassOf(ev[0])) != cls) {
+				continue;
+			}
+
+			netEvAppend(slot, cls, &m, NULL, 0, ev, len);
+		}
+
+		// (protocol 29) the explosions' and hits' copies due this tick
+		if (cls == NETEV_SHOT) {
+			s32 i;
+
+			for (i = 0; i < NETEV_SURERING; i++) {
+				const struct netevsure *u = &s_Sure[(s_SureSerial + i) % NETEV_SURERING]; // oldest first
+				u8 pre[4];
+
+				if (!u->inuse || !netEvSureDue(u) || (u->target >= 0 && u->target != pn) || (u->exclude >= 0 && u->exclude == pn)) {
+					continue;
+				}
+
+				// a hit sent once needs no serial: as itself, at its own tick
+				if (u->once) {
+					netEvAppend(slot, cls, &m, NULL, 0, u->bytes, u->len);
+				} else {
+					netEvSureHeader(pre, u, g_NetTick - u->tick);
+					netEvAppend(slot, cls, &m, pre, 4, u->bytes, u->len);
+				}
+
+				s_SureCopies++;
+			}
+		}
+
+		if (m.countp && m.count) {
+			netEvSendMsg(slot, cls, &m.b, m.countp, m.count);
+		}
 	}
 }
 
@@ -1081,8 +1383,10 @@ static void netEvHostLog(const char *why)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: events host %s (tick %u): recorded %u (%s); %u messages, %u bytes, %u dropped (buffer full), %u hudmsgs again within a second not sent",
-			why, g_NetTick, s_HostRecordedTotal, counts, s_HostMsgs, s_HostSentBytes, s_HostDroppedFull, s_HudDupes);
+	sysLogPrintf(LOG_NOTE, "net: events host %s (tick %u): recorded %u (%s); %u messages, %u bytes (game %u/%u, fx %u/%u, shot %u/%u: messages/bytes; explosion and hit copies %u, explosions caught up %u), %u dropped (buffer full), %u too big for a datagram, %u hudmsgs again within a second not sent",
+			why, g_NetTick, s_HostRecordedTotal, counts, s_HostMsgs, s_HostSentBytes,
+			s_HostClassMsgs[NETEV_GAME], s_HostClassBytes[NETEV_GAME], s_HostClassMsgs[NETEV_FX], s_HostClassBytes[NETEV_FX],
+			s_HostClassMsgs[NETEV_SHOT], s_HostClassBytes[NETEV_SHOT], s_SureCopies, s_SureCatchUp, s_HostDroppedFull, s_HostShotTooBig, s_HudDupes);
 }
 
 /**
@@ -1098,7 +1402,7 @@ void netEventsHostFlush(void)
 		return;
 	}
 
-	if (s_ArenaLen) {
+	if (s_ArenaLen || netEvSurePending()) {
 		for (slot = 0; slot < MAX_PLAYERS; slot++) {
 			const s32 pn = netEvPlayerOfSlot(slot);
 
@@ -1472,6 +1776,7 @@ static void netEvQueueAlloc(void)
 }
 
 static void netEvApply(struct netevc *e, f64 rt);
+static void netEvClientLagLog(const char *why);
 
 void netEventsClientOnMsg(const u8 *data, s32 len)
 {
@@ -1480,6 +1785,7 @@ void netEventsClientOnMsg(const u8 *data, s32 len)
 	u32 tick;
 	s32 count;
 	s32 i;
+	const s32 cls = data[0] == NETMSG_EVSHOT ? NETEV_SHOT : data[0] == NETMSG_EVFX ? NETEV_FX : NETEV_GAME;
 
 	if (!netSessionMatchLoading() || s_ClientEnded) {
 		return;
@@ -1507,28 +1813,65 @@ void netEventsClientOnMsg(const u8 *data, s32 len)
 	}
 
 	s_RecvMsgs++;
-	s_RecvSeq++;
 	s_RecvBytes += len;
+	s_RecvClassMsgs[cls]++;
+	s_RecvClassBytes[cls] += len;
 
-	if (s_HaveTick && tick < s_LastTick) {
-		s_OutOfOrder++;
+	// only the GAME class counts against the SNAP's evseq (its channel is
+	// the ordered one the scenario block waits on); a class's own ticks rise
+	if (cls == NETEV_GAME) {
+		s_RecvSeq++;
+
+		if (s_HaveTick && tick < s_ClassLastTick[cls]) {
+			s_OutOfOrder++;
+		}
 	}
 
-	s_LastTick = tick;
+	if (tick > s_ClassLastTick[cls]) {
+		s_ClassLastTick[cls] = tick;
+	}
+
+	if (tick > s_LastTick || !s_HaveTick) {
+		s_LastTick = tick;
+	}
+
 	s_HaveTick = 1;
 
 	for (i = 0; i < count; i++) {
-		const u32 elen = netBufReadVarU32(&b);
+		u32 elen = netBufReadVarU32(&b);
 		// one length for the skip and the event's own reader: a longer one
 		// is malformed (it had skipped 0x7fff and read elen past the packet)
 		const u8 *ev = elen <= 0x7fff ? netBufSkip(&b, (s32)elen) : NULL;
 		struct netbuf eb;
 		struct netevc *e;
 		s32 slot;
+		u32 evtick = tick;
+		s32 sure = -1;
 
 		if (!netBufOk(&b) || !ev || elen == 0) {
 			s_Malformed++;
 			return;
+		}
+
+		// (protocol 29) a copy of an explosion or a hit: the first kept
+		if (ev[0] == NETEV_SURE) {
+			const u32 back = elen >= 5 ? ev[3] : 0xffff;
+
+			if (back > tick || (ev[4] != NETEV_EXPLOSION && ev[4] != NETEV_CHRDAMAGE)) {
+				s_Malformed++;
+				continue;
+			}
+
+			sure = ev[1] | (ev[2] << 8);
+			evtick = tick - back;
+
+			if (s_SeenSure[sure] == evtick + 1) {
+				s_SureDupes++;
+				continue;
+			}
+
+			ev += 4;
+			elen -= 4;
 		}
 
 		if (s_QCount == NETEV_QUEUE) {
@@ -1544,7 +1887,7 @@ void netEventsClientOnMsg(const u8 *data, s32 len)
 		memset(e, 0, sizeof(*e));
 		e->text = s_QText + (size_t)slot * (NETEV_MAXTEXT + 1);
 		e->text[0] = '\0';
-		e->tick = tick;
+		e->tick = evtick;
 
 		netBufInitRead(&eb, ev, (s32)elen);
 
@@ -1553,8 +1896,43 @@ void netEventsClientOnMsg(const u8 *data, s32 len)
 			continue;
 		}
 
+		if (sure >= 0) {
+			s_SeenSure[sure] = evtick + 1;
+		}
+
 		s_Received[e->type]++;
 		s_QCount++;
+
+		// the classes come on their own channels: an event goes in tick
+		// order, after every one of its own tick already in
+		{
+			s32 at = (s_QHead + s_QCount - 1) % NETEV_QUEUE;
+			s32 moved = 0;
+
+			while (at != s_QHead) {
+				const s32 prev = (at + NETEV_QUEUE - 1) % NETEV_QUEUE;
+				struct netevc tmp;
+				char text[NETEV_MAXTEXT + 1];
+
+				if (s_Q[prev].tick <= s_Q[at].tick) {
+					break;
+				}
+
+				// the text buffers stay with their slots: swap what is in them
+				tmp = s_Q[prev];
+				s_Q[prev] = s_Q[at];
+				s_Q[at] = tmp;
+				s_Q[at].text = s_QText + (size_t)at * (NETEV_MAXTEXT + 1);
+				s_Q[prev].text = s_QText + (size_t)prev * (NETEV_MAXTEXT + 1);
+				memcpy(text, s_Q[at].text, sizeof(text));
+				memcpy(s_Q[at].text, s_Q[prev].text, sizeof(text));
+				memcpy(s_Q[prev].text, text, sizeof(text));
+				at = prev;
+				moved = 1;
+			}
+
+			s_Reordered += moved;
+		}
 
 		if (s_QCount > s_QMax) {
 			s_QMax = s_QCount;
@@ -1726,6 +2104,15 @@ static void netEvApply(struct netevc *e, f64 rt)
 		}
 
 		s_LagLate += rt - e->tick > 6;
+
+		if (e->type < NETEV_COUNT) {
+			s_LagSumBy[e->type] += rt - e->tick;
+			s_LagNBy[e->type]++;
+
+			if (rt - e->tick > s_LagMaxBy[e->type]) {
+				s_LagMaxBy[e->type] = rt - e->tick;
+			}
+		}
 	}
 
 	const u32 unresolved = s_Unresolved;
@@ -1843,8 +2230,38 @@ static void netEvApply(struct netevc *e, f64 rt)
 			prop = NULL;
 		}
 
-		explosionCreate(prop, &c0, e->rooms, e->s0, e->a, e->flags & 1, (e->flags & 2) ? &c1 : NULL, e->s1, (e->flags & 4) ? &c2 : NULL);
-		snprintf(extra, sizeof(extra), "type %d at %.0f %.0f %.0f", e->s0, c0.x, c0.y, c0.z);
+		{
+			const f64 late = rt >= 0 ? rt - e->tick : 0;
+			const struct explosiontype *et = &g_ExplosionTypes[e->s0];
+			const s32 life = et->duration + (s32)(7.0f * et->flarespeed);
+
+			// (protocol 29) one burning since before this machine came
+			// (a joiner's catch-up), or come this late: put in at the
+			// host's age, past its bang (explosionTick sounds it at age 0)
+			if (late > 6 && late >= life) {
+				snprintf(extra, sizeof(extra), "type %d over before it came (%.0f ticks late)", e->s0, late);
+				break;
+			}
+
+			explosionCreate(prop, &c0, e->rooms, e->s0, e->a, e->flags & 1, (e->flags & 2) ? &c1 : NULL, e->s1, (e->flags & 4) ? &c2 : NULL);
+
+			if (late > 6 && g_Explosions) {
+				s32 k;
+
+				for (k = 0; k < g_MaxExplosions; k++) {
+					struct explosion *x = &g_Explosions[k];
+
+					if (x->prop && x->age == 0 && x->type == e->s0
+							&& fabsf(x->prop->pos.x - c0.x) < 2.f && fabsf(x->prop->pos.z - c0.z) < 2.f) {
+						x->age = (s16)late;
+						s_SureCatchUp++;
+						break;
+					}
+				}
+			}
+
+			snprintf(extra, sizeof(extra), "type %d at %.0f %.0f %.0f%s", e->s0, c0.x, c0.y, c0.z, late > 6 ? " part way" : "");
+		}
 		break;
 	case NETEV_SPARKS:
 		prop = netEvResolve(&e->r0);
@@ -1929,6 +2346,7 @@ static void netEvApply(struct netevc *e, f64 rt)
 		}
 
 		objDeform(prop->obj, e->s0);
+		netWorldNoteDeform();
 		break;
 	case NETEV_GLASS:
 		prop = netEvResolve(&e->r0);
@@ -2114,10 +2532,34 @@ static void netEvClientLog(const char *why)
 		}
 	}
 
+	sysLogPrintf(LOG_NOTE, "net: events client %s (tick %u): game %u/%u, fx %u/%u, shot %u/%u (messages/bytes), put back in tick order %u, explosion/hit copies already had %u, explosions put in part way %u", why, g_NetTick,
+			s_RecvClassMsgs[NETEV_GAME], s_RecvClassBytes[NETEV_GAME], s_RecvClassMsgs[NETEV_FX], s_RecvClassBytes[NETEV_FX],
+			s_RecvClassMsgs[NETEV_SHOT], s_RecvClassBytes[NETEV_SHOT], s_Reordered, s_SureDupes, s_SureCatchUp);
 	sysLogPrintf(LOG_NOTE, "net: events client %s (tick %u): applied/received %s; %u messages, %u bytes, out of order %u, malformed %u, other match %u, unresolved %u, overflow %u, queued max %d, lag mean %.1f ticks (max %.1f, over 6 ticks %u); shot sounds %u (no gun %u, started %u), hits on me %u, my hits %u, hudmsgs for me %u, own deaths refused %u, own shots back %u (fired here %u, not %u); glass by setup command %u, gas released %u; unresolved by type: %s",
 			why, g_NetTick, counts, s_RecvMsgs, s_RecvBytes, s_OutOfOrder, s_Malformed, s_OtherMatch, s_Unresolved, s_Overflow,
 			s_QMax, s_LagN ? s_LagSum / s_LagN : 0.0, s_LagMax, s_LagLate, s_ShotSounds, s_ShotNoGun, s_ShotPlayed, s_HitsOnMe, s_MyHits, s_HudForMe, s_LocalSkipped,
 			s_OwnDupes + s_OwnUnpredicted, s_OwnDupes, s_OwnUnpredicted, s_GlassViaSetup, s_GasReleased, ucounts[0] ? ucounts : "none");
+	netEvClientLagLog(why);
+	netWorldLog(why);
+}
+
+// per type: mean/max ticks past its own tick at which it was applied
+static void netEvClientLagLog(const char *why)
+{
+	char buf[640];
+	s32 len = 0;
+	s32 i;
+
+	buf[0] = '\0';
+
+	for (i = 1; i < NETEV_COUNT && len < (s32)sizeof(buf); i++) {
+		if (s_LagNBy[i]) {
+			len += snprintf(buf + len, sizeof(buf) - len, "%s%s %u %.1f/%.1f", len ? ", " : "", s_EvNames[i],
+					s_LagNBy[i], s_LagSumBy[i] / s_LagNBy[i], s_LagMaxBy[i]);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: events lag by type %s (tick %u; n mean/max ticks): %s", why, g_NetTick, buf[0] ? buf : "none");
 }
 
 // F3 (nettrace.c): the events' summary into the log now
@@ -2189,6 +2631,19 @@ void netEventsStageStart(void)
 	memset(s_HudHash, 0, sizeof(s_HudHash));
 	memset(s_HudTick, 0, sizeof(s_HudTick));
 	s_HudDupes = 0;
+	memset(s_HostClassMsgs, 0, sizeof(s_HostClassMsgs));
+	memset(s_Sure, 0, sizeof(s_Sure));
+	memset(s_Boom, 0, sizeof(s_Boom));
+	s_BoomN = 0;
+	memset(s_SeenSure, 0, sizeof(s_SeenSure));
+	s_SureSerial = 0;
+	s_SureCopies = s_SureDupes = s_SureCatchUp = 0;
+	memset(s_HostClassBytes, 0, sizeof(s_HostClassBytes));
+	s_HostShotTooBig = 0;
+	memset(s_RecvClassMsgs, 0, sizeof(s_RecvClassMsgs));
+	memset(s_RecvClassBytes, 0, sizeof(s_RecvClassBytes));
+	memset(s_ClassLastTick, 0, sizeof(s_ClassLastTick));
+	s_Reordered = 0;
 	memset(s_MyShots, 0, sizeof(s_MyShots));
 	s_MyShotsN = 0;
 	s_OwnDupes = 0;
@@ -2224,6 +2679,9 @@ void netEventsStageStart(void)
 	s_LagN = 0;
 	s_LagMax = 0;
 	s_LagLate = 0;
+	memset(s_LagSumBy, 0, sizeof(s_LagSumBy));
+	memset(s_LagNBy, 0, sizeof(s_LagNBy));
+	memset(s_LagMaxBy, 0, sizeof(s_LagMaxBy));
 	s_NextKill = NETEV_KILLEVERY;
 	s_LocalSkipped = 0;
 

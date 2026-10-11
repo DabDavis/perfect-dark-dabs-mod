@@ -3806,7 +3806,12 @@ static void netClientEvent(const struct netevent *ev)
 			netEntsClientOnSnap(ev->data, ev->len);
 			break;
 		case NETMSG_EVENTS:
+		case NETMSG_EVFX:
+		case NETMSG_EVSHOT:
 			netEventsClientOnMsg(ev->data, ev->len);
+			break;
+		case NETMSG_MARKS:
+			netWorldClientOnMarks(ev->data, ev->len);
 			break;
 		default:
 			break;
@@ -4397,6 +4402,7 @@ void netStageStopped(void)
 	netMigrateMatchStopped();
 	netRulesRestore();
 	netEventsMatchStopped();
+	netWorldMatchStopped();
 	netEntsMatchStopped();
 	netLagCompMatchStopped();
 	netPlayersMatchStopped();

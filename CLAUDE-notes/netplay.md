@@ -119,6 +119,10 @@
   session, a hostile peer or an odd moment breaks; what a client's death
   and a name from the wire did on every machine, why the host's pause is
   not one, and the rest of that batch.
+- **State and events apart (protocol 29, 2026-10-11)** — the section of
+  that name (`networld.c`): EQOA DRDP's split; broken glass, storms and the
+  gas in a world block in SNAP, crumpling and a door's pane in records, the
+  events in three classes on channels of their own (shots unreliable).
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -2872,3 +2876,145 @@ in their own sections' notes.
   flight would mean rebuilding chr matrices per projectile step. Favours
   the shooter: a target that moved on can be hurt by a blast that on its own
   screen went off behind it.
+
+## State and events apart (protocol 29, 2026-10-11)
+
+EverQuest Online Adventures' DRDP (`~/claude-eqoa/entity-channels.md`,
+`claude-notes/drdp-decompiled.md` "State Channel XOR Delta") keeps two
+kinds of traffic: **state channels**, each a latest-value-wins buffer
+XOR-delta'd against what the other side acked and never resent, and a
+reliable stream for true one-shot **events** only. Our snapshots had been
+the first kind since phase 4 (netdelta.c, per-entity bases since 23), but
+the reliable, ordered EVENTS stream carried some state as well, and one lost
+packet held up everything behind it (seen at 25 ticks at 150 ms / 2%).
+
+**The audit** (every reliable message):
+
+| What | Kind | A joiner needs | Now (29) |
+|---|---|---|---|
+| FIRESLOT, PLAYERSHOT | one-shot (flash, tracer, sound) | nothing | EVSHOT, unreliable |
+| SPARKS, CHOKE | one-shot | nothing | EVSHOT, unreliable |
+| EXPLOSION | short-lived state (a burn of 40-180 ticks); its scorch a lasting mark | one still burning; the scorches | SURE copies in EVSHOT; catch-up; MARKS |
+| CHRDAMAGE | one-shot feedback (flinch, shield, the red flash); health is in the local block | nothing | SURE copies in EVSHOT |
+| a camera's lens shot out | **state**, never sent before | it | OBJ byte 0 bit 0x80 |
+| bullet holes, scorches, splats on the bg | lasting cosmetic state | the host's set | MARKS once (bulk) |
+| DEFORM | **state** (crumpled; a match's prop regenerates whole) | every object's crumpling | OBJ byte 23 / DOOR byte 5 |
+| GLASS | **state** (a pane out; a match's comes back) | every pane broken | world block bit (event past 1760) |
+| NBOMB | **state** with a life (~6 s storm) | a storm going, how old | world block storm slot |
+| GAS | **state** (the fog stays for the match) | the gas and its fade | world block |
+| DEATH | mixed: kill-table state + the moment | the table (SCORES catch-up) | EVENTS, reliable ordered |
+| SCORES | state (the whole table, on a change or to a joiner) | itself | EVENTS |
+| HUDMSG, PICKUPSFX | one-shot, must arrive | nothing | EVENTS |
+| a windowed door's pane | **state**, never sent before | it | DOOR byte 4 bit 4 |
+| doors, lifts, regen pickups, objectives, alarm, timer | state | already records / the mission block | unchanged |
+| CHAT, SLOTCFG, ROSTER, session flow, CONTENT_* | one-shot or rare | - | unchanged (PLAYERS, CMD, CMDACK, SNAP were unreliable already) |
+
+**What changed.**
+- `networld.c`'s **world block**: 320 bytes after the scenario block in
+  every SNAP (glass bits in setup-command order, four storm slots, the gas),
+  delta'd against the baseline's like the scenario block but applied by
+  `netWorldClientUpTo` as soon as the render clock reaches its tick - never
+  gated on evseq. The host rebuilds the glass bits from its own objects every
+  tick (`netWorldGlassGone`), so a match's regenerated pane clears its bit.
+  A change seen as it happens (the bit clear in the last block applied, at
+  most 30 ticks old) plays as the host's did (glassDestroy's shards, the
+  storm's sound); one from before (a joiner's first block, a pane this
+  machine's own regeneration put back early) goes in quietly. A storm more
+  than 30 ticks old starts at the host's age; the gas fade too.
+- **Crumpling in the record**: the host counts objDeform calls per prop
+  (`netEntsHostNoteDeform`, saturating at 15, with the last level) and zeroes
+  the count once the object draws its own vertices again
+  (`netWorldObjDeformed`: a DL's rwdata vertices back to the rodata's, which
+  is what regeneration's modelFreeVertices does). The client calls objDeform
+  until its count matches, and modelFreeVertices when the host's goes to 0.
+- **Three event classes** (`netevents.c` `netEvClassOf`), each a message
+  type on its own ENet channel (five channels now): EVENTS on
+  NET_CHAN_RELIABLE (the only class evseq counts, so the scenario block
+  waits on deaths and scores alone), EVFX reliable on NET_CHAN_EVFX, EVSHOT
+  unreliable unsequenced on NET_CHAN_EVSHOT in datagram-sized messages. The
+  client's queue stays in tick order across classes (an event is put back
+  behind any of a later tick that came first; the hudmsg text buffers stay
+  with their slots, their contents swapped).
+- Why shots may be lost: dozens a second, each seen once; a lost one is a
+  shot without its tracer that the next shot covers, where a resent one came
+  150+ ms late and held up every event behind it. Explosions and hits are
+  rare and seen by all (a missing boom is noticed), so they stay reliable,
+  but in an order of their own. Deaths, scores and hudmsgs must arrive and
+  in order.
+- **Measuring**: `netcrowd.sh` STAGE= WRECK= CENSUS=; `--net-test-wreck`
+  breaks half the glass and windowed doors, crumples six objects and starts
+  a storm (the first also the gas, where the stage has its sky);
+  `--net-test-census` logs "world census" on every machine; clients log
+  "events lag by type" and "world client". Results are in the results file
+  of the pass (`~/wt/f3-1010c/results-netstate.txt`).
+
+**Traps met.** A setup glass regenerates in a match (objFree with
+canregen keeps the prop; `OBJH2FLAG_DESTROYED` clears), and is freed for
+good in a mission - so "broken" is read from the object every tick, not
+latched from glassDestroy. Clients had disagreed with the host about a
+match's glass before this (their own regeneration timers). gasReleaseFromPos
+on a stage without a second sky crashes in envApplyTransitionFrac: the test
+wreck checks `g_EnvTransitionFrom/To` as the client always did.
+
+**Measured** (netcrowd.sh at --net-sim 2,75, Grid/G5 with 24 sims and
+Defection co-op, a third client joining ~1500 ticks in; wrecks at 600, 1450,
+2400): every shot-class event's worst lag fell from ~24 ticks to under 3,
+deaths' from ~24 to 5-9; explosions and hits keep their own reliable
+channel and still meet a resend now and then (max ~24). A late joiner had
+none of the glass, crumpling or storms from before it came (co-op: 0/42
+panes, 0/12 objects at 1650; Grid 0/12 objects); now it matches the host
+(42/42, 12/12, the storm part way). Clients in a match also disagreed with
+the host on its regenerating glass before (they never regenerate it, the
+record only hid it); the block now puts a pane back. Bytes to a client
+about the same (-1% to +3%, inside run-to-run noise).
+
+**Explosions, hits, lenses and marks (the owner's follow-up, 2026-10-11).**
+- An explosion or a hit on the reliable EVFX channel still waited ~24
+  ticks behind a lost packet. Now each is recorded once in a ring
+  (`s_Sure`, netevents.c) and goes unreliably in the EVSHOT messages of
+  ticks +0, +2, +5 (an explosion) or +0, +3 (a hit), wrapped in a SURE
+  event (serial, ticks back); the client keeps the first copy
+  (`s_SeenSure`), queued at its own tick. Three lost copies in a row at 2%
+  is 8 in a million. A joiner's first EVENTS carries the explosions still
+  within their burn (duration + 7 flares); one applied more than 6 ticks
+  late is put in at the host's age (`x->age`), past explosionTick's bang
+  at age 0. The host records explosions even with nobody connected yet.
+  Hits are sent twice, not three times: rockets make a hit per victim per
+  tick of the blast (90 000 in a three-minute Grid match), and their bytes
+  are the cost.
+- A camera's lens (CCTV, PD's and GoldenEye's - the ROM model keeps the
+  lens toggle MODELPART_CCTV_0003 under the HD mesh): OBJ byte 0 bit 0x80
+  from the toggle's visibility; the client hides it (cctvHandleLensShot's
+  glass when it saw the camera whole before). The camera's watching and
+  its damage are the host's: a client runs no cctvTick.
+- MARKS: wallhit.c's `wallhitNetList` gives the settled bg marks oldest
+  first (none on a prop or a chr, none fading or spreading), 90 bytes each,
+  to a joiner once on the bulk channel beside its first EVENTS;
+  `wallhitNetAdd` puts each in this machine's pool as wallhitCreate would
+  (its room's cap still holds). Live play is as before: each machine makes
+  the marks of what it sees, so two machines' marks drift apart later
+  anyway (a client from the start had 31 where the host had 65).
+
+Measured (same netcrowd runs, plus Grid with rockets and grenades,
+MPWEAPONS=23,22,9,9,23,22, and GoldenEye's Bunker in co-op for its
+cameras and windowed doors): explosion max lag 13.9 -> 1.0 ticks (rockets),
+hits 25.9 -> 2.7, deaths ~5 (their own reliable channel, a resend now and
+then still ~24); a joiner sees the gas barrel set off 40 ticks before it
+came still burning (put in part way, every run); Bunker's lenses 0/4 ->
+4/4 and windowed panes 0/14 -> 14/14 on every client; MARKS: the joiner
+gets every bg mark the host has (19-65, 1.7-5.9 KB once; G5's census 150
+ticks later identical, count and summed places). Bytes: about even, +7-10%
+in the rocket match (its player hits twice; 97 000 hits).
+
+The netpuppettest "alarm" check read the last "net: local block" line,
+which the item log of the local block (protocol 28) now ends with: it reads
+the line with the deaths.
+
+**Left.** Clients never draw other players' and sims' bullet holes in live
+play (they make marks only for what their own machine fires and for
+explosions' scorches): a client from the start had 22 marks where the host
+had 51. MARKS fixes a joiner's start only. An object out of a client's scope gets its crumpling only when it
+comes into scope (invisible meanwhile);
+explosions' scorches and bullet holes are not sent to a joiner; a CCTV
+lens shot out is not replicated at all (as the windowed door pane was not);
+CHAT and SLOTCFG share NET_CHAN_RELIABLE with the GAME events.

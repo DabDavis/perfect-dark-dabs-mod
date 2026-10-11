@@ -403,6 +403,8 @@ want() {
 # the newest summaries' counters
 pupnum() { num "$(lastline "$OUT/$1-client.log" "net: puppets")" "$2"; }
 evnum() { lastline "$OUT/$1-client.log" "net: events client" | grep -o "$2 [0-9]*/[0-9]*" | head -1 | cut -d' ' -f2 | cut -d/ -f1; }
+# (protocol 29) the world block's line: glass, storms, gas (networld.c)
+worldnum() { num "$(lastline "$OUT/$1-client.log" "net: world client")" "$2"; }
 
 checkrefused() {
 	local name=$1 code=$2 pattern=$3
@@ -531,7 +533,7 @@ for c in $CASES; do
 		[ "$(num "$yl" "out yet alive")" = 0 ] && pass "geyolt: no chr out of lives came back on the client ($(num "$yl" "out ticks") chr-ticks out)" \
 			|| fail "geyolt: chrs out of lives alive again on the client: ${yl:-no yolt line}"
 		grep "STAGE kill" "$OUT/run.log" | tail -3 | sed 's/^ *//; s/^/     /'
-		want geyolt "gas released on the client" "$(echo "$(lastline "$C" "net: events client")" | grep -o "gas released [0-9]*" | awk '{print $NF}')"
+		want geyolt "gas released on the client (the world block)" "$(worldnum geyolt "gas")"
 		;;
 	gegg)
 		checkplay gegg "map Archives from mod GoldenEye Arenas"
@@ -665,15 +667,15 @@ for c in $CASES; do
 		checkplay props "stage 0x47 of mod mod_allinone"
 		want props "Mod.Bodies corpses made on the client" "$(pupnum props "bodies made")"
 		want props "lift moves posed" "$(pupnum props "lift moves")"
-		want props "glass broken (events that acted)" "$(evnum props glass)"
-		want props "glass broken that the client never had in scope (by its setup command)" \
-			"$(lastline "$C" "net: events client" | grep -o "glass by setup command [0-9]*" | awk '{print $NF}')"
+		# (protocol 29) the world block, scope or none: the pane furthest away included
+		gf=$(worldnum props "glass broken as it broke"); gq=$(worldnum props "as it stood")
+		want props "glass broken from the world block" "$(( ${gf:-0} + ${gq:-0} ))"
 		want props "loose ammo crates made" "$(pupnum props crates)"
 		want props "explosions (rockets, grenades, mines)" "$(evnum props explosion)"
 		want props "projectile trails" "$(pupnum props trails)"
 		want props "thrown or dropped weapons made" "$(lastline "$C" "net: puppets" | grep -o "made: weapons [0-9]*" | awk '{print $NF}')"
 		want props "ammo crates picked up and back (regens)" "$(pupnum props regens)"
-		want props "N-bomb storms" "$(evnum props nbomb)"
+		want props "N-bomb storms (the world block)" "$(worldnum props "storms")"
 		ev=$(lastline "$C" "net: events client")
 		echo "     events: $(echo "$ev" | grep -o "unresolved by type.*")"
 		;;
