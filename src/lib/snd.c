@@ -2016,7 +2016,17 @@ bool seqPlay(struct seqinstance *seq, s32 tracknum)
 	}
 #endif
 
+#ifndef PLATFORM_N64
+	// a sequence whose header points past what it inflated to is refused, and
+	// one that reads outside itself ends there (n_alCSeqNewBounded())
+	if (ziplen <= 0 || ziplen > (s32)g_SeqBufferSize || !n_alCSeqNewBounded(&seq->seq, seq->data, ziplen)) {
+		sysLogPrintf(LOG_WARNING, "music: sequence %d is not one (%d bytes); not played", tracknum, ziplen);
+		seq->seqp->state = AL_STOPPED;
+		return false;
+	}
+#else
 	n_alCSeqNew(&seq->seq, seq->data);
+#endif
 	n_alCSPSetSeq(seq->seqp, &seq->seq);
 	seqSetVolume(seq, seqGetVolume(seq));
 	n_alCSPPlay(seq->seqp);

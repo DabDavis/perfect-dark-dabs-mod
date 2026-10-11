@@ -731,6 +731,11 @@ typedef struct ALCSeq_s {
     u8            curBULen[16];      /* if > 0, then in backup mode           */
     u8            lastStatus[16];    /* for running status                    */
     u32           evtDeltaTicks[16]; /* delta time to next event              */
+#ifndef PLATFORM_N64
+    u8            *end;              /* past the sequence's last byte, or NULL */
+                                     /* for unchecked (n_alCSeqNewBounded())  */
+    u8            bad;               /* a read left the sequence: it ends     */
+#endif
 } ALCSeq;
 
 typedef struct {

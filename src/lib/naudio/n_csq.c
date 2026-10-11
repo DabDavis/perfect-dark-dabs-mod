@@ -5,6 +5,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "bss.h"
+#include "system.h"
 
 /**
  * How many times each of the three music players' sequences has come back to
@@ -59,12 +60,27 @@ u32 __n_alCSeqGetTrackEvent(ALCSeq *seq, u32 track, N_ALEvent *event, s32 arg3);
 u8 __getTrackByte(ALCSeq *seq, u32 track);
 u32 __readVarLen(ALCSeq *seq,u32 track);
 
+#ifndef PLATFORM_N64
+static void seqNew(ALCSeq *seq, u8 *ptr, u8 *end);
+
 void n_alCSeqNew(ALCSeq *seq, u8 *ptr)
+{
+	seqNew(seq, ptr, NULL);
+}
+
+static void seqNew(ALCSeq *seq, u8 *ptr, u8 *end)
+#else
+void n_alCSeqNew(ALCSeq *seq, u8 *ptr)
+#endif
 {
 	u32 i, tmpOff, flagTmp;
 
 	/* load the seqence pointed to by ptr   */
 	seq->base = (ALCMidiHdr*)ptr;
+#ifndef PLATFORM_N64
+	seq->end = end;
+	seq->bad = 0;
+#endif
 	seq->validTracks = 0;
 	seq->lastDeltaTicks = 0;
 	seq->lastTicks = 0;
@@ -95,6 +111,64 @@ void n_alCSeqNew(ALCSeq *seq, u8 *ptr)
 #endif
 }
 
+#ifndef PLATFORM_N64
+/**
+ * n_alCSeqNew() for a sequence of len bytes in a buffer with 16 bytes to spare
+ * past them, every read of which then stays inside that: a read that would
+ * leave it ends the sequence (AL_SEQ_END_EVT)
+ * instead. False, and nothing to play, when its header already points past
+ * its end.
+ *
+ * The cartridge reads whatever its pointers say: a loop's jump back is a
+ * 32-bit offset from where it stands, and a bad one (or bad data) lands on
+ * the N64 in other RAM. Here it lands outside the process: a crash in
+ * __getTrackByte() reading 0xffffffffffffffff on a GoldenEye Arenas match's
+ * death tune (F3 20261010-224719, sequence 513).
+ */
+s32 n_alCSeqNewBounded(ALCSeq *seq, u8 *ptr, u32 len)
+{
+	const ALCMidiHdr *hdr = (const ALCMidiHdr *)ptr;
+	s32 i;
+
+	if (len < sizeof(ALCMidiHdr) || hdr->division == 0) {
+		return false;
+	}
+
+	for (i = 0; i < 16; i++) {
+		if (hdr->trackOffset[i] && (hdr->trackOffset[i] < sizeof(ALCMidiHdr) || hdr->trackOffset[i] >= len)) {
+			return false;
+		}
+	}
+
+	// the stock reader takes one more delta after the last track's end, past
+	// the data: a few bytes of the buffer's slack are fair game (seqPlay()'s
+	// buffer has 0x40 past the data at least)
+	seqNew(seq, ptr, ptr + len + 16);
+
+	return !seq->bad;
+}
+
+/** Whether len bytes from p lie inside the sequence (always, unchecked). */
+static bool seqInside(ALCSeq *seq, const u8 *p, u32 len)
+{
+	if (seq->end == NULL) {
+		return true;
+	}
+
+	if (p >= (const u8 *)seq->base && p <= seq->end && len <= (u32)(seq->end - p)) {
+		return true;
+	}
+
+	if (!seq->bad) {
+		seq->bad = 1;
+		sysLogPrintf(LOG_WARNING, "music: player %d's sequence read %td bytes from its start, outside its %td; it ends there",
+				seqInstanceIndex(seq), p - (const u8 *)seq->base, seq->end - (const u8 *)seq->base);
+	}
+
+	return false;
+}
+#endif
+
 void n_alCSeqNextEvent(ALCSeq *seq, N_ALEvent *evt, s32 arg2)
 {
 	u32 i;
@@ -115,7 +189,27 @@ void n_alCSeqNextEvent(ALCSeq *seq, N_ALEvent *evt, s32 arg2)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// no track left to read (firstTrack is then never set), or a read that
+	// left the sequence: it ends
+	if (seq->bad || firstTime == 0xffffffff) {
+		seq->validTracks = 0;
+		evt->type = AL_SEQ_END_EVT;
+		evt->msg.midi.ticks = 0;
+		seq->lastDeltaTicks = 0;
+		seq->deltaFlag = 1;
+		return;
+	}
+#endif
+
 	__n_alCSeqGetTrackEvent(seq, firstTrack, evt, arg2);
+
+#ifndef PLATFORM_N64
+	if (seq->bad) {
+		seq->validTracks = 0;
+		evt->type = AL_SEQ_END_EVT;
+	}
+#endif
 
 	evt->msg.midi.ticks = firstTime;
 	seq->lastTicks += firstTime;
@@ -173,6 +267,12 @@ u32 __n_alCSeqGetTrackEvent(ALCSeq *seq, u32 track, N_ALEvent *event, s32 arg3)
 			event->type = AL_CSP_LOOPSTART;
 		} else if (type == AL_CMIDI_LOOPEND_CODE) {
 			tmpPtr = seq->curLoc[track];
+#ifndef PLATFORM_N64
+			if (!seqInside(seq, tmpPtr, 6)) {
+				event->type = AL_SEQ_END_EVT;
+				return 0;
+			}
+#endif
 			loopCt = *tmpPtr++;
 			curLpCt = *tmpPtr;
 
@@ -189,6 +289,13 @@ u32 __n_alCSeqGetTrackEvent(ALCSeq *seq, u32 track, N_ALEvent *event, s32 arg3)
 				offset += (*tmpPtr++) << 16;
 				offset += (*tmpPtr++) << 8;
 				offset += *tmpPtr++;
+#ifndef PLATFORM_N64
+				if (seq->end && offset > (u32)(tmpPtr - (u8 *)seq->base)) {
+					seqInside(seq, (u8 *)seq->base - 1, 1);
+					event->type = AL_SEQ_END_EVT;
+					return 0;
+				}
+#endif
 				seq->curLoc[track] = tmpPtr - offset;
 #ifndef PLATFORM_N64
 				if (curLpCt == 0xff) {
@@ -273,6 +380,9 @@ void n_alCSeqNewMarker(ALCSeq *seq, ALCSeqMarker *m, u32 ticks)
 	s32 i;
 
 	n_alCSeqNew(&tempSeq, (u8*)seq->base);
+#ifndef PLATFORM_N64
+	tempSeq.end = seq->end;
+#endif
 
 	do {
 		m->validTracks    = tempSeq.validTracks;
@@ -304,6 +414,9 @@ void func00039718(ALCSeq *seq, ALCSeqMarker *m, u32 ticks, u32 arg3)
 	ALCSeqMarker m2;
 
 	n_alCSeqNew(&tempSeq, (u8*)seq->base);
+#ifndef PLATFORM_N64
+	tempSeq.end = seq->end;
+#endif
 
 	for (j = 0; j < ticks; j++) {
 		m[j].lastTicks = 0;
@@ -341,6 +454,44 @@ void func00039718(ALCSeq *seq, ALCSeqMarker *m, u32 ticks, u32 arg3)
 u8 __getTrackByte(ALCSeq *seq, u32 track)
 {
 	u8 theByte;
+
+#ifndef PLATFORM_N64
+	// a read outside a bounded sequence (n_alCSeqNewBounded()) reads a zero,
+	// and the event it was part of becomes the sequence's end
+	if (seq->bad) {
+		return 0;
+	}
+
+	if (seq->end) {
+		if (seq->curBULen[track]) {
+			if (!seqInside(seq, seq->curBUPtr[track], 1)) {
+				return 0;
+			}
+		} else if (!seqInside(seq, seq->curLoc[track], 1)) {
+			return 0;
+		} else if (*seq->curLoc[track] == AL_CMIDI_BLOCK_CODE) {
+			const u8 *code = seq->curLoc[track];
+
+			if (!seqInside(seq, code, 2)) {
+				return 0;
+			}
+
+			if (code[1] != AL_CMIDI_BLOCK_CODE) {
+				// a backup: a copy of len bytes from further back
+				const u32 backup = ((u32)code[1] << 8) + code[2] + 4;
+
+				if (!seqInside(seq, code, 4)) {
+					return 0;
+				}
+
+				if (backup > (u32)(code + 4 - (const u8 *)seq->base)) {
+					seqInside(seq, (const u8 *)seq->base - 1, 1);
+					return 0;
+				}
+			}
+		}
+	}
+#endif
 
 	if (seq->curBULen[track]) {
 		theByte = *seq->curBUPtr[track];
