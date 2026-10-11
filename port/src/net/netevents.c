@@ -119,6 +119,7 @@ struct netevsure {
 	u16 len;
 	u32 tick;
 	u32 life;    // ticks it is worth catching up on (an explosion's burn; 0 a hit)
+	u8 once;     // a hit on a sim or a guard: one copy only (its flinch; a player's hit has its red flash)
 	u8 bytes[NETEV_SUREMAX];
 };
 
@@ -474,6 +475,7 @@ static void netWriteNormal(struct netbuf *b, const struct coord *c)
  */
 extern struct explosiontype g_ExplosionTypes[];
 static u32 s_SureLife = 0; // netEvExplosion: the burn of the explosion being recorded
+static s32 s_SureOnce = 0; // netEvChrDamage: the hit being recorded goes once
 
 // The host records the match's events even with nobody to send them to yet
 // (an explosion a joiner may still see burning)
@@ -514,6 +516,8 @@ static void netEvEnd(struct netbuf *b, s32 type, s32 target, s32 exclude)
 		u->len = (u16)len;
 		u->tick = g_NetTick;
 		u->life = 0;
+		u->once = (u8)s_SureOnce;
+		s_SureOnce = 0;
 		memcpy(u->bytes, s_One, len);
 
 		if (type == NETEV_EXPLOSION) {
@@ -777,6 +781,12 @@ void netEvChrDamage(struct chrdata *chr, struct prop *aprop, s32 hitpart, s32 da
 		snprintf(s_Detail, sizeof(s_Detail), "victim %s attacker %s hitpart %d", netRefText(chr->prop, v, sizeof(v)),
 				netRefText(aprop, a, sizeof(a)), hitpart);
 	}
+
+	// a blast hits each chr in it every tick of its burn (90 000 hits in a
+	// three-minute rocket match): only a player's hit, whose machine shows
+	// its red flash and hears its grunt, is worth a second copy; a lost
+	// copy of a sim's is a flinch the next hit makes
+	s_SureOnce = chr->prop->type != PROPTYPE_PLAYER;
 
 	netEvBegin(&b, NETEV_CHRDAMAGE);
 	netWriteRef(&b, chr->prop);
@@ -1255,7 +1265,7 @@ static s32 netEvSureDue(const struct netevsure *u)
 		return age == 0 || age == 2 || age == 5;
 	}
 
-	return age == 0 || age == 3;
+	return age == 0 || (age == 3 && !u->once);
 }
 
 static s32 netEvSurePending(void)
