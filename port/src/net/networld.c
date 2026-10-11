@@ -1234,6 +1234,6 @@ static void netWorldMarkCensus(s32 *count, f64 *sum)
 
 static void netWorldMarksLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: world client %s (tick %u): the host's marks put %u, gone %u, no room %u; own shots' marks %u, swapped for the host's %u, held now %d",
+	sysLogPrintf(LOG_NOTE, "net: marks client %s (tick %u): the host's marks put %u, gone %u, no room %u; own shots' marks %u, swapped for the host's %u, held now %d",
 			why, g_NetTick, s_ClMarksPut, s_ClMarksGone, s_ClMarksFull, s_ClOwnMade, s_ClOwnSwapped, s_OwnN);
 }
