@@ -1873,3 +1873,153 @@ Gfx *wallhit0f141814(Gfx *gdl, s32 arg1)
 {
 	return gdl;
 }
+
+#ifndef PLATFORM_N64
+#include <stdlib.h>
+#include <string.h>
+
+static s32 wallhitNetCmp(const void *a, const void *b)
+{
+	const struct wallhitnet *x = a;
+	const struct wallhitnet *y = b;
+
+	return x->frame < y->frame ? -1 : x->frame > y->frame ? 1 : 0;
+}
+
+/**
+ * Netplay (networld.c): the settled marks on the bg, oldest first, at most
+ * max of them (the newest kept). Nothing on a prop or a chr (which move or
+ * go), nothing fading or still spreading
+ */
+s32 wallhitNetList(struct wallhitnet *out, s32 max)
+{
+	s32 n = 0;
+	s32 i;
+	s32 j;
+
+	for (i = 0; i < g_WallhitsMax && g_Wallhits; i++) {
+		struct wallhit *w = &g_Wallhits[i];
+		struct wallhitnet *o;
+
+		if (!w->inuse || w->fading || w->objprop || w->chrprop || w->vertices2 || w->timermax) {
+			continue;
+		}
+
+		if (n == max) {
+			// full: the oldest out
+			s32 old = 0;
+
+			for (j = 1; j < n; j++) {
+				if (out[j].frame < out[old].frame) {
+					old = j;
+				}
+			}
+
+			if (out[old].frame >= w->createdframe) {
+				continue;
+			}
+
+			o = &out[old];
+		} else {
+			o = &out[n++];
+		}
+
+		o->relpos[0] = w->relpos.x;
+		o->relpos[1] = w->relpos.y;
+		o->relpos[2] = w->relpos.z;
+		o->room = w->roomnum;
+		o->texnum = w->texturenum;
+		o->bits = (w->xlu ? 1 : 0) | (w->unk6f_01 ? 2 : 0);
+		o->mtxindex = (s8)w->mtxindex;
+
+		for (j = 0; j < 4; j++) {
+			o->xyz[j][0] = w->vertices[j].x;
+			o->xyz[j][1] = w->vertices[j].y;
+			o->xyz[j][2] = w->vertices[j].z;
+			o->st[j][0] = w->vertices[j].s;
+			o->st[j][1] = w->vertices[j].t;
+			memcpy(o->base[j], &w->basecolours[j], 4);
+			memcpy(o->final[j], &w->finalcolours[j], 4);
+		}
+
+		o->frame = w->createdframe;
+	}
+
+	qsort(out, n, sizeof(*out), wallhitNetCmp);
+
+	return n;
+}
+
+/**
+ * Netplay: a mark the host had, put on this machine's bg as the host made it
+ * (wallhitCreateWith20Args' list and counter steps, its data as it is)
+ */
+bool wallhitNetAdd(const struct wallhitnet *w)
+{
+	struct wallhit *wallhit;
+	s32 j;
+
+	if (!g_FreeWallhits || w->room <= 0 || w->room >= g_Vars.roomcount
+			|| g_WallhitCountsPerRoom[w->room] >= wallhitMaxBgPerRoom()
+			|| (w->texnum > WALLHITTEX_METAL && !geImpactIsGe(w->texnum))) {
+		return false;
+	}
+
+	g_WallhitCountsPerRoom[w->room]++;
+	g_WallhitsNumFree--;
+	g_WallhitsNumSettled++;
+
+	if (wallhitTexType(w->texnum) == WALLHITTYPE_BLOOD) {
+		g_WallhitsNumBloodSettled++;
+	} else {
+		g_WallhitsNumNonbloodSettled++;
+	}
+
+	wallhit = g_FreeWallhits;
+	g_FreeWallhits = wallhit->globalnext;
+	wallhit->globalnext = g_ActiveWallhits;
+	g_ActiveWallhits = wallhit;
+
+	wallhit->xlu = (w->bits & 1) != 0;
+
+	if (wallhit->xlu) {
+		wallhit->localnext = g_Rooms[w->room].xluwallhits;
+		g_Rooms[w->room].xluwallhits = wallhit;
+	} else {
+		wallhit->localnext = g_Rooms[w->room].opawallhits;
+		g_Rooms[w->room].opawallhits = wallhit;
+	}
+
+	wallhit->objprop = NULL;
+	wallhit->chrprop = NULL;
+	wallhit->relpos.x = w->relpos[0];
+	wallhit->relpos.y = w->relpos[1];
+	wallhit->relpos.z = w->relpos[2];
+	wallhit->mtxindex = (u8)w->mtxindex;
+	wallhit->unk6f_01 = (w->bits & 2) != 0;
+	wallhit->roomnum = w->room;
+	wallhit->inuse = true;
+	wallhit->fading = false;
+	wallhit->texturenum = w->texnum;
+	wallhit->vertices2 = NULL;
+	wallhit->timermax = 0;
+	wallhit->timercur = 0;
+	wallhit->expanding = true;
+	wallhit->timerspeed = 8;
+	wallhit->createdframe = g_Vars.lvframenum;
+	wallhit->unk6f_05 = false;
+
+	for (j = 0; j < 4; j++) {
+		wallhit->vertices[j].x = w->xyz[j][0];
+		wallhit->vertices[j].y = w->xyz[j][1];
+		wallhit->vertices[j].z = w->xyz[j][2];
+		wallhit->vertices[j].s = w->st[j][0];
+		wallhit->vertices[j].t = w->st[j][1];
+		wallhit->vertices[j].colour = j * 4;
+		memcpy(&wallhit->basecolours[j], w->base[j], 4);
+		memcpy(&wallhit->finalcolours[j], w->final[j], 4);
+	}
+
+	return true;
+}
+#endif

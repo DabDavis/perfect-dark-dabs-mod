@@ -115,6 +115,7 @@ static inline void netStoreSetTick(u8 *s, u32 t) { s[4] = (u8)t; s[5] = (u8)(t >
 #define NETOBJ_EMBEDDED   0x10
 #define NETOBJ_DELISTED   0x20 // (protocol 24) a setup object out of the world (disable_object)
 #define NETOBJ_MOUNTED    0x40 // (protocol 28) somebody is in it: GoldenEye's tank driven
+#define NETOBJ_LENSGONE   0x80 // (protocol 29) a camera's lens shot out (cctvHandleLensShot)
 
 // DOOR record byte 4
 #define NETDOOR_ENABLED   0x01

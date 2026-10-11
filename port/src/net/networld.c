@@ -13,6 +13,7 @@
 #include "game/propobj.h"
 #include "game/setuputils.h"
 #include "game/wallhit.h"
+#include "net/nettransport.h"
 #include "net/net.h"
 #include "net/netsnap.h"
 #include "netint.h"
@@ -70,6 +71,8 @@ static struct doorobj **s_Doors = NULL;     // setup doors with a windowed door'
 static s32 s_NumDoors = 0;
 static struct defaultobj **s_Basic = NULL;  // setup basic objects (the wreck's deform targets)
 static s32 s_NumBasic = 0;
+static struct defaultobj **s_Cams = NULL;   // setup cameras (the census's lenses)
+static s32 s_NumCams = 0;
 
 static u32 s_Deforms = 0;    // objDeform calls the host made / a client applied
 static u32 s_WreckAt[NETWORLD_MAXWRECK];
@@ -119,6 +122,7 @@ static f64 s_ClLagMax = 0;
 static u32 s_ClDoorGlass = 0;
 static u32 s_ClDeforms = 0;      // objDeform calls made from records
 static u32 s_ClUndeforms = 0;    // ... and objects made whole again
+static u32 s_ClLenses = 0;       // camera lenses shot out from records
 
 static void put16(u8 *p, u32 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 static u16 get16(const u8 *p) { return (u16)(p[0] | (p[1] << 8)); }
@@ -144,15 +148,19 @@ static f32 getf(const u8 *p)
 	return f == f && f < 1048576.f && f > -1048576.f ? f : 0.f;
 }
 
+static void netWorldMarkCensus(s32 *count, f64 *sum);
+
 static void netWorldFreeLists(void)
 {
 	free(s_Glass);
 	free(s_Doors);
 	free(s_Basic);
+	free(s_Cams);
 	s_Glass = NULL;
 	s_Doors = NULL;
 	s_Basic = NULL;
-	s_NumGlass = s_NumDoors = s_NumBasic = 0;
+	s_Cams = NULL;
+	s_NumGlass = s_NumDoors = s_NumBasic = s_NumCams = 0;
 }
 
 static s32 netWorldDoorIsWindowed(struct doorobj *door)
@@ -285,7 +293,7 @@ void netWorldStageStart(void)
 	s_HaveApplied = 0;
 	s_ClGlassFresh = s_ClGlassQuiet = s_ClGlassBack = s_ClStorms = s_ClStormsLate = s_ClGas = s_ClBlocks = 0;
 	s_ClLagSum = s_ClLagMax = 0;
-	s_ClDoorGlass = s_ClDeforms = s_ClUndeforms = 0;
+	s_ClDoorGlass = s_ClDeforms = s_ClUndeforms = s_ClLenses = 0;
 
 	if (g_NetMode == NETMODE_NONE || !cmd) {
 		return;
@@ -294,8 +302,9 @@ void netWorldStageStart(void)
 	s_Glass = calloc(NETWORLD_MAXLIST, sizeof(*s_Glass));
 	s_Doors = calloc(NETWORLD_MAXLIST, sizeof(*s_Doors));
 	s_Basic = calloc(NETWORLD_MAXLIST, sizeof(*s_Basic));
+	s_Cams = calloc(NETWORLD_MAXLIST, sizeof(*s_Cams));
 
-	if (!s_Glass || !s_Doors || !s_Basic) {
+	if (!s_Glass || !s_Doors || !s_Basic || !s_Cams) {
 		netWorldFreeLists();
 		return;
 	}
@@ -313,6 +322,10 @@ void netWorldStageStart(void)
 					|| type == OBJTYPE_SAFE || type == OBJTYPE_DEBRIS || type == OBJTYPE_AMMOCRATE
 					|| type == OBJTYPE_MULTIAMMOCRATE) && s_NumBasic < NETWORLD_MAXLIST) {
 			s_Basic[s_NumBasic++] = obj;
+		}
+
+		if (type == OBJTYPE_CCTV && s_NumCams < NETWORLD_MAXLIST) {
+			s_Cams[s_NumCams++] = obj;
 		}
 
 		cmd += setupGetCmdLength(cmd);
@@ -358,11 +371,14 @@ void netWorldNoteDeform(void)
 	s_Deforms++;
 }
 
+static union modelrwdata *netWorldLensToggle(struct defaultobj *obj);
+
 static void netWorldWreck(s32 phase)
 {
 	s32 broke = 0;
 	s32 doors = 0;
 	s32 deformed = 0;
+	s32 lenses = 0;
 	s32 i;
 	struct coord at = {0, 0, 0};
 	s32 haveat = 0;
@@ -410,6 +426,14 @@ static void netWorldWreck(s32 phase)
 		}
 	}
 
+	// every other camera's lens shot out (even, then odd)
+	for (i = phase & 1; i < s_NumCams; i += 2) {
+		if (s_Cams[i]->prop && s_Cams[i]->prop->obj == s_Cams[i] && netWorldLensToggle(s_Cams[i]) && !netWorldLensOut(s_Cams[i])) {
+			cctvHandleLensShot(s_Cams[i]);
+			lenses++;
+		}
+	}
+
 	if (haveat) {
 		nbombCreateStorm(&at, NULL);
 
@@ -419,8 +443,8 @@ static void netWorldWreck(s32 phase)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: world wreck %d at tick %u: glass %d broken, windowed doors %d, objects crumpled %d, storm %d, gas %d",
-			phase, g_NetTick, broke, doors, deformed, haveat, haveat && phase == 0 && g_EnvTransitionFrom && g_EnvTransitionTo);
+	sysLogPrintf(LOG_NOTE, "net: world wreck %d at tick %u: glass %d broken, windowed doors %d, objects crumpled %d, lenses %d, storm %d, gas %d",
+			phase, g_NetTick, broke, doors, deformed, lenses, haveat, haveat && phase == 0 && g_EnvTransitionFrom && g_EnvTransitionTo);
 }
 
 void netWorldCensus(const char *why)
@@ -430,6 +454,8 @@ void netWorldCensus(const char *why)
 	s32 doorgone = 0;
 	s32 storms = 0;
 	s32 deformed = 0;
+	s32 lenses = 0;
+	s32 cams = 0;
 	s32 i;
 	char map[NETWORLD_MAXLIST / 8 + 1];
 	s32 m = 0;
@@ -459,10 +485,23 @@ void netWorldCensus(const char *why)
 		deformed += netWorldObjDeformed(s_Basic[i]);
 	}
 
+	for (i = 0; i < s_NumCams; i++) {
+		lenses += netWorldLensOut(s_Cams[i]);
+		cams += netWorldLensToggle(s_Cams[i]) != NULL;
+	}
+
 	sysLogPrintf(LOG_NOTE, "net: world census %s %s tick %u: glass %s", g_NetMode == NETMODE_SERVER ? "host" : "client", why, g_NetTick, map);
-	sysLogPrintf(LOG_NOTE, "net: world census %s %s tick %u: glass broken %d/%d, door glass broken %d/%d, objects deformed %d/%d, deforms %u, storms %d, gas %d (timer %.0f)",
+	{
+		s32 marks;
+		f64 sum;
+
+		netWorldMarkCensus(&marks, &sum);
+		sysLogPrintf(LOG_NOTE, "net: world census %s %s tick %u: marks on the walls and floors %d (places summed %.0f)",
+				g_NetMode == NETMODE_SERVER ? "host" : "client", why, g_NetTick, marks, sum);
+	}
+	sysLogPrintf(LOG_NOTE, "net: world census %s %s tick %u: glass broken %d/%d, door glass broken %d/%d, objects deformed %d/%d, lenses out %d/%d, deforms %u, storms %d, gas %d (timer %.0f)",
 			g_NetMode == NETMODE_SERVER ? "host" : "client", why, g_NetTick, glass, s_NumGlass, doorgone, windowed,
-			deformed, s_NumBasic, s_Deforms, storms, g_GasReleaseTimer240 > 0, (f64)g_GasReleaseTimer240);
+			deformed, s_NumBasic, lenses, cams, s_Deforms, storms, g_GasReleaseTimer240 > 0, (f64)g_GasReleaseTimer240);
 }
 
 // netTickBegin: the host's test wrecks, before the tick runs
@@ -815,7 +854,256 @@ u8 netWorldClientDeform(struct defaultobj *obj, u8 rec, u8 applied)
 
 void netWorldLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: world client %s (tick %u): blocks that changed something %u (lag mean %.1f max %.1f ticks), glass broken as it broke %u, as it stood %u, back %u, storms %u (part way %u), gas %u, door panes %u, deforms from records %u (made whole %u)",
+	sysLogPrintf(LOG_NOTE, "net: world client %s (tick %u): blocks that changed something %u (lag mean %.1f max %.1f ticks), glass broken as it broke %u, as it stood %u, back %u, storms %u (part way %u), gas %u, door panes %u, camera lenses %u, deforms from records %u (made whole %u)",
 			why, g_NetTick, s_ClBlocks, s_ClBlocks ? s_ClLagSum / s_ClBlocks : 0.0, s_ClLagMax, s_ClGlassFresh, s_ClGlassQuiet, s_ClGlassBack,
-			s_ClStorms, s_ClStormsLate, s_ClGas, s_ClDoorGlass, s_ClDeforms, s_ClUndeforms);
+			s_ClStorms, s_ClStormsLate, s_ClGas, s_ClDoorGlass, s_ClLenses, s_ClDeforms, s_ClUndeforms);
+}
+
+/*
+ * (protocol 29) A camera's lens shot out (CCTV, Perfect Dark's and
+ * GoldenEye's, whose ROM model keeps the lens's toggle): OBJ record byte 0
+ * bit 0x80, so every client and a joiner see it out. The camera's watching
+ * is the host's (cctvTick); a client only draws it
+ */
+static union modelrwdata *netWorldLensToggle(struct defaultobj *obj)
+{
+	struct modelnode *node;
+
+	if (!obj || obj->type != OBJTYPE_CCTV || !obj->model || !obj->model->definition || !obj->model->rwdatas) {
+		return NULL;
+	}
+
+	node = modelGetPart(obj->model->definition, MODELPART_CCTV_0003);
+
+	return node ? modelGetNodeRwData(obj->model, node) : NULL;
+}
+
+s32 netWorldLensOut(struct defaultobj *obj)
+{
+	union modelrwdata *rw = netWorldLensToggle(obj);
+
+	return rw && !rw->toggle.visible;
+}
+
+void netWorldClientLens(struct defaultobj *obj, s32 out, s32 fresh)
+{
+	union modelrwdata *rw = netWorldLensToggle(obj);
+
+	if (!rw || !obj->prop || (rw->toggle.visible != 0) == !out) {
+		return;
+	}
+
+	if (!out) {
+		rw->toggle.visible = true; // the host's camera is whole again (a match's regenerated one)
+		return;
+	}
+
+	if (fresh) {
+		cctvHandleLensShot(obj); // its glass, as the host's shot made it
+	} else {
+		wallhitsFreeByProp(obj->prop, 1);
+		rw->toggle.visible = false;
+	}
+
+	s_ClLenses++;
+}
+
+/*
+ * (protocol 29) The marks on the walls and floors - bullet holes, scorches,
+ * splats on the bg - as the host has them, to a joiner once (MARKS on the
+ * bulk channel, beside its first EVENTS): the settled ones, oldest first,
+ * as many as the pool keeps. Live play goes on making its own as before;
+ * marks on props and chrs, which move or go, are left out
+ */
+#define NW_MARKMAX   1024
+#define NW_MARKBYTES 90
+#define NW_MARKMSG   16384
+
+static struct wallhitnet *s_Marks = NULL; // [NW_MARKMAX]
+static u32 s_MarksSent = 0;
+static u32 s_MarksBytes = 0;
+static u32 s_MarksGot = 0;
+static u32 s_MarksPut = 0;
+
+static s32 netWorldMarksAlloc(void)
+{
+	if (!s_Marks) {
+		s_Marks = calloc(NW_MARKMAX, sizeof(*s_Marks));
+	}
+
+	return s_Marks != NULL;
+}
+
+static void netWorldMarkWrite(struct netbuf *b, const struct wallhitnet *w)
+{
+	s32 j;
+
+	netBufWriteU32(b, *(const u32 *)&w->relpos[0]);
+	netBufWriteU32(b, *(const u32 *)&w->relpos[1]);
+	netBufWriteU32(b, *(const u32 *)&w->relpos[2]);
+	netBufWriteS16(b, w->room);
+	netBufWriteU8(b, w->texnum);
+	netBufWriteU8(b, w->bits);
+	netBufWriteS8(b, w->mtxindex);
+
+	for (j = 0; j < 4; j++) {
+		netBufWriteS16(b, w->xyz[j][0]);
+		netBufWriteS16(b, w->xyz[j][1]);
+		netBufWriteS16(b, w->xyz[j][2]);
+		netBufWriteS16(b, w->st[j][0]);
+		netBufWriteS16(b, w->st[j][1]);
+		netBufWriteBytes(b, w->base[j], 4);
+		netBufWriteBytes(b, w->final[j], 4);
+	}
+
+	netBufWriteU8(b, 0); // to NW_MARKBYTES
+}
+
+static void netWorldMarkRead(struct netbuf *b, struct wallhitnet *w)
+{
+	s32 j;
+	u32 v;
+
+	for (j = 0; j < 3; j++) {
+		v = netBufReadU32(b);
+		memcpy(&w->relpos[j], &v, 4);
+	}
+
+	w->room = netBufReadS16(b);
+	w->texnum = netBufReadU8(b);
+	w->bits = netBufReadU8(b);
+	w->mtxindex = netBufReadS8(b);
+
+	for (j = 0; j < 4; j++) {
+		w->xyz[j][0] = netBufReadS16(b);
+		w->xyz[j][1] = netBufReadS16(b);
+		w->xyz[j][2] = netBufReadS16(b);
+		w->st[j][0] = netBufReadS16(b);
+		w->st[j][1] = netBufReadS16(b);
+		netBufReadBytes(b, w->base[j], 4);
+		netBufReadBytes(b, w->final[j], 4);
+	}
+
+	netBufReadU8(b);
+	w->frame = 0;
+}
+
+// Host: a joiner's view, its first EVENTS going (netEventsHostCatchUp)
+void netWorldHostSendMarks(s32 view)
+{
+	static u8 msg[NW_MARKMSG];
+	s32 n;
+	s32 i = 0;
+	s32 msgs = 0;
+	u32 bytes = 0;
+
+	if (g_NetMode != NETMODE_SERVER || !netWorldMarksAlloc()) {
+		return;
+	}
+
+	n = wallhitNetList(s_Marks, NW_MARKMAX);
+
+	while (i < n) {
+		struct netbuf b;
+		u8 *countp;
+		s32 count = 0;
+
+		netBufInitWrite(&b, msg, sizeof(msg));
+		netBufWriteU8(&b, NETMSG_MARKS);
+		netBufWriteU32(&b, netSessionMatchId());
+		countp = netBufReserve(&b, 2);
+
+		while (i < n && netBufLen(&b) + NW_MARKBYTES <= NW_MARKMSG) {
+			if (s_Marks[i].relpos[0] == s_Marks[i].relpos[0] && s_Marks[i].relpos[1] == s_Marks[i].relpos[1]
+					&& s_Marks[i].relpos[2] == s_Marks[i].relpos[2]) {
+				netWorldMarkWrite(&b, &s_Marks[i]);
+				count++;
+			}
+
+			i++;
+		}
+
+		if (!countp || !netBufOk(&b)) {
+			break;
+		}
+
+		countp[0] = (u8)count;
+		countp[1] = (u8)(count >> 8);
+		netSessionSendSlot(view, NET_CHAN_BULK, msg, netBufLen(&b), NET_SEND_RELIABLE);
+		msgs++;
+		bytes += netBufLen(&b);
+		s_MarksSent += count;
+	}
+
+	s_MarksBytes += bytes;
+	sysLogPrintf(LOG_NOTE, "net: world marks to view %d at tick %u: %d of the host's marks on the walls and floors, %d messages, %u bytes",
+			view, g_NetTick, n, msgs, bytes);
+}
+
+// Client: MARKS
+void netWorldClientOnMarks(const u8 *data, s32 len)
+{
+	struct netbuf b;
+	struct wallhitnet w;
+	s32 n;
+	s32 i;
+	s32 put = 0;
+
+	if (g_NetMode != NETMODE_CLIENT || !netSessionMatchLoading()) {
+		return;
+	}
+
+	netBufInitRead(&b, data + 1, len - 1);
+
+	if (netBufReadU32(&b) != netSessionMatchId()) {
+		return;
+	}
+
+	n = netBufReadU16(&b);
+
+	if (!netBufOk(&b) || netBufRemaining(&b) != n * NW_MARKBYTES) {
+		sysLogPrintf(LOG_WARNING, "net: a MARKS message that did not decode (%d bytes)", len);
+		return;
+	}
+
+	for (i = 0; i < n; i++) {
+		netWorldMarkRead(&b, &w);
+
+		if (!netBufOk(&b)) {
+			return;
+		}
+
+		// off the wire: a place inside the world (a NaN fails it too)
+		if (!(w.relpos[0] > -1048576.f && w.relpos[0] < 1048576.f && w.relpos[1] > -1048576.f && w.relpos[1] < 1048576.f
+					&& w.relpos[2] > -1048576.f && w.relpos[2] < 1048576.f)) {
+			continue;
+		}
+
+		put += wallhitNetAdd(&w) ? 1 : 0;
+	}
+
+	s_MarksGot += n;
+	s_MarksPut += put;
+	sysLogPrintf(LOG_NOTE, "net: world marks from the host: %d in this message, %d put on the walls (%u of %u so far)", n, put, s_MarksPut, s_MarksGot);
+}
+
+// The census's marks: how many, and a sum of their places (a placement check)
+static void netWorldMarkCensus(s32 *count, f64 *sum)
+{
+	s32 n;
+	s32 i;
+
+	*count = 0;
+	*sum = 0;
+
+	if (!netWorldMarksAlloc()) {
+		return;
+	}
+
+	n = wallhitNetList(s_Marks, NW_MARKMAX);
+	*count = n;
+
+	for (i = 0; i < n; i++) {
+		*sum += (s32)s_Marks[i].relpos[0] + (s32)s_Marks[i].relpos[1] + (s32)s_Marks[i].relpos[2];
+	}
 }

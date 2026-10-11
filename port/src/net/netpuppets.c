@@ -1221,6 +1221,11 @@ static void netPupObj(struct netpup *u, struct prop *prop, const struct netentst
 		obj->damage = s->damage;
 	}
 
+	// (protocol 29) a camera's lens shot out on the host
+	if (obj->type == OBJTYPE_CCTV) {
+		netWorldClientLens(obj, (s->flags & NETOBJ_LENSGONE) != 0, u->havestate);
+	}
+
 	// GoldenEye's tank (protocol 23): one this machine's player drives is
 	// its own walk's, put under him every tick (geTankTick) and squared with
 	// the host's through the local-player block; posed from the record it

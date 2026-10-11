@@ -253,6 +253,10 @@ void netEntsHostNoteDeform(struct defaultobj *obj, s32 level); // netents.c: obj
 u8 netWorldClientDeform(struct defaultobj *obj, u8 rec, u8 applied); // an OBJ/DOOR record's NETDEFORM_* byte
 void netWorldClientDoorGlass(struct doorobj *door, s32 fresh);       // a DOOR record's NETDOOR_GLASSGONE
 void netWorldLog(const char *why);
+s32 netWorldLensOut(struct defaultobj *obj);  // a camera's lens shot out (OBJ NETOBJ_LENSGONE)
+void netWorldClientLens(struct defaultobj *obj, s32 out, s32 fresh);
+void netWorldHostSendMarks(s32 view);  // a joiner: the host's marks on the walls and floors (MARKS)
+void netWorldClientOnMarks(const u8 *data, s32 len);
 
 // netpuppets.c
 void netPuppetsStageStart(void);  // the client's match stage began (after netEntsStageStart)

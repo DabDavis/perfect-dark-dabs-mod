@@ -197,6 +197,7 @@
 // protocol 29: the events split by class onto channels of their own (netevents.c)
 #define NETMSG_EVFX          25 // host -> client, NET_CHAN_EVFX, reliable: as EVENTS
 #define NETMSG_EVSHOT        26 // host -> client, NET_CHAN_EVSHOT, unreliable unsequenced: as EVENTS
+#define NETMSG_MARKS         27 // host -> joiner, NET_CHAN_BULK: the host's marks on the walls and floors (networld.c)
 
 /**
  * Refusal and leave reasons: REFUSE's and LEAVE's code byte, and the u32

@@ -3810,6 +3810,9 @@ static void netClientEvent(const struct netevent *ev)
 		case NETMSG_EVSHOT:
 			netEventsClientOnMsg(ev->data, ev->len);
 			break;
+		case NETMSG_MARKS:
+			netWorldClientOnMarks(ev->data, ev->len);
+			break;
 		default:
 			break;
 		}

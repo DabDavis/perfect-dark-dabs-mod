@@ -15,6 +15,8 @@
 # CENSUS=T has every machine count its world at tick T ("world census"
 # lines), so a late joiner's broken glass, doors, deforms, storms and gas
 # can be held against the host's. Each client logs "events lag by type".
+# MPWEAPONS= the mp weapon set (9,9,9,9,9,9: SMGs; 23 rockets, 22 grenades
+# put explosions in the match).
 set -u
 BIN=$1; LABEL=$2
 SIMS=${SIMS:-24}; SIM=${SIM:-2,75}; PORT=${PORT:-27370}; LATE=${LATE:-25}
@@ -52,7 +54,7 @@ game h 150 "[Mod]\nMissionRespawn=1\n[Net]\nMaxPlayers=12\nJoinInProgress=1\n" -
 else
 game h 150 "[Mod]\nStartArmed=1\n[Net]\nMaxPlayers=12\nJoinInProgress=1\n" --moddir mod_allinone --dedicated --host $PORT \
 	--net-test-host 2 --net-test-stage $STAGE --net-test-sims $SIMS --net-test-timelimit 2 --net-test-scorelimit 100 --net-test-teamscorelimit 400 --rng-seed 7 \
-	--mp-weapons 9,9,9,9,9,9 --net-sim $SIM $TEST &
+	--mp-weapons ${MPWEAPONS:-9,9,9,9,9,9} --net-sim $SIM $TEST &
 fi
 H=$!
 CINI="[Mod]\nStartArmed=1\n"; [ "${MODE:-mp}" = ge ] && CINI=$GEINI

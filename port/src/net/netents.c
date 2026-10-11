@@ -839,6 +839,7 @@ static void netCaptureObj(struct netcap *c, struct prop *prop)
 		if (obj->hidden & OBJHFLAG_PROJECTILE) flags |= NETOBJ_PROJECTILE;
 		if (obj->hidden & OBJHFLAG_EMBEDDED) flags |= NETOBJ_EMBEDDED;
 		if (obj->type == OBJTYPE_TANK && (obj->hidden & OBJHFLAG_MOUNTED)) flags |= NETOBJ_MOUNTED;
+		if (netWorldLensOut(obj)) flags |= NETOBJ_LENSGONE; // (protocol 29)
 
 		st->flags = flags;
 		netCaptureRot(obj->realrot, st->quat);
