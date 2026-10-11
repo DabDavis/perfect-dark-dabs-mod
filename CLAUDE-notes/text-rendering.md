@@ -59,7 +59,17 @@ menu row or dropdown list laid out at full size draws scaled (menu.c's
 and line heights are the caller's to scale. One trap: `text0f15568c()` drops
 a glyph whose *full-size* x is past `viGetWidth()`, so a line laid out near
 the right edge loses glyphs it would have drawn smaller; scale it about its
-end, laying it out leftwards from there (netlobbymenu.c `lobbyText()`). The
+end, laying it out leftwards from there (netlobbymenu.c `lobbyText()`).
+The same check drops a glyph laid out at x <= 0, so a line whose full size
+is longer than the 320 units cannot be drawn in one piece at all, however
+small its scale: the Briefing Room's footer message draws one in pieces
+split at spaces, each laid out within the 320 units and scaled about the
+point that puts it where the last ended (`lobbyTextLong()`). That point is a
+*signed* 12 bits of quarter units in the command (-512 to 511 units; 1020
+wrapped negative and every piece landed on the first), so a later piece is
+laid out further right to keep its point in range, and a line at 75% ends
+about 364 units in. Left-held at 16:9, a glyph past about 345 units on
+screen was cut as well: the footer stays inside the 320. The
 online pages use it for their windows' text, their stock rows and the
 in-match chat (Net.LobbyTextScale, Online Text Size on the Advanced page, 75%
 by default), and the XBLA release's glyphs (XBLA Font) keep their sharpness

@@ -393,6 +393,83 @@ static Gfx *lobbyText(Gfx *gdl, s32 x, s32 y, const char *text, s32 font, u32 co
 	return textRenderProjected(gdl, &x, &y, buf, lobbyChars(font), lobbyFont(font), colour, viGetWidth(), viGetHeight(), 0, 0);
 }
 
+/**
+ * A line at the windows' text size longer than the 320 units the text
+ * renderer keeps its glyphs inside (text0f15568c() drops one laid out past
+ * them, before the scale): drawn in pieces, split at spaces, each scaled
+ * about the point that puts it where the last one ended. That point is a
+ * signed 12 bits of quarter units in G_SETRECTSCALE_EXT (-512 to 511), so a
+ * piece far along is laid out further right, and the line ends where the
+ * furthest point reaches (about 364 units at 75%). Cut to width (as drawn) first; at 100% only what is inside
+ * the 320 units.
+ */
+static Gfx *lobbyTextLong(Gfx *gdl, s32 x, s32 y, const char *text, s32 font, u32 colour, s32 width)
+{
+	char buf[NETLOBBY_MAXCHATTEXT + 64];
+	const s32 pct = lobbyPct();
+	const f32 k = pct / 100.0f;
+	const f32 omax = 508.0f;
+	const s32 lmax = SCREEN_WIDTH_LO - 4;
+	f32 sx = x;
+	char *p;
+
+	if (pct == 100) {
+		return lobbyText(gdl, x, y, text, font, colour, MIN(width, lmax - x));
+	}
+
+	// a piece ending at lmax laid out, scaled about omax, ends here
+	width = MIN(width, (s32)(omax * (1.0f - k) + lmax * k) - x);
+
+	snprintf(buf, sizeof(buf), "%s", text);
+	lobbyFit(buf, sizeof(buf), width, font);
+	p = buf;
+
+	while (*p) {
+		char piece[sizeof(buf)];
+		// as far left as the point allows (under omax), and not left of x
+		const s32 lx0 = MAX(x, (s32)((sx - omax * (1.0f - k)) / k + 1.0f));
+		s32 n = strlen(p);
+		s32 lx = lx0;
+		s32 ly = y;
+		s32 w;
+
+		if (lmax - lx0 < 8) {
+			break;
+		}
+
+		// as much as fits laid out from there, ended after a space where
+		// there is one
+		snprintf(piece, sizeof(piece), "%s", p);
+
+		while (n > 1 && lobbyTextWidthFull(piece, font) > lmax - lx0) {
+			piece[--n] = '\0';
+		}
+
+		if (n < (s32)strlen(p)) {
+			s32 cut = n;
+
+			while (cut > 0 && piece[cut - 1] != ' ') {
+				cut--;
+			}
+
+			if (cut > 0) {
+				n = cut;
+				piece[n] = '\0';
+			}
+		}
+
+		w = lobbyTextWidthFull(piece, font);
+		gDPSetRectScaleEXT(gdl++, k, (sx - k * lx0) / (1.0f - k), y);
+		gdl = textRenderProjected(gdl, &lx, &ly, piece, lobbyChars(font), lobbyFont(font), colour, viGetWidth(), viGetHeight(), 0, 0);
+		sx += w * k;
+		p += n;
+	}
+
+	gDPSetRectScaleEXT(gdl++, 1.0f, 0, 0);
+
+	return gdl;
+}
+
 // the same, its right edge at x2
 static Gfx *lobbyTextRight(Gfx *gdl, s32 x2, s32 y, const char *text, s32 font, u32 colour)
 {
@@ -1003,7 +1080,8 @@ static Gfx *lobbyHeaderBar(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, 
  * (two halves held to the sides met in a seam); the emblem and the name are
  * held left, the information right.
  */
-static Gfx *lobbyChromeDraw(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l, const char *title, const char *info, const char *hints)
+static Gfx *lobbyChromeDraw(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l, const char *title, const char *info,
+		const char *hints, const char *footmsg)
 {
 	struct menudialog *dialog = d->dialog;
 	const u32 alpha = (MIXCOLOUR(dialog, dialog_titlefg)) & 0xff;
@@ -1059,8 +1137,16 @@ static Gfx *lobbyChromeDraw(Gfx *gdl, const struct lobbydraw *d, const struct lo
 	gdl = lobbyText(gdl, titlex, y1 + (h - LOBBY_MDROW) / 2 + 1, title, LOBBYFONT_MD, titlefg, 0);
 	titleend = titlex + lobbyTextWidth(title, LOBBYFONT_MD);
 
-	// the footer's hints, at the foot of the left column
-	if (hints && hints[0]) {
+	// the footer's hints, at the foot of the left column; the page's message
+	// in their place while it has one, in the notices' gold at the windows'
+	// text size (lobbyTextLong()), as wide as the 320 units at any aspect (a
+	// left-held glyph much past them was cut at 16:9)
+	if (footmsg && footmsg[0]) {
+		s_LobbyFullSize = 0;
+		gdl = lobbyTextLong(gdl, LOBBY_MARGIN + 4, l->footery, footmsg, LOBBYFONT_XS, lobbyAlpha(0xffd25a00, alpha),
+				SCREEN_WIDTH_LO - 2 * LOBBY_MARGIN - 4);
+		s_LobbyFullSize = 1;
+	} else if (hints && hints[0]) {
 		gdl = lobbyText(gdl, LOBBY_MARGIN + 4, l->footery, hints, LOBBYFONT_XS, lobbyAlpha(0xc0c0c000, alpha), 0);
 	}
 
@@ -1112,10 +1198,11 @@ static Gfx *lobbyChromeDraw(Gfx *gdl, const struct lobbydraw *d, const struct lo
 }
 
 // the header and the footer at the fonts' own size
-static Gfx *lobbyChrome(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l, const char *title, const char *info, const char *hints)
+static Gfx *lobbyChrome(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l, const char *title, const char *info,
+		const char *hints, const char *footmsg)
 {
 	s_LobbyFullSize = 1;
-	gdl = lobbyChromeDraw(gdl, d, l, title, info, hints);
+	gdl = lobbyChromeDraw(gdl, d, l, title, info, hints, footmsg);
 	s_LobbyFullSize = 0;
 
 	return gdl;
@@ -1640,17 +1727,20 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
  * Where the Briefing Room stands: the lobby busy or what it last said, why
  * the last room picked cannot be joined, or how to use it. No newline.
  */
-static void briefingStatusText(char *out, s32 size)
+/**
+ * The Briefing Room's message, in the footer in the hints' place until the
+ * cursor moves (which clears both): a refused join (the lobby's words, or why
+ * this game cannot join the room picked), the lobby out of reach, the room
+ * closed under this player. The Main Menu Chat is players' lines alone (the
+ * owner, 2026-10-11: "only show actual player chat, not the Rooms: 0 etc.").
+ */
+static const char *briefingFootMessage(void)
 {
-	if (netLobbyBusy()) {
-		snprintf(out, size, "%s", "Asking the lobby...");
-	} else if (netLobbyMessage()[0]) {
-		snprintf(out, size, "%s", netLobbyMessage());
-	} else if (s_BriefingNote[0]) {
-		snprintf(out, size, "%s", s_BriefingNote);
-	} else {
-		snprintf(out, size, "Rooms: %d. Pick one to join. ! = this game can't join it.", netLobbyNumRooms());
+	if (netLobbyMessage()[0]) {
+		return netLobbyMessage();
 	}
+
+	return s_BriefingNote[0] ? s_BriefingNote : NULL;
 }
 
 static const struct netlobbyroomsum *joinTarget(void)
@@ -1942,23 +2032,15 @@ static Gfx *lobbyBriefingRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1,
  * The main menu's chat (the owner, 2026-10-11: "the small bottom right
  * window that says Lobby, let's make that a Main Menu Chat"): everyone
  * signed in, from pdlobbyd's GET /chat, drawn as the Game Lobby draws its
- * room's (lobbyChatLines()), the page's status as its last line. A lobby
- * without it (before pdlobbyd API 4) says so there.
+ * room's (lobbyChatLines()). The chat's lines and the line being typed, and
+ * nothing else: the page's message is the footer's (briefingFootMessage()).
  */
 static Gfx *lobbyBriefingChatWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
 {
 	static struct netlobbychat chat[NETLOBBY_MAXCHAT];
-	const s32 avail = netLobbyMainChatAvailable();
-	const s32 n = avail > 0 ? netLobbyMainChatLines(chat, NETLOBBY_MAXCHAT) : 0;
-	char status[320];
+	const s32 n = netLobbyMainChatAvailable() > 0 ? netLobbyMainChatLines(chat, NETLOBBY_MAXCHAT) : 0;
 
-	briefingStatusText(status, sizeof(status));
-
-	return lobbyChatLines(gdl, dialog, x1, y1, x2, y2, chat, n,
-			avail < 0 ? "This lobby server has no main menu chat."
-			: avail == 0 ? "Joining the chat..."
-			: "No one has said anything yet: press Space or T to talk.",
-			status);
+	return lobbyChatLines(gdl, dialog, x1, y1, x2, y2, chat, n, NULL, NULL);
 }
 
 // The list and its buttons: the whole of the left column
@@ -3617,7 +3699,7 @@ static Gfx *lobbyChatLines(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, 
 		}
 	}
 
-	if (nchat == 0) {
+	if (nchat == 0 && empty && empty[0]) {
 		nlines = lobbyChatWrap(lines, nlines, empty, 0, dimColour(alpha), inner);
 	}
 
@@ -4440,6 +4522,7 @@ struct lobbypage {
 	const char *title;                      // the header's name for the page
 	void (*info)(char *out, s32 size);      // what the header's right says (NULL nothing)
 	const char *hints;                      // the footer's
+	const char *(*foot)(void);              // a message for the footer in the hints' place (NULL none)
 };
 
 // The header's right: who this machine plays as, and how many rooms are open
@@ -4472,7 +4555,7 @@ static void lobbyInfoRoom(char *out, s32 size)
 static const struct lobbypage s_LobbyPages[] = {
 	{ &g_NetOnlineMenuDialog, 0, lobbyNamePlace, lobbyNamePanels, "NAME ENTRY", NULL, LOBBY_HINTS_SELECT },
 	{ &g_NetBriefingMenuDialog, G_ASPECT_LEFT_EXT, lobbyBriefingPlace, lobbyBriefingPanels, "BRIEFING ROOM", lobbyInfoRooms,
-		"A / Enter: Join     Space or T: Chat     B / Esc: Back" },
+		"A / Enter: Join     Space or T: Chat     B / Esc: Back", briefingFootMessage },
 	{ &g_NetCreateMenuDialog, G_ASPECT_LEFT_EXT, lobbyPreviewPlace, lobbyPreviewPanels, "CREATE ROOM", lobbyInfoAccount, LOBBY_HINTS_SELECT },
 	{ &g_NetRoomSettingsMenuDialog, G_ASPECT_LEFT_EXT, lobbyPreviewPlace, lobbyPreviewPanels, "ROOM SETTINGS", lobbyInfoRoom, LOBBY_HINTS_SELECT },
 	{ &g_NetRoomMenuDialog, G_ASPECT_RIGHT_EXT, lobbyRoomPlace, lobbyRoomPanels, "GAME LOBBY", lobbyInfoRoom,
@@ -4561,7 +4644,7 @@ void *netLobbyMenuRenderPanels(void *gdlptr, struct menudialog *dialog)
 			page->info(info, sizeof(info));
 		}
 
-		gdl = lobbyChrome(gdl, &d, &l, page->title, info, page->hints);
+		gdl = lobbyChrome(gdl, &d, &l, page->title, info, page->hints, page->foot ? page->foot() : NULL);
 	}
 
 	gdl = page->panels(gdl, &d, &l);
