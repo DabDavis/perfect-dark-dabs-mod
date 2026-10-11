@@ -31,6 +31,15 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 57 2026-10-11
+Online: new online pages laid out across the whole screen: Name Entry first, then the Briefing Room with the open rooms as cards, the selected room's details and a chat, and the Game Lobby as four windows (thanks dab)
+Online: the online pages carry Perfect Dark's title screen logo in their header (thanks dab)
+Online: Main Menu Chat in the Briefing Room: talk with everyone else looking for a game, press Space or T to type (thanks dab)
+Online: the Game Lobby lists the players in one list, in their team's colour and grouped by team in team games, spectators below (thanks dab)
+Online: smaller text on the online pages and in the chat during a match, so more fits; Extended Options > Advanced > Online Text Size changes it (thanks dab)
+Online: Create Room fits on one page, its dropdowns open next to the setting they change, and the mouse picks a row anywhere along it (thanks dab)
+Online: with the XBLA look, no more blue bar down the screen on the Briefing Room, and no eye piece in the header (thanks dab)
+
 notes 56 2026-10-11
 Online: a guest's rockets, grenades, mines and Phoenix shots now hurt other players where the guest saw them when the blast went off, not where the host had them a moment later (thanks dab)
 Online: explosions and hits no longer arrive late when a packet is lost, and a lost shot or spark no longer holds up anything behind it
