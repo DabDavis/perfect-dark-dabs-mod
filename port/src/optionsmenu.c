@@ -30,6 +30,7 @@
 #include "modloader.h"
 #include "system.h"
 #include "net/net.h"
+#include "net/netlobby.h"
 #include "texpack.h"
 #include "xblaimport.h"
 #include "xblamesh.h"
@@ -7658,6 +7659,24 @@ static MenuItemHandlerResult menuhandlerMaxExplosions(s32 operation, struct menu
 	return 0;
 }
 
+// The online pages' text, 50-100% of the fonts' own size (netlobbymenu.c)
+static MenuItemHandlerResult menuhandlerOnlineTextSize(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETSLIDER:
+		data->slider.value = (netLobbyMenuGetTextScale() - 50) / 5;
+		break;
+	case MENUOP_SET:
+		netLobbyMenuSetTextScale(50 + data->slider.value * 5);
+		break;
+	case MENUOP_GETSLIDERLABEL:
+		sprintf(data->slider.label, "%d%%", 50 + data->slider.value * 5);
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerReportOffer(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
@@ -7751,6 +7770,14 @@ struct menuitem g_ExtendedAdvancedMenuItems[] = {
 		(uintptr_t)"Explosion Limit",
 		90,
 		menuhandlerMaxExplosions,
+	},
+	{
+		MENUITEMTYPE_SLIDER,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
+		(uintptr_t)"Online Text Size",
+		10,
+		menuhandlerOnlineTextSize,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

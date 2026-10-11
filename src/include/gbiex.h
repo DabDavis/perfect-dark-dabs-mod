@@ -211,6 +211,7 @@
 #define G_OCCLUSIONTEST_EXT          0x4c
 #define G_SETTILEOFFSET_EXT          0x4d
 #define G_MESH_EXT                   0x4e
+#define G_SETRECTSCALE_EXT           0x4f
 
 /* G_EXTRAGEOMETRYMODE flags */
 
@@ -363,6 +364,23 @@
                                                                                        \
     _g->words.w0 = _SHIFTL(G_SETTEXGENSHIFT_EXT, 24, 8) | _SHIFTL((s16)(s), 0, 16);    \
     _g->words.w1 = _SHIFTL((s16)(t), 0, 16);                                           \
+}
+
+/*
+ * Rectangles after this - texture and fill - are drawn scale times their size
+ * about the point x, y (screen units, to a quarter), their texels spread over
+ * the smaller rectangle as they were over the whole one, until it is set
+ * again with a scale of 1: a line of the game's own font drawn smaller than
+ * its glyphs (the online pages' text size, netlobbymenu.c). x and y go in w0
+ * as signed 12 bit quarter units, the scale in w1 as 16.16.
+ */
+#define gDPSetRectScaleEXT(pkt, scale, x, y)                                           \
+{                                                                                      \
+    Gfx *_g = (Gfx*)(pkt);                                                             \
+                                                                                       \
+    _g->words.w0 = _SHIFTL(G_SETRECTSCALE_EXT, 24, 8)                                  \
+        | _SHIFTL((s32)((x) * 4.0f), 12, 12) | _SHIFTL((s32)((y) * 4.0f), 0, 12);      \
+    _g->words.w1 = (u32)(s32)((scale) * 65536.0f);                                     \
 }
 
 /*

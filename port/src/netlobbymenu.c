@@ -25,6 +25,7 @@
 #include "fs.h"
 #include "video.h"
 #include "menuimage.h"
+#include "config.h"
 #include "gexplusrom.h"
 #include "net/net.h"
 #include "net/netlobby.h"
@@ -121,14 +122,48 @@ static u32 dimColour(u32 colour)
 #define LOBBY_GAP     6  // between the columns
 #define LOBBY_VGAP    4  // between a column's windows
 #define LOBBY_INSET   4  // a window's text from its sides
-#define LOBBY_XSROW   8  // a line of the small font (HandelGothicXs)
-#define LOBBY_SMROW   10 // a line of HandelGothicSm
-#define LOBBY_MDROW   14 // a line of HandelGothicMd
+#define LOBBY_XSROW   lobbyRow(8)  // a line of the small font (HandelGothicXs)
+#define LOBBY_SMROW   lobbyRow(10) // a line of HandelGothicSm
+#define LOBBY_MDROW   lobbyRow(14) // a line of HandelGothicMd
 #define LOBBY_LEFTPCT 60 // the left column's share of the width
 
 #define LOBBYFONT_XS 0
 #define LOBBYFONT_SM 1
 #define LOBBYFONT_MD 2
+
+/**
+ * The text size (the owner, 2026-10-11: "letter glyphs are large"). The menu
+ * is 320x220 units at every window size, and its fonts are as many units tall
+ * as their glyphs are texels, so a line of HandelGothicSm is a 22nd of the
+ * screen whatever the resolution. The windows' text is drawn smaller than its
+ * glyphs instead (gDPSetRectScaleEXT: the renderer spreads a glyph's texels
+ * over a smaller rectangle - the game's own font, and the XBLA release's
+ * sharper one where XBLA Font is on), and the windows' lines and cards are as
+ * tall as the smaller text (lobbyRow). Net.LobbyTextScale, percent; 100 is the
+ * fonts' own size. The header and the footer keep the full size.
+ */
+static s32 s_LobbyTextScale = 75;
+static s32 s_LobbyFullSize = 0; // while the header and the footer are drawn
+
+static s32 lobbyPct(void)
+{
+	return s_LobbyFullSize ? 100 : s_LobbyTextScale < 50 ? 50 : s_LobbyTextScale > 100 ? 100 : s_LobbyTextScale;
+}
+
+static s32 lobbyRow(s32 h)
+{
+	return (h * lobbyPct() + 99) / 100;
+}
+
+s32 netLobbyMenuGetTextScale(void)
+{
+	return s_LobbyTextScale < 50 ? 50 : s_LobbyTextScale > 100 ? 100 : s_LobbyTextScale;
+}
+
+void netLobbyMenuSetTextScale(s32 pct)
+{
+	s_LobbyTextScale = pct < 50 ? 50 : pct > 100 ? 100 : pct;
+}
 
 struct lobbylayout {
 	s32 pillar;    // the screen past the menu's 320-unit frame on each side, in menu units (negative at 4:3)
@@ -242,7 +277,8 @@ static struct font *lobbyFont(s32 font)
 	return font == LOBBYFONT_MD ? g_FontHandelGothicMd : font == LOBBYFONT_SM ? g_FontHandelGothicSm : g_FontHandelGothicXs;
 }
 
-static s32 lobbyTextWidth(const char *text, s32 font)
+// as drawn at the font's own size
+static s32 lobbyTextWidthFull(const char *text, s32 font)
 {
 	s32 w = 0;
 	s32 h = 0;
@@ -250,6 +286,11 @@ static s32 lobbyTextWidth(const char *text, s32 font)
 	textMeasure(&h, &w, (char *)text, lobbyChars(font), lobbyFont(font), 0);
 
 	return w;
+}
+
+static s32 lobbyTextWidth(const char *text, s32 font)
+{
+	return (lobbyTextWidthFull(text, font) * lobbyPct() + 99) / 100;
 }
 
 // text cut (in place) to width in a font, ".." where it was cut
@@ -289,6 +330,28 @@ static Gfx *lobbyText(Gfx *gdl, s32 x, s32 y, const char *text, s32 font, u32 co
 
 	if (width > 0) {
 		lobbyFit(buf, sizeof(buf), width, font);
+	}
+
+	if (lobbyPct() != 100) {
+		// The line laid out at full size and drawn scaled about its start.
+		// A glyph past the edge of the 320 units is dropped before it is
+		// drawn (text0f15568c()), so a line whose full size would cross it -
+		// one held to a window's right side - is scaled about its end
+		// instead: laid out leftwards from there, its end where it is.
+		const f32 scale = lobbyPct() / 100.0f;
+		const s32 full = lobbyTextWidthFull(buf, font);
+		f32 ox = x;
+
+		if (x + full > viGetWidth()) {
+			ox = x + full * scale;
+			x = (s32)(ox + 0.5f) - full;
+		}
+
+		gDPSetRectScaleEXT(gdl++, scale, ox, y);
+		gdl = textRenderProjected(gdl, &x, &y, buf, lobbyChars(font), lobbyFont(font), colour, viGetWidth(), viGetHeight(), 0, 0);
+		gDPSetRectScaleEXT(gdl++, 1.0f, 0, 0);
+
+		return gdl;
 	}
 
 	return textRenderProjected(gdl, &x, &y, buf, lobbyChars(font), lobbyFont(font), colour, viGetWidth(), viGetHeight(), 0, 0);
@@ -539,6 +602,8 @@ static struct menuimage s_PdEmblem;
 
 PD_CONSTRUCTOR static void lobbyArtInit(void)
 {
+	configRegisterInt("Net.LobbyTextScale", &s_LobbyTextScale, 50, 100);
+
 	s_PdEmblem.png = g_MenuImagePdEmblem;
 	s_PdEmblem.pnglen = g_MenuImagePdEmblemLen;
 	s_PdEmblem.name = "pd emblem";
@@ -569,7 +634,7 @@ static Gfx *lobbyHeaderBar(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, 
  * (two halves held to the sides met in a seam); the emblem and the name are
  * held left, the information right.
  */
-static Gfx *lobbyChrome(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l, const char *title, const char *info, const char *hints)
+static Gfx *lobbyChromeDraw(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l, const char *title, const char *info, const char *hints)
 {
 	struct menudialog *dialog = d->dialog;
 	const u32 alpha = (MIXCOLOUR(dialog, dialog_titlefg)) & 0xff;
@@ -608,13 +673,29 @@ static Gfx *lobbyChrome(Gfx *gdl, const struct lobbydraw *d, const struct lobbyl
 		return gdl;
 	}
 
-	// the left: the badge over the bar's end, the page's name after it
+	// the left: the badge over the bar's end, "PD" over "Online" laid across
+	// its right half as the boot screen lays PERFECT DARK across the emblem
+	// (the owner: the emblem alone did not say Perfect Dark), the page's
+	// name after them
 	gdl = lobbyAlign(gdl, G_ASPECT_LEFT_EXT);
 	gdl = menuImageDraw(gdl, &s_PdEmblem, LOBBY_MARGIN + 4, y1 - 2, LOBBY_MARGIN + 4 + badgew, y1 - 2 + badgeh, alpha);
 
-	titlex = LOBBY_MARGIN + 4 + badgew + 8;
 	gdl = text0f153628(gdl);
 	textSetWaveColours(g_MenuWave2Colours[dialog->type].dialog_titlefg, g_MenuWave1Colours[dialog->type].dialog_titlefg);
+
+	{
+		const s32 wx = LOBBY_MARGIN + 4 + badgew / 2;
+		const s32 pdw = lobbyTextWidth("PD", LOBBYFONT_MD);
+		const s32 onw = lobbyTextWidth("Online", LOBBYFONT_SM);
+
+		gdl = lobbyText(gdl, wx + 1, y1 + 1, "PD", LOBBYFONT_MD, titlefg & 0xff, 0);
+		gdl = lobbyText(gdl, wx, y1, "PD", LOBBYFONT_MD, titlefg, 0);
+		gdl = lobbyText(gdl, wx + 1, y1 + LOBBY_MDROW - 1, "Online", LOBBYFONT_SM, alpha / 2, 0);
+		gdl = lobbyText(gdl, wx, y1 + LOBBY_MDROW - 2, "Online", LOBBYFONT_SM, lobbyAlpha(0xff503000, alpha), 0);
+
+		titlex = wx + (pdw > onw ? pdw : onw) + 12;
+	}
+
 	gdl = lobbyText(gdl, titlex + 1, y1 + (h - LOBBY_MDROW) / 2 + 2, title, LOBBYFONT_MD, titlefg & 0xff, 0);
 	gdl = lobbyText(gdl, titlex, y1 + (h - LOBBY_MDROW) / 2 + 1, title, LOBBYFONT_MD, titlefg, 0);
 	titleend = titlex + lobbyTextWidth(title, LOBBYFONT_MD);
@@ -636,6 +717,30 @@ static Gfx *lobbyChrome(Gfx *gdl, const struct lobbydraw *d, const struct lobbyl
 		snprintf(buf, sizeof(buf), "%s", info);
 
 		if (room > 20) {
+			// what is cut is the part before the last gap ("Dabba's Room   10/12"
+			// keeps its count at 4:3, the name shortened)
+			char *tail = NULL;
+			char *gap;
+
+			for (gap = strstr(buf, "   "); gap; gap = strstr(gap + 3, "   ")) {
+				tail = gap;
+			}
+
+			if (tail && lobbyTextWidth(buf, LOBBYFONT_SM) > room) {
+				char last[48];
+				const s32 lastw = lobbyTextWidth(tail, LOBBYFONT_SM);
+
+				snprintf(last, sizeof(last), "%s", tail);
+				*tail = '\0';
+
+				if (room - lastw > 20) {
+					lobbyFit(buf, sizeof(buf), room - lastw, LOBBYFONT_SM);
+					strncat(buf, last, sizeof(buf) - strlen(buf) - 1);
+				} else {
+					snprintf(buf, sizeof(buf), "%s", last + 3);
+				}
+			}
+
 			gdl = lobbyAlign(gdl, G_ASPECT_RIGHT_EXT);
 			gdl = text0f153628(gdl);
 			lobbyFit(buf, sizeof(buf), room, LOBBYFONT_SM);
@@ -643,6 +748,16 @@ static Gfx *lobbyChrome(Gfx *gdl, const struct lobbydraw *d, const struct lobbyl
 			gdl = text0f153780(gdl);
 		}
 	}
+
+	return gdl;
+}
+
+// the header and the footer at the fonts' own size
+static Gfx *lobbyChrome(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l, const char *title, const char *info, const char *hints)
+{
+	s_LobbyFullSize = 1;
+	gdl = lobbyChromeDraw(gdl, d, l, title, info, hints);
+	s_LobbyFullSize = 0;
 
 	return gdl;
 }
@@ -999,7 +1114,7 @@ static void roomPing(const struct netlobbyroomsum *r, char *out, s32 size)
  * rest of a room (its arena, password, mods, why this game cannot join it)
  * is the Room window's on the right, for the card the cursor is on.
  */
-#define ROOMROWH 33 // a card
+#define ROOMROWH (2 * LOBBY_SMROW + LOBBY_XSROW + 5) // a card: the state, the name, the host
 
 static u64 s_BriefingListAt = 0; // when the Briefing Room last asked for the list (us; every 10 s)
 
@@ -1134,23 +1249,23 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 
 				snprintf(buf, sizeof(buf), "%s", roomMode(r));
 				lobbyFit(buf, sizeof(buf), inner / 2, LOBBYFONT_XS);
-				bw = lobbyTextWidth(buf, LOBBYFONT_XS) + 8;
+				bw = lobbyTextWidth(buf, LOBBYFONT_XS) + lobbyRow(8);
 				gdl = text0f153780(gdl);
-				lobbyRect(&gdl, x2 - 4 - bw, y1 + 2, x2 - 4, y1 + 11, lobbyAlpha(0x20208000, alpha), lobbyAlpha(0x8080ff00, alpha));
+				lobbyRect(&gdl, x2 - 4 - bw, y1 + 2, x2 - 4, y1 + 3 + LOBBY_XSROW, lobbyAlpha(0x20208000, alpha), lobbyAlpha(0x8080ff00, alpha));
 				gdl = text0f153628(gdl);
-				gdl = lobbyText(gdl, x2 - 4 - bw + 4, y1 + 3, buf, LOBBYFONT_XS, lobbyAlpha(0xffffff00, alpha), 0);
+				gdl = lobbyText(gdl, x2 - 4 - bw + lobbyRow(4), y1 + 3, buf, LOBBYFONT_XS, lobbyAlpha(0xffffff00, alpha), 0);
 
 				// the name
 				snprintf(buf, sizeof(buf), "%s%s", r->locked ? "[pw] " : "", r->name);
-				gdl = lobbyText(gdl, tx, y1 + 12, buf, LOBBYFONT_SM, namecol, inner);
+				gdl = lobbyText(gdl, tx, y1 + 2 + LOBBY_SMROW, buf, LOBBYFONT_SM, namecol, inner);
 
 				// the host, how full, the ping
 				roomPing(r, ping, sizeof(ping));
 				snprintf(count, sizeof(count), "%d/%d   %s ms", r->humans, r->maxhumans, ping);
 				w = lobbyTextWidth(count, LOBBYFONT_XS);
 				snprintf(buf, sizeof(buf), "Host: %s", r->host);
-				gdl = lobbyText(gdl, tx, y1 + 22, buf, LOBBYFONT_XS, dimColour(alpha), inner - w - 6);
-				gdl = lobbyText(gdl, tx + inner - w, y1 + 22, count, LOBBYFONT_XS, dimColour(alpha), 0);
+				gdl = lobbyText(gdl, tx, y1 + 2 + 2 * LOBBY_SMROW, buf, LOBBYFONT_XS, dimColour(alpha), inner - w - 6);
+				gdl = lobbyText(gdl, tx + inner - w, y1 + 2 + 2 * LOBBY_SMROW, count, LOBBYFONT_XS, dimColour(alpha), 0);
 			}
 
 			gdl = text0f153780(gdl);
@@ -1241,7 +1356,7 @@ static void listClamp(struct menudialog *dialog, struct menuitem *item, s32 rowh
 // room, the last two create one and ask for the list again; Back is the
 // menus' own back
 static struct menuitem s_BriefingItems[] = {
-	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER, 304, ROOMROWH * 5, handlerRoomList },
+	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER, 304, 33 * 5, handlerRoomList }, // sized each frame
 	{ MENUITEMTYPE_END },
 };
 

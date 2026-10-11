@@ -311,6 +311,13 @@ static struct RDP {
     bool rect_depth_on;
     float rect_depth;
 
+    // G_SETRECTSCALE_EXT: rectangles drawn this many times their size about
+    // a point (U10.2), their texels spread over the smaller one
+    bool rect_scale_on;
+    float rect_scale;
+    float rect_scale_x;
+    float rect_scale_y;
+
     // G_SETDEPTHBIAS_EXT: triangles pushed away from the eye by this many of
     // the depth buffer's smallest steps
     int16_t depth_bias;
@@ -7326,6 +7333,13 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     float lrxf = lrx;
     float lryf = lry;
 
+    if (rdp.rect_scale_on) {
+        ulxf = rdp.rect_scale_x + (ulxf - rdp.rect_scale_x) * rdp.rect_scale;
+        lrxf = rdp.rect_scale_x + (lrxf - rdp.rect_scale_x) * rdp.rect_scale;
+        ulyf = rdp.rect_scale_y + (ulyf - rdp.rect_scale_y) * rdp.rect_scale;
+        lryf = rdp.rect_scale_y + (lryf - rdp.rect_scale_y) * rdp.rect_scale;
+    }
+
     ulxf = ulxf / (4.0f * HALF_SCREEN_WIDTH) - 1.0f;
     ulyf = -(ulyf / (4.0f * HALF_SCREEN_HEIGHT)) + 1.0f;
     lrxf = lrxf / (4.0f * HALF_SCREEN_WIDTH) - 1.0f;
@@ -8245,6 +8259,12 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_SETDEPTHBIAS_EXT:
                 rdp.depth_bias = (int16_t)(int32_t)cmd->words.w1;
                 break;
+            case G_SETRECTSCALE_EXT:
+                rdp.rect_scale = (int32_t)(uint32_t)cmd->words.w1 / 65536.0f;
+                rdp.rect_scale_on = rdp.rect_scale > 0.0f && rdp.rect_scale != 1.0f;
+                rdp.rect_scale_x = (float)((int32_t)(cmd->words.w0 << 8) >> 20);
+                rdp.rect_scale_y = (float)((int32_t)(cmd->words.w0 << 20) >> 20);
+                break;
             case G_SETTILEOFFSET_EXT:
                 // A fraction of a texel past the tile's corner, until its size
                 // is set again: a picture moved by less than a quarter texel
@@ -8696,6 +8716,7 @@ extern "C" void gfx_run(Gfx* commands) {
                                         (float)gfx_current_dimensions.height / SCREEN_HEIGHT);
     gfx_rapi->clear_framebuffer(true, false);
     rdp.viewport_or_scissor_changed = true;
+    rdp.rect_scale_on = false;
     rendering_state.viewport = {};
     rendering_state.scissor = {};
     gfx_mark_state_dirty();

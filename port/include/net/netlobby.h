@@ -197,5 +197,7 @@ s32 netLobbyMenuDialogAlignOffset(struct menudialogdef *def); // how far right o
 void netLobbyMenuPlaceDialog(struct menudialog *dialog);      // its dst rectangle, after dialogCalculatePosition's
 void *netLobbyMenuRenderPanels(void *gdl, struct menudialog *dialog); // after the dialog: the windows around it
 const char *netLobbyMenuStatusText(void); // its status line (the chat window's foot; netcooptest.sh reads it)
+s32 netLobbyMenuGetTextScale(void);       // the windows' text size, percent of the fonts' own (Net.LobbyTextScale)
+void netLobbyMenuSetTextScale(s32 pct);
 
 #endif
