@@ -3118,6 +3118,30 @@ reads back the very JSON the create or a settings change sends - and a
 status window. The small popups (passwords, names, Kick, the chat
 keyboard, Quick Message) stay PD's centred dialogs.
 
+**After WWE SmackDown! vs. Raw (same day).** The owner pointed at that
+game's online mode (its video at 31:37 and 32:28: "no gamespy logo, just the
+nice layouts", and "we can even have the PD logo in the header"). Every page
+now has a header bar across the screen - Perfect Dark's emblem as a badge
+over its left end, the page's name, what the page is about on the right
+(the account; the room's name and count) - and the buttons' hints along the
+foot (`lobbyChrome`, the page's `title`, `info` and `hints` in
+`s_LobbyPages`). The emblem is the port's own icon
+(`dist/linux/...perfect_dark.png`) compiled in as `netlobbyart.c` through
+menuimage.c, so every player has it; the XBLA release's logo (xblaui.c) was
+the first idea and would have shown only for a player with that package.
+The bar is one piece drawn with no side held (`G_ASPECT_MODE_EXT` cleared:
+the 320 units stretch across the window, which a gradient does not mind);
+two halves held to the sides met in a visible seam. Online Game opens on
+Name Entry (the reference's name screen): the account's name in a box that
+opens the account page, Next on to the Briefing Room, signing in first.
+The Briefing Room is the main page: the rooms as cards (state, a mode
+badge, name, host, count, ping) with Create Room and Refresh List as the
+last two cards (the reference's Create Game), the list asked for every
+10 s. After a match the stack is Name Entry, Briefing Room, Game Lobby
+(`netLobbyMenuPushRoomAfterMatch`, `netLobbyMenuFrame`), so Leave lands on
+the rooms. The windows' own titles no longer repeat the header's
+("Rooms", "Room Setup", "Room").
+
 **The roster (the owner, same day: "instead of team 1, team 2 columns
 just make the player names the same color as the team they are on and only
 in team based modes", "and group the same color teams together").** One
