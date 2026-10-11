@@ -36,9 +36,10 @@ Online: a guest's rockets, grenades, mines and Phoenix shots now hurt other play
 Online: explosions and hits no longer arrive late when a packet is lost, and a lost shot or spark no longer holds up anything behind it
 Online: broken glass, crumpled objects, N-bomb storms and gas stay in step for everyone, and a player who joins late sees them as they are
 Online: windowed doors' broken panes and shot-out camera lenses (Perfect Dark's and GoldenEye's) show for every player
-Online: a player who joins late sees the scorch marks and bullet holes already on the walls and floors
+Online: bullet holes and scorch marks show for every player as they are made, and a player who joins late sees the ones already there
 Online: in a match, windows that grow back grow back for every player, not just the host
-Online play needs everyone on this update (protocol 29)
+Online: a guest sends about 70 to 85 percent less to the host (its controls go as small changes), which helps on slow or busy connections
+Online play needs everyone on this update (protocol 30)
 
 notes 55 2026-10-11
 Online co-op: objectives done by any player count for everyone (collecting, gadgets, consoles, reaching exits), and every guest gets the mission's gear, not just the host and the first guest (thanks dab)
