@@ -19,6 +19,9 @@
 #         back in the room; the host, its client gone, ends its match too,
 #         closes its end screen, reopens the room and is back in it; the
 #         joiner's chat line reaches it there. Both menus are the Game Lobby.
+#         While its match runs the lobby says a notice (pdlobbyd's admin
+#         port, POST /notice): both games put it in the match's chat as the
+#         server's.
 #   "rematch" pair: the host ends each match at frame 300 (MATCH_END: the
 #         joiner's end screen, then back to the room still connected); the
 #         joiner READYs again and a second match is launched and played on
@@ -58,13 +61,15 @@ waitfor() {
 
 # the lobby, on ports the kernel picks
 python3 -u "$ROOT/tools/pdlobbyd/pdlobbyd.py" --host 127.0.0.1 --port 0 --udp-host 127.0.0.1 --udp-port 0 --auth open --relay-ports 0 \
-	> "$OUT/pdlobbyd.log" 2>&1 &
+	--admin-port 0 > "$OUT/pdlobbyd.log" 2>&1 &
 LOBBY=$!
 if ! waitfor "$OUT/pdlobbyd.log" "pdlobbyd listening on" 20; then
 	echo "FAIL: pdlobbyd did not start (see $OUT/pdlobbyd.log)"; kill $LOBBY 2>/dev/null; exit 2
 fi
 LPORT=$(sed -n 's/.*listening on 127.0.0.1:\([0-9]*\).*/\1/p' "$OUT/pdlobbyd.log" | head -1)
-echo "     pdlobbyd on 127.0.0.1:$LPORT (pid $LOBBY)"
+waitfor "$OUT/pdlobbyd.log" "notices on" 5
+APORT=$(sed -n 's/.*notices on 127.0.0.1:\([0-9]*\).*/\1/p' "$OUT/pdlobbyd.log" | head -1)
+echo "     pdlobbyd on 127.0.0.1:$LPORT, notices on $APORT (pid $LOBBY)"
 
 # game LABEL USER GAMEPORT TIMEOUT ARGS... &  ($! is timeout's pid)
 game() {
@@ -102,7 +107,20 @@ MODINI="$RULESINI" game rules-host hostguy3 $((GPORT + 2)) 300 --net-lobby-scrip
 P5=$!
 game rules-join joiner3 $((GPORT + 2)) 300 --net-lobby-script join --net-lobby-room "Rules Test" --net-lobby-leave-frame 0 &
 P6=$!
+# the lobby's notice while the leave pair's match runs
+NOTICE="Restarting Server for Update in 1 minute, apologies for the inconvenience!"
+(
+	waitfor "$OUT/leave-join.log" "net: match 1: GO" 200 || exit 0
+	python3 - "$APORT" "$NOTICE" > "$OUT/notice.log" 2>&1 <<'PY'
+import json, sys, urllib.request
+req = urllib.request.Request("http://127.0.0.1:%s/notice" % sys.argv[1], data=json.dumps({"text": sys.argv[2]}).encode(),
+                             headers={"Content-Type": "application/json"})
+print(urllib.request.urlopen(req, timeout=5).read().decode())
+PY
+) &
+PN=$!
 wait $P1; r1=$?; wait $P2; r2=$?; wait $P3; r3=$?; wait $P4; r4=$?; wait $P5; r5=$?; wait $P6; r6=$?
+wait $PN
 kill $LOBBY 2>/dev/null; wait $LOBBY 2>/dev/null
 echo "     exits: leave host $r1 join $r2, rematch host $r3 join $r4"
 
@@ -146,6 +164,11 @@ grep -q "lobby script: client back in room $ROOMID" "$J" && pass "leave: $(line 
 grep -q "lobby: back in room $ROOMID's lobby" "$H" && pass "leave: host: Game Lobby menu up again" || fail "leave: host: no Game Lobby menu after the match"
 grep -q "lobby: back in room $ROOMID's lobby" "$J" && pass "leave: join: Game Lobby menu up again" || fail "leave: join: no Game Lobby menu after the match"
 grep -q "host heard joiner: \"back in the room\"" "$H" && pass "leave: host heard the client's chat in the room" || fail "leave: the chat line never reached the host"
+grep -q "notice to [0-9]* room(s): $NOTICE" "$L" && pass "leave: pdlobbyd: $(line "$L" "notice to")" || fail "leave: the lobby said no notice ($(cat "$OUT/notice.log" 2>/dev/null))"
+for l in host join; do
+	has_n=$(grep -c "net: server notice: $NOTICE" "$OUT/leave-$l.log")
+	[ "$has_n" = 1 ] && pass "leave: $l: the notice in the match's chat, once" || fail "leave: $l: the notice seen $has_n times"
+done
 [ "$r1" = 0 ] && [ "$r2" = 0 ] || fail "leave: exit codes host $r1 join $r2"
 
 meet rematch joiner2

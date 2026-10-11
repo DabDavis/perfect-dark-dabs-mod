@@ -50,6 +50,7 @@ import ipaddress
 import json
 import os
 import re
+import signal
 import socket
 import struct
 import sys
@@ -58,7 +59,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-API_VERSION = 4   # 2: host migration (README "Host migration"); 3: the same shape, hardened (README "Limits"); 4: the main menu's chat (README "Main menu chat")
+API_VERSION = 5   # 2: host migration (README "Host migration"); 3: the same shape, hardened (README "Limits"); 4: the main menu's chat (README "Main menu chat"); 5: the server's notices (README "Server notices")
 
 
 def env(name, default):
@@ -122,6 +123,15 @@ class Config:
                                   "The lobby server restarted and its rooms closed: "
                                   "make or join a room again. Apologies for the inconvenience!")
         self.restart_notice_secs = 1800.0
+        # The server's notices (README "Server notices"): POST /notice on
+        # this port, bound to 127.0.0.1 only and never proxied, puts a line
+        # in every room's chat and the main menu's; -1 opens no port.
+        # Stopping (systemd's SIGTERM) says shutdown_notice to the rooms
+        # first and gives their parked polls shutdown_grace to carry it.
+        self.admin_port = int(env("PDLOBBYD_ADMIN_PORT", "8092"))
+        self.shutdown_notice = env("PDLOBBYD_SHUTDOWN_NOTICE",
+                                   "Restarting Server for Update, apologies for the inconvenience!")
+        self.shutdown_grace = 2.0
         self.countdown = 5.0
         self.host_timeout = 15.0
         # Host migration: a host silent this long (no heartbeat, nothing on
@@ -228,6 +238,9 @@ RULE_KEY_RE = re.compile(r"^[a-z0-9_]{1,24}\Z")
 ROOM_NAME_MAX = 32
 PASSWORD_MAX = 16
 CHAT_MAX = 120
+# The name the server's own chat lines are said under. They carry "system":
+# true as well, which only the server sets: a player named Server is a player.
+NOTICE_USER = "Server"
 FIELD_MAX = 32
 REGION_MAX = 16
 MOD_MAX = 127     # the host's overlay mod dir name (the game's NET_MAXMAPDIR)
@@ -752,6 +765,8 @@ class Lobby:
         self.reaper = None
         self.bound_port = None
         self.bound_udp_port = None
+        self.admin_server = None
+        self.bound_admin_port = None
         self.relays = {}         # relay id (8 bytes) -> Relay
         self.relay_secret = os.urandom(32)  # the return-routability proofs
         self.relay_next_port = 0
@@ -766,6 +781,17 @@ class Lobby:
         self.http_server = await asyncio.start_server(
             self.http_client, self.cfg.host, self.cfg.port, limit=self.cfg.max_header)
         self.bound_port = self.http_server.sockets[0].getsockname()[1]
+        if self.cfg.admin_port >= 0:
+            # loopback whatever cfg.host is: the operator's, on this box. A
+            # port taken (a second lobby on the box) costs the notices, not
+            # the lobby.
+            try:
+                self.admin_server = await asyncio.start_server(
+                    lambda r, w: self.http_client(r, w, admin=True), "127.0.0.1", self.cfg.admin_port,
+                    limit=self.cfg.max_header)
+                self.bound_admin_port = self.admin_server.sockets[0].getsockname()[1]
+            except OSError as e:
+                log("notices off: 127.0.0.1:%d: %s" % (self.cfg.admin_port, e))
         transport, _proto = await loop.create_datagram_endpoint(
             lambda: Rendezvous(self), local_addr=(self.cfg.udp_host, self.cfg.udp_port))
         self.udp = transport
@@ -782,11 +808,22 @@ class Lobby:
         if self.http_server:
             self.http_server.close()
             await self.http_server.wait_closed()
+        if self.admin_server:
+            self.admin_server.close()
+            await self.admin_server.wait_closed()
         self.executor.shutdown(wait=False)
+
+    async def announce_shutdown(self):
+        """Stopping: the rooms are told (their games show it in the match's
+        chat), and the polls a moment to carry it before the rooms close."""
+        if not self.cfg.shutdown_notice or not self.rooms:
+            return
+        self.post_notice(self.cfg.shutdown_notice)
+        await asyncio.sleep(self.cfg.shutdown_grace)
 
     # ---------------------------------------------------------- HTTP transport
 
-    async def http_client(self, reader, writer):
+    async def http_client(self, reader, writer, admin=False):
         if self.conns >= self.cfg.max_conns:
             writer.close()
             return
@@ -807,6 +844,7 @@ class Lobby:
                 if req is None:
                     await self.respond(writer, 400, {"ok": False, "error": "bad request"}, True)
                     break
+                req.admin = admin
 
                 if "transfer-encoding" in req.headers:
                     await self.respond(writer, 411, {"ok": False, "error": "length required"}, True)
@@ -877,6 +915,13 @@ class Lobby:
     async def route(self, req):
         parts = [p for p in req.path.split("/") if p]
         m = req.method
+
+        # the admin port serves its own and nothing else; the public port
+        # never serves them
+        if req.admin:
+            if m == "POST" and parts == ["notice"]:
+                return self.post_notice(req.json().get("text", ""))
+            raise HttpError(404, "no such endpoint")
 
         if m == "GET" and parts == ["ping"]:
             return {"ok": True, "service": "pdlobbyd", "api": API_VERSION,
@@ -1007,9 +1052,7 @@ class Lobby:
             since = int(req.query.get("since", "0"))
         except ValueError:
             raise HttpError(400, "bad since")
-        chat = [{"v": v, "user": u, "text": t, "t": at}
-                for (v, u, t, at) in self.mainchat if v > since]
-        return {"ok": True, "version": self.mainchat_version, "chat": chat}
+        return {"ok": True, "version": self.mainchat_version, "chat": chat_out(self.mainchat, since)}
 
     def main_chat_say(self, req):
         s = self.session_auth(req)
@@ -1022,10 +1065,30 @@ class Lobby:
                                   self.cfg.chat_window[1], time.monotonic()):
             raise HttpError(429, "slow down")
         self.mainchat_version += 1
-        self.mainchat.append((self.mainchat_version, s.user, text, int(time.time())))
+        self.mainchat.append((self.mainchat_version, s.user, text, int(time.time()), False))
         while len(self.mainchat) > self.cfg.chat_keep:
             self.mainchat.popleft()
         return {"ok": True, "version": self.mainchat_version}
+
+    def post_notice(self, text):
+        """The server's own line in every room's chat and the main menu's
+        (README "Server notices"): a game in a room shows it in the match's
+        chat too, as the server's."""
+        text = clean_text(str(text), CHAT_MAX)
+        if not text:
+            raise HttpError(400, "nothing to say")
+        now = int(time.time())
+        for room in self.rooms.values():
+            room.changed()
+            room.chat.append((room.version, NOTICE_USER, text, now, True))
+            while len(room.chat) > self.cfg.chat_keep:
+                room.chat.popleft()
+        self.mainchat_version += 1
+        self.mainchat.append((self.mainchat_version, NOTICE_USER, text, now, True))
+        while len(self.mainchat) > self.cfg.chat_keep:
+            self.mainchat.popleft()
+        log("notice to %d room(s): %s" % (len(self.rooms), text))
+        return {"ok": True, "rooms": len(self.rooms)}
 
     # ---------------------------------------------------------- rooms
 
@@ -1520,8 +1583,7 @@ class Lobby:
                     "udp": m.udp_public is not None,
                     "path": m.path, "ping": m.ping, "can_host": m.can_host}
                    for m in room.members.values()]
-        chat = [{"v": v, "user": u, "text": t, "t": at}
-                for (v, u, t, at) in room.chat if v > since]
+        chat = chat_out(room.chat, since)
         out = {"ok": True, "version": room.version, "time": int(time.time()),
                "room": self.room_summary(room),
                "rules": room.rules, "members": members, "chat": chat,
@@ -1599,7 +1661,7 @@ class Lobby:
                                   self.cfg.chat_window[1], time.monotonic()):
             raise HttpError(429, "slow down")
         room.changed()
-        room.chat.append((room.version, m.user, text, int(time.time())))
+        room.chat.append((room.version, m.user, text, int(time.time()), False))
         while len(room.chat) > self.cfg.chat_keep:
             room.chat.popleft()
         return {"ok": True, "version": room.version}
@@ -2277,7 +2339,7 @@ ROOM_ACTIONS = frozenset(("ready", "team", "chat", "settings", "kick", "launch",
 
 
 class Request:
-    __slots__ = ("method", "path", "query", "headers", "body", "ip", "key", "close")
+    __slots__ = ("method", "path", "query", "headers", "body", "ip", "key", "close", "admin")
 
     def json(self):
         """The body as a JSON object; an empty body is an empty object, and
@@ -2293,6 +2355,19 @@ class Request:
         return obj
 
 
+def chat_out(lines, since):
+    """A chat's (version, user, text, time, system) lines after `since`, as
+    the game reads them; the server's own say so."""
+    out = []
+    for (v, u, t, at, system) in lines:
+        if v > since:
+            line = {"v": v, "user": u, "text": t, "t": at}
+            if system:
+                line["system"] = True
+            out.append(line)
+    return out
+
+
 def parse_request_head(head, peer_ip):
     try:
         text = head.decode("latin-1")
@@ -2303,6 +2378,7 @@ def parse_request_head(head, peer_ip):
     if len(parts) != 3 or not parts[2].startswith("HTTP/1."):
         return None
     req = Request()
+    req.admin = False
     req.method = parts[0]
     target = parts[1]
     path, _, qs = target.partition("?")
@@ -2420,6 +2496,7 @@ def main():
     cfg = Config()
     args = sys.argv[1:]
     for flag, attr, conv in (("--port", "port", int), ("--udp-port", "udp_port", int),
+                             ("--admin-port", "admin_port", int),
                              ("--host", "host", str), ("--udp-host", "udp_host", str),
                              ("--auth", "auth", str), ("--ghost-url", "ghost_url", str),
                              ("--relay-ports", "relay_ports", str)):
@@ -2432,7 +2509,17 @@ def main():
         log("pdlobbyd listening on %s:%d, rendezvous udp %s:%d, auth %s, relay ports %s"
             % (cfg.host, lobby.bound_port, cfg.udp_host, lobby.bound_udp_port, cfg.auth,
                cfg.relay_ports or "any"))
-        await asyncio.Event().wait()
+        if lobby.admin_server:
+            log("notices on 127.0.0.1:%d (POST /notice)" % lobby.bound_admin_port)
+        # systemd's stop is a SIGTERM: the rooms are told before they close
+        stopping = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, stopping.set)
+        await stopping.wait()
+        log("stopping: %d room(s)" % len(lobby.rooms))
+        await lobby.announce_shutdown()
+        await lobby.stop()
 
     try:
         asyncio.run(run())

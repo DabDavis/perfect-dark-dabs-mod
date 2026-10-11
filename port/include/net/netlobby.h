@@ -80,6 +80,7 @@ struct netlobbymember {
 struct netlobbychat {
 	char user[NETLOBBY_MAXUSER + 1];
 	char text[NETLOBBY_MAXCHATTEXT + 1];
+	s32 system;        // the lobby's own line (pdlobbyd's notice, "Server"), not a player's
 };
 
 struct netlobbyrule {

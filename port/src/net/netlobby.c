@@ -129,6 +129,13 @@ static s64 s_PendTime = 0;        // the lobby's clock in the reply that brought
 static s64 s_PendOffset = 0;      // that clock less ours, when the reply came
 static u32 s_EnteredSeq = 0;      // a create or join succeeded
 static u32 s_GoneSeq = 0;         // the seat went away (410), or the room closed
+// The lobby's notices (pdlobbyd API 5) that came in a room's chat since the
+// first reply: the poll thread queues them, the main thread gives them to
+// the match's chat (netHudServerNotice)
+#define LOBBY_MAXNOTICES 4
+static char s_PendNotice[LOBBY_MAXNOTICES][NETLOBBY_MAXCHATTEXT + 1];
+static u32 s_PendNoticeSeq = 0;
+static u32 s_SeenNoticeSeq = 0;
 static char s_GoneText[200] = "";
 static s32 s_LastStatus = 0;
 static SDL_atomic_t s_Unreachable; // the last request on either thread got no answer at all
@@ -1403,6 +1410,7 @@ static void lobbyMainChatPoll(void)
 
 				jsonGetStr(el, "user", s_MainChat[s_MainChatN].user, sizeof(s_MainChat[0].user));
 				jsonGetStr(el, "text", s_MainChat[s_MainChatN].text, sizeof(s_MainChat[0].text));
+				s_MainChat[s_MainChatN].system = jsonGetInt(el, "system", 0) != 0;
 				s_MainChatN++;
 			}
 		}
@@ -1498,6 +1506,14 @@ static int lobbyPollThread(void *arg)
 
 								jsonGetStr(el, "user", old[n].user, sizeof(old[n].user));
 								jsonGetStr(el, "text", old[n].text, sizeof(old[n].text));
+								old[n].system = jsonGetInt(el, "system", 0) != 0;
+
+								// said after this player came in: for the match's chat
+								if (old[n].system) {
+									snprintf(s_PendNotice[s_PendNoticeSeq % LOBBY_MAXNOTICES], sizeof(s_PendNotice[0]), "%s", old[n].text);
+									s_PendNoticeSeq++;
+								}
+
 								n++;
 							}
 						}
@@ -1519,6 +1535,7 @@ static int lobbyPollThread(void *arg)
 							for (i = total > NETLOBBY_MAXCHAT ? total - NETLOBBY_MAXCHAT : 0; jsonAt(arr, i, &el); i++) {
 								jsonGetStr(el, "user", st->chat[st->nchat].user, sizeof(st->chat[0].user));
 								jsonGetStr(el, "text", st->chat[st->nchat].text, sizeof(st->chat[0].text));
+								st->chat[st->nchat].system = jsonGetInt(el, "system", 0) != 0;
 								st->nchat++;
 							}
 						}
@@ -3356,6 +3373,8 @@ void netLobbyTick(void)
 	char udpid[17] = "";
 	char udpkey[65] = "";
 	char roomid[9] = "";
+	char notices[LOBBY_MAXNOTICES][NETLOBBY_MAXCHATTEXT + 1];
+	s32 nnotices = 0;
 
 	if (s_Lock) {
 		SDL_LockMutex(s_Lock);
@@ -3368,6 +3387,16 @@ void netLobbyTick(void)
 		if (s_MessageSeq != s_SeenMessageSeq) {
 			s_SeenMessageSeq = s_MessageSeq;
 			snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", s_Message);
+		}
+
+		// the lobby's notices, the oldest kept first
+		if (s_PendNoticeSeq - s_SeenNoticeSeq > LOBBY_MAXNOTICES) {
+			s_SeenNoticeSeq = s_PendNoticeSeq - LOBBY_MAXNOTICES;
+		}
+
+		while (s_SeenNoticeSeq != s_PendNoticeSeq) {
+			snprintf(notices[nnotices++], sizeof(notices[0]), "%s", s_PendNotice[s_SeenNoticeSeq % LOBBY_MAXNOTICES]);
+			s_SeenNoticeSeq++;
 		}
 
 		if (s_PendRoomsSeq != s_SeenRoomsSeq) {
@@ -3445,6 +3474,14 @@ void netLobbyTick(void)
 		}
 
 		SDL_UnlockMutex(s_Lock);
+	}
+
+	{
+		s32 i;
+
+		for (i = 0; i < nnotices; i++) {
+			netHudServerNotice(notices[i]);
+		}
 	}
 
 	if (entered > 0) {
