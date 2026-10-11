@@ -119,6 +119,10 @@
   session, a hostile peer or an odd moment breaks; what a client's death
   and a name from the wire did on every machine, why the host's pause is
   not one, and the rest of that batch.
+- **State and events apart (protocol 29, 2026-10-11)** — the section of
+  that name (`networld.c`): EQOA DRDP's split; broken glass, storms and the
+  gas in a world block in SNAP, crumpling and a door's pane in records, the
+  events in three classes on channels of their own (shots unreliable).
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -2832,3 +2836,86 @@ in their own sections' notes.
   compensated; only hitscan is, `netlagcomp.c`), and a Phoenix round's
   blast is lag-compensated in place but hurts chrs where they are now.
   A projectile "nudge" (Unlagged's) would be a design change.
+
+## State and events apart (protocol 29, 2026-10-11)
+
+EverQuest Online Adventures' DRDP (`~/claude-eqoa/entity-channels.md`,
+`claude-notes/drdp-decompiled.md` "State Channel XOR Delta") keeps two
+kinds of traffic: **state channels**, each a latest-value-wins buffer
+XOR-delta'd against what the other side acked and never resent, and a
+reliable stream for true one-shot **events** only. Our snapshots had been
+the first kind since phase 4 (netdelta.c, per-entity bases since 23), but
+the reliable, ordered EVENTS stream carried some state as well, and one lost
+packet held up everything behind it (seen at 25 ticks at 150 ms / 2%).
+
+**The audit** (every reliable message):
+
+| What | Kind | A joiner needs | Now (29) |
+|---|---|---|---|
+| FIRESLOT, PLAYERSHOT | one-shot (flash, tracer, sound) | nothing | EVSHOT, unreliable |
+| SPARKS, CHOKE | one-shot | nothing | EVSHOT, unreliable |
+| EXPLOSION | one-shot boom; its scorch is a lasting decal | the scorches (cosmetic, not sent) | EVFX, reliable |
+| CHRDAMAGE | one-shot feedback (flinch, shield, the red flash); health is in the local block | nothing | EVFX, reliable |
+| DEFORM | **state** (crumpled; a match's prop regenerates whole) | every object's crumpling | OBJ byte 23 / DOOR byte 5 |
+| GLASS | **state** (a pane out; a match's comes back) | every pane broken | world block bit (event past 1760) |
+| NBOMB | **state** with a life (~6 s storm) | a storm going, how old | world block storm slot |
+| GAS | **state** (the fog stays for the match) | the gas and its fade | world block |
+| DEATH | mixed: kill-table state + the moment | the table (SCORES catch-up) | EVENTS, reliable ordered |
+| SCORES | state (the whole table, on a change or to a joiner) | itself | EVENTS |
+| HUDMSG, PICKUPSFX | one-shot, must arrive | nothing | EVENTS |
+| a windowed door's pane | **state**, never sent before | it | DOOR byte 4 bit 4 |
+| doors, lifts, regen pickups, objectives, alarm, timer | state | already records / the mission block | unchanged |
+| CHAT, SLOTCFG, ROSTER, session flow, CONTENT_* | one-shot or rare | - | unchanged (PLAYERS, CMD, CMDACK, SNAP were unreliable already) |
+
+**What changed.**
+- `networld.c`'s **world block**: 320 bytes after the scenario block in
+  every SNAP (glass bits in setup-command order, four storm slots, the gas),
+  delta'd against the baseline's like the scenario block but applied by
+  `netWorldClientUpTo` as soon as the render clock reaches its tick - never
+  gated on evseq. The host rebuilds the glass bits from its own objects every
+  tick (`netWorldGlassGone`), so a match's regenerated pane clears its bit.
+  A change seen as it happens (the bit clear in the last block applied, at
+  most 30 ticks old) plays as the host's did (glassDestroy's shards, the
+  storm's sound); one from before (a joiner's first block, a pane this
+  machine's own regeneration put back early) goes in quietly. A storm more
+  than 30 ticks old starts at the host's age; the gas fade too.
+- **Crumpling in the record**: the host counts objDeform calls per prop
+  (`netEntsHostNoteDeform`, saturating at 15, with the last level) and zeroes
+  the count once the object draws its own vertices again
+  (`netWorldObjDeformed`: a DL's rwdata vertices back to the rodata's, which
+  is what regeneration's modelFreeVertices does). The client calls objDeform
+  until its count matches, and modelFreeVertices when the host's goes to 0.
+- **Three event classes** (`netevents.c` `netEvClassOf`), each a message
+  type on its own ENet channel (five channels now): EVENTS on
+  NET_CHAN_RELIABLE (the only class evseq counts, so the scenario block
+  waits on deaths and scores alone), EVFX reliable on NET_CHAN_EVFX, EVSHOT
+  unreliable unsequenced on NET_CHAN_EVSHOT in datagram-sized messages. The
+  client's queue stays in tick order across classes (an event is put back
+  behind any of a later tick that came first; the hudmsg text buffers stay
+  with their slots, their contents swapped).
+- Why shots may be lost: dozens a second, each seen once; a lost one is a
+  shot without its tracer that the next shot covers, where a resent one came
+  150+ ms late and held up every event behind it. Explosions and hits are
+  rare and seen by all (a missing boom is noticed), so they stay reliable,
+  but in an order of their own. Deaths, scores and hudmsgs must arrive and
+  in order.
+- **Measuring**: `netcrowd.sh` STAGE= WRECK= CENSUS=; `--net-test-wreck`
+  breaks half the glass and windowed doors, crumples six objects and starts
+  a storm (the first also the gas, where the stage has its sky);
+  `--net-test-census` logs "world census" on every machine; clients log
+  "events lag by type" and "world client". Results are in the results file
+  of the pass (`~/wt/f3-1010c/results-netstate.txt`).
+
+**Traps met.** A setup glass regenerates in a match (objFree with
+canregen keeps the prop; `OBJH2FLAG_DESTROYED` clears), and is freed for
+good in a mission - so "broken" is read from the object every tick, not
+latched from glassDestroy. Clients had disagreed with the host about a
+match's glass before this (their own regeneration timers). gasReleaseFromPos
+on a stage without a second sky crashes in envApplyTransitionFrac: the test
+wreck checks `g_EnvTransitionFrom/To` as the client always did.
+
+**Left.** A client still regenerates a match's pane on its own timer (the
+next block breaks it again quietly while the host's is still out);
+explosions' scorches and bullet holes are not sent to a joiner; a CCTV
+lens shot out is not replicated at all (as the windowed door pane was not);
+CHAT and SLOTCFG share NET_CHAN_RELIABLE with the GAME events.

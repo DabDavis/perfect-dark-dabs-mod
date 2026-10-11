@@ -103,6 +103,7 @@ static u8 *s_TeleCount = NULL;                  // [maxids]
 static u16 *s_TeleGen = NULL;                 // [maxids]
 static u8 *s_Deform = NULL;                   // [maxids] (protocol 29) host: NETDEFORM_* of the prop's object
 static u16 *s_DeformGen = NULL;               // [maxids] ... for this generation of the prop
+static u8 *s_DeformDestroyed = NULL;          // [maxids] ... and it was destroyed since (its regeneration makes it whole)
 static u32 s_OfferedSum[NET_MAXVIEWS];
 static u8 s_Pkt[NET_MAXUNRELIABLE];
 
@@ -443,6 +444,7 @@ static void netEntsFreeAll(void)
 	free(s_TeleGen);
 	free(s_Deform);
 	free(s_DeformGen);
+	free(s_DeformDestroyed);
 	free(s_Desc);
 	free(s_DescValid);
 	s_Desc = NULL;
@@ -458,6 +460,7 @@ static void netEntsFreeAll(void)
 	s_TeleGen = NULL;
 	s_Deform = NULL;
 	s_DeformGen = NULL;
+	s_DeformDestroyed = NULL;
 	s_NumCmds = 0;
 	s_MaxIds = 0;
 }
@@ -539,9 +542,10 @@ void netEntsStageStart(void)
 	s_TeleGen = calloc(s_MaxIds, sizeof(u16));
 	s_Deform = calloc(s_MaxIds, 1);
 	s_DeformGen = calloc(s_MaxIds, sizeof(u16));
+	s_DeformDestroyed = calloc(s_MaxIds, 1);
 
 	if (!s_SetupCmdOfProp || !s_SetupGenOfProp || !s_Cap || !s_Ents || !s_TelePrev || !s_TeleCount || !s_TeleGen
-			|| !s_Deform || !s_DeformGen) {
+			|| !s_Deform || !s_DeformGen || !s_DeformDestroyed) {
 		sysLogPrintf(LOG_ERROR, "net: out of memory for the entity table");
 		netEntsFreeAll();
 		return;
@@ -767,10 +771,15 @@ void netEntsHostNoteDeform(struct defaultobj *obj, s32 level)
 	b = (u8)((NETDEFORM_COUNT(b) < 15 ? NETDEFORM_COUNT(b) + 1 : 15) | (level << 4));
 	s_Deform[idx] = b;
 	s_DeformGen[idx] = netPropGen(idx);
+	s_DeformDestroyed[idx] = (obj->hidden2 & OBJH2FLAG_DESTROYED) != 0;
 }
 
-// The crumpling the record carries: none once the object is whole again
-// (a match's prop regenerated: its own vertices back, modelFreeVertices)
+// The crumpling the record carries: none once the object is whole again (a
+// match's destroyed prop regenerated: OBJH2FLAG_DESTROYED cleared, its own
+// vertices back). Not read from the vertices themselves: the vertex store
+// takes a crumpled copy back when it fills (vtxstoreAllocate's levels),
+// on each machine at its own time, and a count that fell and rose again
+// with it crumpled the client's copy over and over
 static u8 netCaptureDeform(struct prop *prop, struct defaultobj *obj)
 {
 	const s32 idx = netPropIndex(prop);
@@ -779,9 +788,13 @@ static u8 netCaptureDeform(struct prop *prop, struct defaultobj *obj)
 		return 0;
 	}
 
-	if (!netWorldObjDeformed(obj)) {
+	if (s_DeformDestroyed[idx] && (obj->hidden2 & OBJH2FLAG_DESTROYED) == 0) {
 		s_Deform[idx] = 0;
 		return 0;
+	}
+
+	if (obj->hidden2 & OBJH2FLAG_DESTROYED) {
+		s_DeformDestroyed[idx] = 1;
 	}
 
 	return s_Deform[idx];
