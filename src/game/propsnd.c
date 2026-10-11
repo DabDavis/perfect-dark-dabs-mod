@@ -14,6 +14,7 @@
 #include "lib/rng.h"
 #include "lib/mtx.h"
 #include "lib/lib_317f0.h"
+#include "game/bondgun.h"
 #include "data.h"
 #include "types.h"
 #ifndef PLATFORM_N64
@@ -746,9 +747,16 @@ s16 psCreate(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 pad
 	// stopped one's place past the cap, and one over the cap that stops
 	// nothing is refused before anything is cut.
 	bool shootreplaced = false;
+	// A gun's shot the cap would refuse takes the place of a shot's hit on
+	// the level instead (a ricochet, or the surface's own sound): one of
+	// those is stopped for it. The hits were what filled the cap in a
+	// firefight, and the guns that made them fell silent (F3 20261010-235314,
+	// 20261011-020937).
+	bool hitcut = false;
 
 	if (type == PSTYPE_CHRSHOOT && g_PsShootReplaces) {
-		if (channel == NULL && g_SndNumPlaying > 12 && !psShootChannelToStop(prop)) {
+		if (channel == NULL && g_SndNumPlaying > 12 && !psShootChannelToStop(prop)
+				&& !(hitcut = bgunStopOneHitSound())) {
 			return -1;
 		}
 
@@ -764,7 +772,8 @@ s16 psCreate(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 pad
 
 	if (channel == NULL) {
 #ifndef PLATFORM_N64
-		if (type != PSTYPE_FOOTSTEP && g_SndNumPlaying > 12 && !shootreplaced) {
+		if (type != PSTYPE_FOOTSTEP && g_SndNumPlaying > 12 && !shootreplaced && !hitcut
+				&& !(type == PSTYPE_CHRSHOOT && (hitcut = bgunStopOneHitSound()))) {
 			return -1;
 		}
 #else

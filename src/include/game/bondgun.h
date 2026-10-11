@@ -160,6 +160,9 @@ void bgunTickGameplay2(void);
 s32 bgunAllocateFireslot(void);
 void bgunRender(Gfx **gdl);
 struct sndstate **bgunAllocateAudioHandle(void);
+#ifndef PLATFORM_N64
+bool bgunStopOneHitSound(void);
+#endif
 void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum);
 void bgunPlayGlassHitSound(struct coord *pos, RoomNum *rooms, s32 texturenum);
 void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum, RoomNum *rooms);

@@ -134,7 +134,14 @@ extern struct criteria_throwinroom *g_ThrowInRoomCriterias;
 extern struct criteria_holograph *g_HolographCriterias;
 extern struct sndstate *g_CasingAudioHandles[2];
 extern s32 var8009d0d8;
-extern struct sndstate *g_BgunAudioHandles[MAX_PLAYERS];
+// The sounds of shots hitting the level (ricochets, the surface's own) at
+// once: the cartridge's four. It was sized MAX_PLAYERS, which was four until
+// the online rooms made it twelve (b2aeae7c6) - and twelve ricochets fill the
+// twelve sounds psCreate() allows on their own, so every automatic's shot,
+// a guard's or a simulant's, was refused while they rang (F3 20261010-235314,
+// 20261011-020937).
+#define NUM_BGUN_HIT_SOUNDS 4
+extern struct sndstate *g_BgunAudioHandles[NUM_BGUN_HIT_SOUNDS];
 extern struct fireslot g_Fireslots[20];
 extern struct casing g_Casings[20];
 extern struct boltbeam g_BoltBeams[8];

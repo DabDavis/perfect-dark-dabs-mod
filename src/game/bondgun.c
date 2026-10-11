@@ -103,7 +103,7 @@
 struct sndstate *g_CasingAudioHandles[2];
 s32 var8009d0d8;
 u32 fill2;
-struct sndstate *g_BgunAudioHandles[MAX_PLAYERS];
+struct sndstate *g_BgunAudioHandles[NUM_BGUN_HIT_SOUNDS];
 s32 var8009d0dc;
 u32 fill2_2;
 s32 var8009d0f0[3];
@@ -133,7 +133,7 @@ struct fireslot g_Fireslots[20];
 struct sndstate *g_CasingAudioHandles[2];
 s32 var8009d0d8;
 s32 var8009d0dc;
-struct sndstate *g_BgunAudioHandles[MAX_PLAYERS];
+struct sndstate *g_BgunAudioHandles[NUM_BGUN_HIT_SOUNDS];
 s32 var8009d0f0[3];
 u32 var8009d0fc;
 u32 var8009d100;
@@ -184,7 +184,7 @@ s32 var8009d148;
 u32 var8009d14c;
 struct sndstate *g_CasingAudioHandles[2];
 s32 var8009d0d8;
-struct sndstate *g_BgunAudioHandles[MAX_PLAYERS];
+struct sndstate *g_BgunAudioHandles[NUM_BGUN_HIT_SOUNDS];
 struct fireslot g_Fireslots[20];
 u32 fill2[1];
 #endif
@@ -13680,6 +13680,51 @@ struct sndstate **bgunAllocateAudioHandle(void)
 
 	return NULL;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Stop one of the shots' hit sounds (ricochets, a surface's own sound) for a
+ * gun's shot that the cap on sounds would refuse (psCreate()): one that has
+ * not started yet first, as it was never heard. Each is stopped once; false
+ * when none is left to stop. Offline and online alike: which sounds play
+ * changes nothing the game keeps (replaytest.sh).
+ */
+bool bgunStopOneHitSound(void)
+{
+	// what was stopped this frame: its stop reaches the sound player at the
+	// frame's end, and its handle is let go then
+	static struct sndstate *stopped[NUM_BGUN_HIT_SOUNDS];
+	static s32 stoppedframe = -1;
+	s32 pass;
+	s32 i;
+
+	if (stoppedframe != g_Vars.lvframenum) {
+		stoppedframe = g_Vars.lvframenum;
+
+		for (i = 0; i < ARRAYCOUNT(stopped); i++) {
+			stopped[i] = NULL;
+		}
+	}
+
+	for (pass = 0; pass < 2; pass++) {
+		for (i = 0; i < ARRAYCOUNT(g_BgunAudioHandles); i++) {
+			struct sndstate *state = g_BgunAudioHandles[i];
+
+			if (state == NULL || state == stopped[i] || sndGetState(state) == AL_STOPPED
+					|| (pass == 0 && sndGetState(state) == AL_PLAYING)) {
+				continue;
+			}
+
+			stopped[i] = state;
+			audioStop(state);
+
+			return true;
+		}
+	}
+
+	return false;
+}
+#endif
 
 /**
  * Is this a blow landing - a fist, or a pistol used as a club? The game asked
