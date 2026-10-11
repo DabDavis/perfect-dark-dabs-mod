@@ -330,8 +330,13 @@ The sliders (`BOTSTAT_*`, `mpbotconfig.stats[]`, tenths either side of stock so
 a zeroed config is stock; Edit Simulant > Stats...) are read through
 `botGetStatScale()`: speed in `botCalculateMaxSpeed()`, accuracy and reaction in
 `bot0f192a74()` and `botGetShootDelay()`, damage and toughness in `chrDamage()`'s
-normal-multiplayer branch. A DarkSim's aim error is already zero, so its
-accuracy slider only matters below 100%. At 500% speed a simulant covers 150
+normal-multiplayer branch. A DarkSim's aim error, settle time and shoot delay
+are all zero (PerfectSim's mostly), and a zero divided by the scale stays zero,
+so below 100% those two sliders did nothing for them (F3 20261010-232205):
+`botStatWorse()` grows a value under HardSim's from HardSim's instead,
+`value + hard * (1 / scale - 1)` - 50% of a DarkSim is HardSim's aim, 10% nine
+times its error and delay. Measured over a seeded 4-DarkSim match (two at 10%
+accuracy and reaction, 14400 frames): the pair's kills 8 before, 1 after. At 500% speed a simulant covers 150
 units a frame in a straight line and spends most of its time against walls -
 measured 2.6x the distance of a stock one, not 5x. They save in setup file
 version 3 (save-format.md). The probes were gdb scripts over the seeded perf
