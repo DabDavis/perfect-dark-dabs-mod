@@ -2854,8 +2854,10 @@ packet held up everything behind it (seen at 25 ticks at 150 ms / 2%).
 |---|---|---|---|
 | FIRESLOT, PLAYERSHOT | one-shot (flash, tracer, sound) | nothing | EVSHOT, unreliable |
 | SPARKS, CHOKE | one-shot | nothing | EVSHOT, unreliable |
-| EXPLOSION | one-shot boom; its scorch is a lasting decal | the scorches (cosmetic, not sent) | EVFX, reliable |
-| CHRDAMAGE | one-shot feedback (flinch, shield, the red flash); health is in the local block | nothing | EVFX, reliable |
+| EXPLOSION | short-lived state (a burn of 40-180 ticks); its scorch a lasting mark | one still burning; the scorches | SURE copies in EVSHOT; catch-up; MARKS |
+| CHRDAMAGE | one-shot feedback (flinch, shield, the red flash); health is in the local block | nothing | SURE copies in EVSHOT |
+| a camera's lens shot out | **state**, never sent before | it | OBJ byte 0 bit 0x80 |
+| bullet holes, scorches, splats on the bg | lasting cosmetic state | the host's set | MARKS once (bulk) |
 | DEFORM | **state** (crumpled; a match's prop regenerates whole) | every object's crumpling | OBJ byte 23 / DOOR byte 5 |
 | GLASS | **state** (a pane out; a match's comes back) | every pane broken | world block bit (event past 1760) |
 | NBOMB | **state** with a life (~6 s storm) | a storm going, how old | world block storm slot |
@@ -2925,6 +2927,33 @@ panes, 0/12 objects at 1650; Grid 0/12 objects); now it matches the host
 the host on its regenerating glass before (they never regenerate it, the
 record only hid it); the block now puts a pane back. Bytes to a client
 about the same (-1% to +3%, inside run-to-run noise).
+
+**Explosions, hits, lenses and marks (the owner's follow-up, 2026-10-11).**
+- An explosion or a hit on the reliable EVFX channel still waited ~24
+  ticks behind a lost packet. Now each is recorded once in a ring
+  (`s_Sure`, netevents.c) and goes unreliably in the EVSHOT messages of
+  ticks +0, +2, +5 (an explosion) or +0, +3 (a hit), wrapped in a SURE
+  event (serial, ticks back); the client keeps the first copy
+  (`s_SeenSure`), queued at its own tick. Three lost copies in a row at 2%
+  is 8 in a million. A joiner's first EVENTS carries the explosions still
+  within their burn (duration + 7 flares); one applied more than 6 ticks
+  late is put in at the host's age (`x->age`), past explosionTick's bang
+  at age 0. The host records explosions even with nobody connected yet.
+  Hits are sent twice, not three times: rockets make a hit per victim per
+  tick of the blast (90 000 in a three-minute Grid match), and their bytes
+  are the cost.
+- A camera's lens (CCTV, PD's and GoldenEye's - the ROM model keeps the
+  lens toggle MODELPART_CCTV_0003 under the HD mesh): OBJ byte 0 bit 0x80
+  from the toggle's visibility; the client hides it (cctvHandleLensShot's
+  glass when it saw the camera whole before). The camera's watching and
+  its damage are the host's: a client runs no cctvTick.
+- MARKS: wallhit.c's `wallhitNetList` gives the settled bg marks oldest
+  first (none on a prop or a chr, none fading or spreading), 90 bytes each,
+  to a joiner once on the bulk channel beside its first EVENTS;
+  `wallhitNetAdd` puts each in this machine's pool as wallhitCreate would
+  (its room's cap still holds). Live play is as before: each machine makes
+  the marks of what it sees, so two machines' marks drift apart later
+  anyway (a client from the start had 31 where the host had 65).
 
 **Left.** An object out of a client's scope gets its crumpling only when it
 comes into scope (invisible meanwhile);
