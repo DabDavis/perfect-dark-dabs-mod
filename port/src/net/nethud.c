@@ -10,6 +10,7 @@
 #include "bss.h"
 #include "data.h"
 #include "config.h"
+#include "net/netlobby.h"
 #include "system.h"
 #include "input.h"
 #include "lib/vi.h"
@@ -80,6 +81,7 @@
 #define CHAT_SHUT       0
 #define CHAT_MATCH      1     // the match's chat (netSessionChatSend)
 #define CHAT_LOBBY      2     // the lobby room's (netLobbyChat)
+#define CHAT_MAIN       3     // the main menu's, on the Briefing Room (netLobbyMainChatSay)
 
 struct feedline {
 	u64 at;
@@ -107,6 +109,7 @@ static u32 s_EscFrame = 0; // the frame whose ESC press the line took
 static s32 s_LiveWas = 0;
 static u32 s_Frame = 1;
 static u32 s_LobbyFrame = 0;
+static u32 s_MainFrame = 0;   // the Briefing Room's last frame up (netHudMainChatFrame)
 
 static char s_ChatKeyName[32] = "T";
 static char s_PlayersKeyName[32] = "P";
@@ -354,6 +357,8 @@ static void netHudChatStop(s32 say)
 
 	if (mode == CHAT_LOBBY) {
 		netLobbyChat(s_ChatText);
+	} else if (mode == CHAT_MAIN) {
+		netLobbyMainChatSay(s_ChatText);
 	} else if (netSessionChatSend(s_ChatText) != 0) {
 		netHudPush(NETCHAT_PRIVATE, NETCHAT_FROM_NONE, "", "Not sent: the host is not there.");
 	}
@@ -504,6 +509,8 @@ void netHudFrame(void)
 {
 	const s32 live = g_NetMode != NETMODE_NONE && netSessionHudLive();
 	const s32 lobby = !live && s_LobbyFrame && s_Frame - s_LobbyFrame <= 2 && netLobbyInRoom();
+	// the Briefing Room, and the lobby has the main menu's chat
+	const s32 mainchat = !live && !lobby && s_MainFrame && s_Frame - s_MainFrame <= 2 && netLobbyMainChatAvailable() > 0;
 
 	s_Frame++;
 
@@ -540,19 +547,19 @@ void netHudFrame(void)
 
 	s_LiveWas = live;
 
-	if (s_ChatOpen != CHAT_SHUT && !(s_ChatOpen == CHAT_MATCH ? live : lobby)) {
-		// the match or the Game Lobby went from under the line
+	if (s_ChatOpen != CHAT_SHUT && !(s_ChatOpen == CHAT_MATCH ? live : s_ChatOpen == CHAT_MAIN ? mainchat : lobby)) {
+		// the match, the Game Lobby or the Briefing Room went from under the line
 		netHudChatStop(0);
 	}
 
 	if (s_ChatOpen != CHAT_SHUT) {
 		netHudChatType();
-	} else if ((live || lobby) && !inputIsTextInputActive() && g_MenuKeyboardPlayer < 0) {
+	} else if ((live || lobby || mainchat) && !inputIsTextInputActive() && g_MenuKeyboardPlayer < 0) {
 		const s32 vk = netHudKey(s_ChatKeyName, &s_ChatVk);
-		const s32 space = inputKeyPressedThisFrame(VK_SPACE) && (lobby || netHudSpaceFree());
+		const s32 space = inputKeyPressedThisFrame(VK_SPACE) && (lobby || mainchat || netHudSpaceFree());
 
 		if ((vk > 0 && inputKeyPressedThisFrame(vk)) || space) {
-			netHudChatStart(live ? CHAT_MATCH : CHAT_LOBBY, NULL);
+			netHudChatStart(live ? CHAT_MATCH : lobby ? CHAT_LOBBY : CHAT_MAIN, NULL);
 		} else if (lobby && s_TestLobbyType[0]) {
 			netHudChatStart(CHAT_LOBBY, s_TestLobbyType);
 			s_TestLobbyType[0] = '\0';
@@ -614,6 +621,13 @@ void netHudLobbyFrame(void)
 	s_LobbyFrame = s_Frame;
 }
 
+// The Briefing Room is up this frame: Space and the chat key open the main
+// menu's chat line there
+void netHudMainChatFrame(void)
+{
+	s_MainFrame = s_Frame;
+}
+
 /**
  * The open line for a row of the Game Lobby: "Say: " and as much of its tail
  * as `maxchars` lets in, with a cursor. 0 while it is shut.
@@ -623,7 +637,7 @@ s32 netHudChatLine(char *out, s32 size, s32 maxchars)
 	const char *tail = s_ChatText;
 	const s32 cursor = (netHudNowMs() / 500) & 1;
 
-	if (s_ChatOpen != CHAT_LOBBY) {
+	if (s_ChatOpen != CHAT_LOBBY && s_ChatOpen != CHAT_MAIN) {
 		return 0;
 	}
 
@@ -971,8 +985,14 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 	const u64 now = netHudNowMs();
 	const s32 open = s_ChatOpen == CHAT_MATCH;
 	const s32 left = viGetViewLeft() + 10;
-	const s32 maxw = viGetViewWidth() * 60 / 100;
-	const s32 bottom = viGetViewTop() + viGetViewHeight() * 60 / 100;
+	// At the online pages' text size (Online Text Size, netlobbymenu.c; the
+	// owner, 2026-10-11): laid out as much bigger as it is drawn smaller,
+	// and drawn scaled from the feed's corner into the same part of the view
+	// (gDPSetRectScaleEXT), more of each line on a line and more lines in
+	// it. Never wider than the 320 units, past which a glyph is dropped.
+	const s32 pct = netLobbyMenuGetTextScale();
+	const s32 maxw = MIN(viGetViewWidth() * 60 / 100 * 100 / pct, viGetWidth() - left - 8);
+	const s32 bottom = top + (viGetViewTop() + viGetViewHeight() * 60 / 100 - top) * 100 / pct;
 	s32 lineh;
 	s32 dummy;
 	s32 room;
@@ -1018,6 +1038,10 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 	}
 
 	y = top;
+
+	if (pct != 100) {
+		gDPSetRectScaleEXT(gdl++, pct / 100.0f, left, top);
+	}
 
 	for (i = nshown - 1; i >= 0; i--) {
 		struct feedline *line = netHudFeedAt(shown[i]);
@@ -1091,6 +1115,10 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 		if (cursor) {
 			gdl = text0f153a34(gdl, left + w + 1, y + 1, left + w + 3, y + lineh - 2, COL_TEXT);
 		}
+	}
+
+	if (pct != 100) {
+		gDPSetRectScaleEXT(gdl++, 1.0f, 0, 0);
 	}
 
 	return gdl;

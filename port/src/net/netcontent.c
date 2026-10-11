@@ -1564,6 +1564,153 @@ const char *netContentFetchStatus(char *out, s32 size)
 	return out;
 }
 
+static s32 netContentPercent(u32 got, u32 total)
+{
+	return total ? (s32)((u64)got * 100 / total) : 0;
+}
+
+// a row's state from a transfer of its folder under way: a guest's fetch, or
+// on the host the first guest it is sending it to
+static s32 netContentRowTransfer(const char *dir, struct netcontentrow *row)
+{
+	s32 i;
+
+	if (s_Fetch.active && strcasecmp(s_Fetch.dir, dir) == 0) {
+		snprintf(row->state, sizeof(row->state), "Downloading... %d%%", netContentPercent(s_Fetch.gotbytes, s_Fetch.bytes));
+		row->kind = NETCONTENTROW_BUSY;
+		return 1;
+	}
+
+	for (i = 0; i < NETCONTENT_MAXPEERS; i++) {
+		if (s_Serve[i].active && strcasecmp(s_Serve[i].dir, dir) == 0) {
+			snprintf(row->state, sizeof(row->state), "Sending... %d%%", netContentPercent(s_Serve[i].sentbytes, s_Serve[i].bytes));
+			row->kind = NETCONTENTROW_BUSY;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static struct netcontentrow *netContentRowAdd(struct netcontentrow *rows, s32 *n, s32 max, const char *dir, const char *name)
+{
+	struct netcontentrow *row;
+	s32 i;
+
+	for (i = 0; i < *n; i++) {
+		if (strcasecmp(rows[i].dir, dir) == 0) {
+			return NULL;
+		}
+	}
+
+	if (*n >= max) {
+		return NULL;
+	}
+
+	row = &rows[(*n)++];
+	memset(row, 0, sizeof(*row));
+	snprintf(row->dir, sizeof(row->dir), "%s", dir);
+	snprintf(row->name, sizeof(row->name), "%s", name);
+
+	return row;
+}
+
+/**
+ * The Game Lobby's Mods window (netlobbymenu.c): what a room plays with, a
+ * row each - the GoldenEye conversion or ROM hack whose mode it is in, the
+ * Perfect Dark mod its host plays with, the mod its Stage Loader map is
+ * from - and where this machine stands with each: here, already served into
+ * memory, or to come from the host (a guest is sent what it lacks at the
+ * launch, netContentFollow). A transfer under way shows its progress on its
+ * row, or on a row of its own. The room's fields: its sum's mod and ge and
+ * its stage_key rule. Returns the number of rows.
+ */
+s32 netContentLobbyRows(const char *mod, const char *ge, const char *stagekey, struct netcontentrow *rows, s32 max)
+{
+	struct netcontentrow *row;
+	char base[NET_MAXMAPDIR + 1];
+	s32 n = 0;
+	s32 id;
+	s32 i;
+
+	if (ge && ge[0]) {
+		const char *dir = gexPlusRomDirOfTag(ge);
+
+		if (dir && (row = netContentRowAdd(rows, &n, max, dir, netCoopGameName(ge))) != NULL) {
+			if (!netContentRowTransfer(dir, row)) {
+				const s32 here = netContentConversionHere(ge);
+
+				snprintf(row->state, sizeof(row->state), "%s", here ? "Converted" : "From the host");
+				row->kind = here ? NETCONTENTROW_HERE : NETCONTENTROW_MISSING;
+			}
+		}
+	}
+
+	if (mod && mod[0] && (row = netContentRowAdd(rows, &n, max, mod, modModeDisplayNameOf(mod))) != NULL) {
+		if (!netContentRowTransfer(mod, row)) {
+			const s32 index = modListIndexOf(mod);
+			const char *overlay = fsGetModDir();
+
+			// the mod this machine plays with now: the host's own (from
+			// --moddir too, which the installed list leaves out), or a
+			// guest's that already follows it
+			if (overlay && strcasecmp(contentBasename(overlay, base, sizeof(base)), mod) == 0) {
+				snprintf(row->state, sizeof(row->state), "%s", "In use");
+				row->kind = NETCONTENTROW_HERE;
+			} else if (index >= 0 && !modListIsMapsOnly(index)) {
+				snprintf(row->state, sizeof(row->state), "%s", "Installed");
+				row->kind = NETCONTENTROW_HERE;
+			} else if (fsMemDirFind(mod) >= 0) {
+				snprintf(row->state, sizeof(row->state), "%s", "Received");
+				row->kind = NETCONTENTROW_HERE;
+			} else {
+				snprintf(row->state, sizeof(row->state), "%s", "From the host");
+				row->kind = NETCONTENTROW_MISSING;
+			}
+		}
+	}
+
+	// a Stage Loader map: the mod it is from, unless that is the conversion
+	// or the mod above (GoldenEye's arenas are its conversion's maps)
+	if (stagekey && strncmp(stagekey, "map:", 4) == 0 && stagekey[4]) {
+		const char *dir = NULL;
+
+		for (id = 1; id <= 0xff && !dir; id++) {
+			const char *name = modloaderGetStageModDir(id) ? modloaderGetStageMapName(id) : NULL;
+
+			if (name && strcmp(name, stagekey + 4) == 0 && !modloaderStageIsMission(id)) {
+				dir = contentBasename(modloaderGetStageModDir(id), base, sizeof(base));
+			}
+		}
+
+		if (dir) {
+			if (!gexPlusRomIsConversionDir(dir) && (row = netContentRowAdd(rows, &n, max, dir, modModeDisplayNameOf(dir))) != NULL
+					&& !netContentRowTransfer(dir, row)) {
+				snprintf(row->state, sizeof(row->state), "%s", "Installed");
+				row->kind = NETCONTENTROW_HERE;
+			}
+		} else if ((row = netContentRowAdd(rows, &n, max, stagekey + 4, stagekey + 4)) != NULL) {
+			// its mod's name is the host's to know: the map's for now
+			snprintf(row->name, sizeof(row->name), "%s (map)", stagekey + 4);
+			snprintf(row->state, sizeof(row->state), "%s", "From the host");
+			row->kind = NETCONTENTROW_MISSING;
+		}
+	}
+
+	// what is on its way that no row named
+	if (s_Fetch.active && (row = netContentRowAdd(rows, &n, max, s_Fetch.dir, modModeDisplayNameOf(s_Fetch.dir))) != NULL) {
+		netContentRowTransfer(s_Fetch.dir, row);
+	}
+
+	for (i = 0; i < NETCONTENT_MAXPEERS; i++) {
+		if (s_Serve[i].active && (row = netContentRowAdd(rows, &n, max, s_Serve[i].dir, modModeDisplayNameOf(s_Serve[i].dir))) != NULL) {
+			netContentRowTransfer(s_Serve[i].dir, row);
+		}
+	}
+
+	return n;
+}
+
 /**
  * Client: a stage key named dir, which is not here: ask the host for it.
  * 1 when asked (the STAGE_LOAD waits for CONTENT_END); 0 when it was

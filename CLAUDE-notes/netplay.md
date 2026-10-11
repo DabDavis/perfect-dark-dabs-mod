@@ -123,6 +123,16 @@
   that name (`networld.c`): EQOA DRDP's split; broken glass, storms and the
   gas in a world block in SNAP, crumpling and a door's pane in records, the
   events in three classes on channels of their own (shots unreliable).
+- **The Game Lobby's windows (2026-10-11, no wire change)** — the section
+  of that name: the owner's mock-up as four windows in two columns, the
+  buttons the only real dialog, the rest drawn around it; each column held
+  to its side of a widescreen display; then Online Game, the Briefing Room,
+  Create Room and Room Settings the same way (`s_LobbyPages`). The menu's
+  frame is 320x220, wider than 4:3 (a side alignment moves a side *in* at
+  4:3), fast3d's scissor under a side alignment was off, a placed dialog
+  taller than its rows scrolled them to its foot, the Mods window
+  (`netContentLobbyRows`), and the roster: one list, grouped and coloured
+  by team in a team match (the room's `teams` rule).
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -3079,3 +3089,245 @@ STAGE_LOAD (once a match), LOADED, GO, MATCH_END, LEAVE, LOBBY, SLOTCFG (on
 a change), ROSTER (on GO and a seat changing hands), RESUME, CHAT,
 CONTENT_* (a served download), the events (one-shots), the SCORES table (a
 joiner's catch-up and a cleared seat).
+
+## The Game Lobby's windows (2026-10-11, no wire change)
+
+The owner's mock-up (`~/perfect-dark/lobby.webp`): four windows in two
+columns. On the left **Game Lobby** (the room's name and count in the Md
+font, its settings, the roster in Team 1 / Team 2 / Spectators columns with
+ready marks and each member's ping) over **Mods**; on the right **Lobby
+Chat** (the room's chat, the status line at its foot, the line being typed
+under that) over an untitled box of buttons (Ready / Change Team / Chat /
+Kick... / Settings... / Back to Campaign / Leave Lobby). The owner asked for
+it to be mindful of 4:3 and to use a widescreen display's width.
+
+**The other online pages (same day, the owner: "lets do similar to the
+other online screens").** Each page is one entry of `s_LobbyPages` at the
+end of netlobbymenu.c: its dialog, the side (column) it is in, where it goes
+and the windows around it. Online Game: Rooms Open on the left (the room
+list asked for every 10 s while the page is up, two lines a room), the
+account over the buttons on the right. The Briefing Room: the dialog (its
+buttons and the room list, a line a room, sized to the column every tick:
+`briefingListFit`) is the left column; on the right the Room window (the
+room the cursor is on, else the one Join would take, else the first: its
+arena, mode, counts, password, state and its mods with where this machine
+stands) and a Lobby status window sized to its text. Create Room and Room
+Settings: the setup's rows on the left (they scroll), on the right a
+preview of the room as the lobby will list it - `netLobbyPreviewRoom()`
+reads back the very JSON the create or a settings change sends - and a
+status window. The small popups (passwords, names, Kick, the chat
+keyboard, Quick Message) stay PD's centred dialogs.
+
+**After WWE SmackDown! vs. Raw (same day).** The owner pointed at that
+game's online mode (its video at 31:37 and 32:28: "no gamespy logo, just the
+nice layouts", and "we can even have the PD logo in the header"). Every page
+now has a header bar across the screen - Perfect Dark's logo over its left
+end, the page's name, what the page is about on the right (the account; the
+room's name and count) - and the buttons' hints along the foot
+(`lobbyChrome`, the page's `title`, `info` and `hints` in `s_LobbyPages`).
+The logo is the boot screen's, drawn from the ROM ("The header's logo"
+below): the XBLA release's (xblaui.c) would have shown only for a player
+with that package, and the port's icon compiled in, tried in between, is
+art shipped in the binary, which the project does not do. The bar is one piece drawn with no side held (`G_ASPECT_MODE_EXT` cleared:
+the 320 units stretch across the window, which a gradient does not mind);
+two halves held to the sides met in a visible seam. Online Game opens on
+Name Entry (the reference's name screen): the account's name in a box that
+opens the account page, Next on to the Briefing Room, signing in first.
+The Briefing Room is the main page: the rooms as cards (state, a mode
+badge, name, host, count, ping) with Create Room and Refresh List as the
+last two cards (the reference's Create Game), the list asked for every
+10 s. After a match the stack is Name Entry, Briefing Room, Game Lobby
+(`netLobbyMenuPushRoomAfterMatch`, `netLobbyMenuFrame`), so Leave lands on
+the rooms. The windows' own titles no longer repeat the header's
+("Rooms", "Room Setup", "Room").
+
+**Text size (same day).** The owner: "letter glyphs are large". The windows'
+text is drawn at Net.LobbyTextScale percent of the fonts' own size (75 by
+default; text-rendering.md "Text smaller than its glyphs"), every row height
+in netlobbymenu.c is `lobbyRow()` of the font's, and the cards are as tall as
+their three smaller lines; the header and footer are drawn full size
+(`lobbyChrome()` sets `s_LobbyFullSize`). The header's right side cuts the
+room's name rather than its count when both do not fit. Then (the owner:
+"the dropdown menus need to be adjusted and create game screen") the pages'
+stock rows too: `netLobbyMenuItemPct()` names the online pages' own dialogs
+(not the Briefing Room's cards or Name Entry's box, drawn here and sized
+already, nor the stock pages pushed over them), `menuCalculateItemSize()`
+scales their rows' sizes, and `dialogRender()` lays each such row out in a
+box as much bigger as it is drawn smaller and draws it scaled from its
+corner, highlight and dropdown list included - Create Room now fits its
+window with Create in it. Two bugs of windows wider than their columns went
+with it: a dropdown's list opened by the column's width, mid-row over the
+labels (the overlay pass now takes the width the rows were drawn with), and
+the pointer did not take a row's right half (`dialogChangeItemFocusWithMouse()`
+the same). The in-match chat feed (nethud.c) is drawn at the same size,
+laid out as much bigger, never past the 320 units.
+
+**The header's logo (same day).** "PD / Online" over the port's icon gave
+way to the boot screen's own logo, the owner's choice, drawn from the ROM
+("we can't ship assets"): `lobbyLogo()` draws title.c's two models (FILE_PNLOGO
+the emblem, FILE_PPDTWO the words), each loaded into memory of its own the
+way menuRenderModel() loads a file, and drawn by hand. What it took, each
+learned from a wrong picture:
+- The title's end is the morph's second toggle's shape drawn as it stands
+  (part 0001 on, 0000 off; the first toggle's lists, Nintendo's cube, are
+  given empty lists besides).
+- The lists blend the morph's two textures by the primitive colour's alpha
+  (combine (TEXEL1-TEXEL0)*PRIM_ALPHA+TEXEL0, then *SHADE): the title sets it
+  per model, and for the second toggle's lists at the end it is 256 less the
+  cap - 16 for the emblem, 1 for the words. Left to the menu's, an open
+  dropdown's colour made the emblem Nintendo's green and blue.
+- Lit (`G_LIGHTING`): the lists' colours are normals, and the menu models'
+  setup list clears lighting; the title's front light (ambient white) and the
+  words' light where the title's comes to rest, its LookAt (a camera on z).
+- Sized from the title's camera (46 degrees at 4000, emblem 0.35, words 1000
+  nearer at 0.308 and grown 5%): the words' projected scale is 1.23 times the
+  emblem's, the emblem 4580 model units tall; the depth cleared between them
+  (`gDPClearDepthEXT`).
+- **Not through menuRenderModel().** It sets the view (g_ViBackData) to its
+  rectangle and makes its projection the camera's (`vi0000af00()`), and the
+  eye piece - drawn first the next frame, placed through the camera's screen
+  mapping - came up small in the logo's box, or not at all once the view was
+  put back exactly; building the player's projection again instead rewrote
+  the player's viewport, and in the XBLA look the eye piece's mesh came up as
+  a blue bar down the screen and the pointer was mapped through it (F3
+  20261011-203600). The logo sets its own viewport (`s_LogoViewport`, by
+  g_ViBackIndex) and projection in the display list, then the player's
+  viewport and the menus' 2D projection (`func0f0d479c()`) after, and writes
+  none of the view's, the camera's or the menus' state.
+- In the XBLA look the release has a mesh for the emblem's file (4J's cube,
+  drawn on the second toggle): `xblaMeshSetBypass()` round the load and the
+  draw, as the title keeps it off its own logo.
+- Drawn with the centre held (a model's vertices take a side's offset as a
+  share of the viewport), its rectangle moved into the centre's frame by hand
+  for the viewport; the scissor set with no side held, in the stretched
+  frame (one set with the centre held is clamped at 0 and cut the logo's left
+  off in the 16:9 pillar). 28 units tall ("lets shrink the logo a bit").
+
+**Main Menu Chat (same day).** The owner: "the small bottom right window
+that says Lobby, let's make that a Main Menu Chat. You can make it a bit
+taller". pdlobbyd API 4 has one chat for everyone signed in (`GET /chat?since=`
+and `POST /chat`, README "Main menu chat"); the Briefing Room's right column
+is the room's details over it, about half each, the page's status the chat's
+last line (`lobbyChatLines()`, shared with the Game Lobby's room chat). The
+page says it is up every frame (`netLobbyMainChatWant()`), and the poll
+thread, idle outside a room, asks every 2 s while it is; Space or the chat
+key open the line (nethud.c CHAT_MAIN, `netHudMainChatFrame()`), Enter sends
+(`netLobbyMainChatSay()`, a queued job). A 404 (an older lobby) says so in
+the window; a 401 (the lobby restarted) signs in again once.
+
+**The roster (the owner, same day: "instead of team 1, team 2 columns
+just make the player names the same color as the team they are on and only
+in team based modes", "and group the same color teams together").** One
+list of the players, down as many columns as the rows need (three at most);
+in a team match grouped team by team, each name in its team's colour (the
+radar's `g_TeamColours`, lightened as the name tags over a player's head
+are, darker while not ready) under a header of the teams in their colours
+("Red 6  Yellow 4"); the spectators on a line of their own. A guest knows
+the room plays as teams from the room's `teams` rule, which the host now
+sends with its settings (the Teams option, or Capture the Case, which turns
+teams on at its start; pdlobbyd passes any rule key through, so no server
+change; an older host sends none: no teams). With no teams Change Team
+means nothing the roster shows, so its row is Spectate or Play
+(`netLobbySetSpectator`), and hidden for the host, which cannot watch its
+own room.
+
+**How it is built.** The buttons are the only real dialog,
+`g_NetRoomMenuDialog`, now `MENUDIALOGFLAG_DISABLETITLEBAR`, so the pad,
+the keys and the mouse work it as any page. menu.c asks netlobbymenu.c three
+things of every dialog: `netLobbyMenuPlaceDialog` (from
+`dialogCalculatePosition`, every tick: the box at the foot of the right
+column, as tall as its rows, which come and go with host and campaign),
+`netLobbyMenuDialogAlign` (the side `menuRenderDialog` holds it to) and
+`netLobbyMenuRenderPanels` (after the dialog: the other three windows). The
+windows are drawn with the dialog's own chrome calls (`menugfxRenderGradient`,
+`menugfxDrawShimmer`, `menugfxRenderDialogBackground`, its MIXCOLOUR colours
+and text blends), so they open, fade, dim and change colour with it; they
+are never focused. A dialog pushed over the room (Kick, Settings, the chat
+keyboard) takes the screen alone, the windows going with the room's dialog
+as the old page went, and they grow back open with it when it closes.
+
+**Widescreen.** The left column is drawn under `G_ASPECT_LEFT_EXT`, the
+right column and the dialog under `G_ASPECT_RIGHT_EXT` (both with
+`G_ASPECT_WIDE_EXT`, as Ghost Trials' plaques), each column the wider by
+the screen beside the frame, so the windows reach the window's sides at any
+aspect. `menuProcessInput` moves the mouse's x by the same offset
+(`netLobbyMenuDialogAlignOffset`) for a dialog held to a side.
+
+Traps met:
+
+- **The menu's frame is 320x220, not 4:3.** `videoGetNativeWidth/Height`
+  are 320x220 (aspect 1.45): under `G_ASPECT_CENTER_EXT` a 4:3 window shows
+  only x 13-307 of it (its sides are off the screen), and on a 16:9 window
+  the pillar either side is 35.6 units, not the 53 a 4:3 frame would leave.
+  So at 4:3 a side alignment moves a side *in* by 13 units: the "pillar" is
+  negative. Ghost Trials' plaque offset clamps it to 0, which a plaque does
+  not notice and a layout does (the first build's columns overlapped by 13
+  units at 4:3). `lobbyPillar()` keeps the sign; LEFT-held x 0 is the
+  screen's left edge and RIGHT-held x 320 its right edge at every aspect.
+- **fast3d's scissor under a side alignment stood off what it held.**
+  `gfx_adjust_viewport_or_scissor` added the alignment's offset unscaled,
+  where `gfx_adjust_x_for_aspect_ratio` scales it by native/window for
+  everything drawn: at 16:9 a scissor set under LEFT or RIGHT stood 1/12 of
+  half the screen (18 units) to the side of its content, cutting the left of
+  the right-held dialog. Scaled now; only scissors set under LEFT or RIGHT
+  change (Ghost Trials' plaques and side-aligned cutscene subtitles set
+  theirs whole-view, so they never showed it).
+- **Switching sides takes setting the side, not only clearing the other.**
+  The left column's turn clears RIGHT from CENTER; the right column's then
+  cleared LEFT and left neither, which is centred, and the chat window came
+  out 13 units off the buttons under it. Clear CENTER, set side | WIDE.
+- **Text stops at x 320 of the space it is drawn in** (`text0f15568c` drops
+  a glyph past `viGetWidth()`, and texture rectangles cannot go negative), so
+  each column's coordinates stay in 0-320 of its own side's space: past
+  about 3:1 the columns stop growing (`total` capped at 480) and the gap
+  between them takes the rest.
+- **The chat history.** `NETLOBBY_MAXCHAT` was 6 (the old page showed 3); it
+  is 24 now, pdlobbyd keeps 50. `textWrapN` measures a little narrower than
+  `textMeasure`: wrapped to the window's width, a full line lost its last
+  letter to the dots, so the wrap is 8 units narrower than the fit.
+- **Names before pings.** The roster's font is HandelGothicSm while every
+  name fits whole in its column and every row fits, else Xs; a ping that
+  would cut a name that is whole without it is left out
+  (`rosterCellTag`); a narrow column (under 110 units) has the ping
+  without the path tag. The Game Lobby's settings go two columns (one
+  column of seven left a full twelve-player room no rows at 4:3), the long
+  values (arena, mode, weapons, host) on the left; the preview and Room
+  windows, which have the lines, go one column where two would cut a value.
+- **A dialog taller than its rows had them at its foot.** dialogTick's
+  scroll clamp (`dstscroll` at least `height - contentheight`) is positive
+  when a dialog is taller than its content, which no stock dialog is; a page
+  placed as a whole column (Room Settings) drew its rows from the bottom up.
+  Held at 0 for the placed pages (`netLobbyMenuDialogAlign`), stock dialogs
+  untouched.
+
+**The Mods window** is `netContentLobbyRows()` (netcontent.c): a row each
+for the conversion or ROM hack the room is in (the room's `ge`), the host's
+Perfect Dark mod (`mod`) and the mod its Stage Loader map is from (the
+`stage_key` rule's `map:NAME`, looked up among this machine's maps; the
+map's name alone when it has none), plus any transfer under way that no
+row names. A row says In use (the overlay mod this machine plays with now,
+which a `--moddir` mod is although the installed list leaves it out),
+Installed, Converted, Received (served into memory earlier), From the host
+(the launch brings it: `netContentFollow`), or Downloading/Sending n% from
+`s_Fetch` and `s_Serve`. Rows left over say `<empty>`, as the mock-up has
+them.
+
+**Looking at it.** Not a gate: a local pdlobbyd with its per-address limits
+raised (`login_window` is 10 sign-ins per 5 minutes per address, which a
+dozen fake members from 127.0.0.1 exceed; `max_rooms_per_ip` 4 and
+`create_window` stop more than four filler rooms, whose heartbeats then
+stop and the rest time out), the host with
+`--net-lobby-script host --net-lobby-shots --net-lobby-size 12
+--net-lobby-wait 11` (its Game Lobby up and never launching), members
+joined, teamed, readied, given paths and pings and chatting over the HTTP
+API, `[Video] DefaultWidth/DefaultHeight` in the save's pd.ini for the
+aspect, and `gdb -p <game> -batch -ex "call (void)screenshotRequest()"` -
+the game's PID, not `timeout`'s. A dialog over the room the same way:
+break on `netLobbyTick` and `call menuPushDialog(&g_NetKickMenuDialog)`.
+Outside a room `netLobbyTick` and `netPump` are not called: break on
+`menuProcessInput`, then `call (int)netLobbyMenuHandlerOnlineMain(6, 0, 0)`
+(MENUOP_SET: Online Game as the Perfect Menu's row opens it) and push the
+Briefing Room or Create Room. `--net-lobby-teams` makes a scripted host's
+room a team match.
+`netlobbyuitest.sh` still shoots both sides' Game Lobby at 640x480.
+

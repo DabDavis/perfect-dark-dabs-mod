@@ -23,6 +23,15 @@ nameplate and rules windows do that. A scissor set before the alignment stays
 behind in the middle of the screen, because fast3d turns a scissor into pixels
 when the command is sent.
 
+The frame is 320x220 (`videoGetNativeWidth/Height`), which is wider than
+4:3: on a 4:3 window its sides (x below 13 and above 307) are off the
+screen, and LEFT or RIGHT moves what is drawn *in* by those 13 units rather
+than out; at 16:9 the pillar is 35.6 units, not the 53 a 4:3 frame would
+leave. A layout that spans the screen has to keep that sign (the Game
+Lobby, netplay.md "The Game Lobby's windows"). A scissor set under LEFT or
+RIGHT used to stand off what it held (fast3d added the offset unscaled);
+fixed 2026-10-11.
+
 A dialog is as wide as its widest *row*, and a `MENUITEMTYPE_LABEL` does not
 count towards that: a long label is drawn from the dialog's left edge and
 simply runs off it, with no wrap and no ellipsis to say it did. The small font
@@ -31,6 +40,32 @@ tail is lost. Ghost Trials' status lines are written to that budget - "Set a
 Security Question to create an account, or Sign In." is 57 and lost its last
 three words on screen while measuring fine in a header. Two shorter labels
 stacked is the fix; the account pages use that.
+
+## Text smaller than its glyphs (gDPSetRectScaleEXT, 2026-10-11)
+
+The menu is 320x220 units at every window size and a font is as many units
+tall as its glyphs are texels, so a line of HandelGothicSm is a 22nd of the
+screen at any resolution; there is no UI or text scale in the game. Smaller
+text needs no other kind of font: `gDPSetRectScaleEXT(gdl, scale, x, y)`
+(G_SETRECTSCALE_EXT) has the texture and fill rectangles after it drawn
+`scale` times their size about the point x, y, their texels spread over the
+smaller rectangle as over the whole one, until it is set again with 1
+(`gfx_draw_rectangle()`, before the aspect adjustment; `gfx_run()` clears it
+each frame). 2D shapes (a focused row's line, a dropdown's background:
+`gfx_sp_load_vertex()`, in the view's clip space) and scissors set while it
+is on (`gfx_dp_set_scissor()`) are scaled about the same point, so a whole
+menu row or dropdown list laid out at full size draws scaled (menu.c's
+`dialogRender()` for the online pages' rows). The layout is still the font's own, so `textMeasure()` widths
+and line heights are the caller's to scale. One trap: `text0f15568c()` drops
+a glyph whose *full-size* x is past `viGetWidth()`, so a line laid out near
+the right edge loses glyphs it would have drawn smaller; scale it about its
+end, laying it out leftwards from there (netlobbymenu.c `lobbyText()`). The
+online pages use it for their windows' text, their stock rows and the
+in-match chat (Net.LobbyTextScale, Online Text Size on the Advanced page, 75%
+by default), and the XBLA release's glyphs (XBLA Font) keep their sharpness
+at the smaller size. A UI scale for the rest of the stock menus is the same
+machinery with `netLobbyMenuItemPct()` answering for them, plus the mouse's
+hard-coded geometry in menuitem.c (a slider's 82 units, the keyboard's 12).
 
 ## The dark box behind outlined text is the font, not the renderer
 

@@ -224,6 +224,17 @@ void netStageStart(void);
 void netSessionModSwapped(void); // modmode.c: the host's PD mod was just entered at a STAGE_LOAD's stage change (protocol 25)
 // The Game Lobby (netlobbymenu.c): a client's fetch of the host's content under way, its progress in out; 0 none
 s32 netContentFetchLine(char *out, s32 size);
+// and its Mods window: what the room plays with, and where this machine stands with each
+#define NETCONTENTROW_HERE    0 // installed, converted or served already
+#define NETCONTENTROW_BUSY    1 // on its way: downloading, or (the host) sending
+#define NETCONTENTROW_MISSING 2 // not here: the host sends it at the launch
+struct netcontentrow {
+	char dir[128]; // NET_MAXMAPDIR + 1 (netproto.h)
+	char name[64];
+	char state[32];
+	s32 kind; // NETCONTENTROW_*
+};
+s32 netContentLobbyRows(const char *mod, const char *ge, const char *stagekey, struct netcontentrow *rows, s32 max);
 void netCheckQuit(void);
 
 // Tick passes (pdmain.c mainTick)
@@ -340,6 +351,7 @@ void netHudAimFrame(void);      // lv.c lvRender, the local player's pass: the p
 s32 netHudChatOpen(void);       // the line is open: the keyboard's keys are letters
 s32 netHudAteEscape(void);      // this frame's ESC was the line's (for what reads inputKeyPressedThisFrame)
 void netHudLobbyFrame(void);    // netlobbymenu.c: the Game Lobby is the dialog on screen this frame
+void netHudMainChatFrame(void); // netlobbymenu.c: the Briefing Room is, with the main menu's chat
 s32 netHudChatLine(char *out, s32 size, s32 maxchars); // the line as typed (its tail, a cursor); 0 shut
 void netHudSay(const char *text); // a line said from a menu (the pause menu's Players page)
 const char *netHudChatKeyName(void); // "T", or "T or Space"

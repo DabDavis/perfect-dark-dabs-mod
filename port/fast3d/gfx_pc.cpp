@@ -311,6 +311,13 @@ static struct RDP {
     bool rect_depth_on;
     float rect_depth;
 
+    // G_SETRECTSCALE_EXT: rectangles drawn this many times their size about
+    // a point (U10.2), their texels spread over the smaller one
+    bool rect_scale_on;
+    float rect_scale;
+    float rect_scale_x;
+    float rect_scale_y;
+
     // G_SETDEPTHBIAS_EXT: triangles pushed away from the eye by this many of
     // the depth buffer's smallest steps
     int16_t depth_bias;
@@ -2523,6 +2530,17 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
         float y = pos[1];
         const float z = pos[2];
         const float w = pos[3];
+
+        // G_SETRECTSCALE_EXT on a menu's own shapes too (a focused row's
+        // line, a dropdown's background), about the same point the
+        // rectangles are scaled about, in the view's clip space
+        if (rdp.rect_scale_on) {
+            const float ox = rdp.rect_scale_x / (4.0f * HALF_SCREEN_WIDTH) - 1.0f;
+            const float oy = -(rdp.rect_scale_y / (4.0f * HALF_SCREEN_HEIGHT)) + 1.0f;
+
+            x = ox * w + (x - ox * w) * rdp.rect_scale;
+            y = oy * w + (y - oy * w) * rdp.rect_scale;
+        }
 
         x = gfx_adjust_x_for_aspect_ratio(x, w);
 
@@ -6940,7 +6958,13 @@ static void gfx_adjust_viewport_or_scissor(XYWidthHeight* area, bool preserve_as
         const float ratio = gfx_current_native_aspect / gfx_current_dimensions.aspect_ratio;
         const float midx = gfx_current_dimensions.width * 0.5f;
         area->x = midx + (area->x - midx) * ratio;
-        area->x += rsp.aspect_ofs * gfx_current_dimensions.width * 0.5f;
+        // The side alignment's offset as gfx_adjust_x_for_aspect_ratio()
+        // gives it to what is drawn: (ofs + x) * ratio, so ofs is scaled
+        // too. Unscaled, a scissor set under G_ASPECT_LEFT_EXT or RIGHT_EXT
+        // stood 1/12 of half the screen off what it was meant to hold at 16:9
+        // (18 menu units), cutting into the side a dialog held there started
+        // at (the Game Lobby's buttons, netlobbymenu.c).
+        area->x += rsp.aspect_ofs * ratio * gfx_current_dimensions.width * 0.5f;
         area->width *= ratio;
     }
 
@@ -7031,6 +7055,18 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
     float y = lry / 4.0f;
     float width = (lrx - ulx) / 4.0f;
     float height = (lry - uly) / 4.0f;
+
+    // G_SETRECTSCALE_EXT on a scissor set while it is on too: what it clips
+    // (a dropdown's list, laid out at full size) is drawn scaled
+    if (rdp.rect_scale_on) {
+        const float ox = rdp.rect_scale_x / 4.0f;
+        const float oy = rdp.rect_scale_y / 4.0f;
+
+        x = ox + (x - ox) * rdp.rect_scale;
+        y = oy + (y - oy) * rdp.rect_scale;
+        width *= rdp.rect_scale;
+        height *= rdp.rect_scale;
+    }
 
     rdp.scissor.x = x;
     rdp.scissor.y = y;
@@ -7319,6 +7355,13 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     float ulyf = uly;
     float lrxf = lrx;
     float lryf = lry;
+
+    if (rdp.rect_scale_on) {
+        ulxf = rdp.rect_scale_x + (ulxf - rdp.rect_scale_x) * rdp.rect_scale;
+        lrxf = rdp.rect_scale_x + (lrxf - rdp.rect_scale_x) * rdp.rect_scale;
+        ulyf = rdp.rect_scale_y + (ulyf - rdp.rect_scale_y) * rdp.rect_scale;
+        lryf = rdp.rect_scale_y + (lryf - rdp.rect_scale_y) * rdp.rect_scale;
+    }
 
     ulxf = ulxf / (4.0f * HALF_SCREEN_WIDTH) - 1.0f;
     ulyf = -(ulyf / (4.0f * HALF_SCREEN_HEIGHT)) + 1.0f;
@@ -8239,6 +8282,12 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_SETDEPTHBIAS_EXT:
                 rdp.depth_bias = (int16_t)(int32_t)cmd->words.w1;
                 break;
+            case G_SETRECTSCALE_EXT:
+                rdp.rect_scale = (int32_t)(uint32_t)cmd->words.w1 / 65536.0f;
+                rdp.rect_scale_on = rdp.rect_scale > 0.0f && rdp.rect_scale != 1.0f;
+                rdp.rect_scale_x = (float)((int32_t)(cmd->words.w0 << 8) >> 20);
+                rdp.rect_scale_y = (float)((int32_t)(cmd->words.w0 << 20) >> 20);
+                break;
             case G_SETTILEOFFSET_EXT:
                 // A fraction of a texel past the tile's corner, until its size
                 // is set again: a picture moved by less than a quarter texel
@@ -8690,6 +8739,7 @@ extern "C" void gfx_run(Gfx* commands) {
                                         (float)gfx_current_dimensions.height / SCREEN_HEIGHT);
     gfx_rapi->clear_framebuffer(true, false);
     rdp.viewport_or_scissor_changed = true;
+    rdp.rect_scale_on = false;
     rendering_state.viewport = {};
     rendering_state.scissor = {};
     gfx_mark_state_dirty();

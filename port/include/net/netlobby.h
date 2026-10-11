@@ -23,7 +23,7 @@
 
 #define NETLOBBY_MAXROOMS    48
 #define NETLOBBY_MAXMEMBERS  16
-#define NETLOBBY_MAXCHAT     6
+#define NETLOBBY_MAXCHAT     24 // the Game Lobby's chat window holds this many (pdlobbyd keeps 50)
 #define NETLOBBY_MAXRULES    12
 #define NETLOBBY_MAXUSER     15
 #define NETLOBBY_MAXROOMNAME 32
@@ -151,13 +151,22 @@ s32 netLobbyMyReady(void);
 s32 netLobbyMyTeam(void);            // 0, 1, or -1 a spectator
 void netLobbySetReady(s32 ready);
 void netLobbyCycleTeam(void);        // team 1 -> team 2 -> spectator -> team 1
+void netLobbySetSpectator(s32 on);   // a room without teams: watch (a member only) or play
 void netLobbySetHostTeam(s32 team); // host: its own team (0-7) from the room's Teams page; sent once in the room
 s32 netLobbyHandicapOf(const char *user);           // the room's Handicaps page, by account: 0-255, 0x80 stock
 void netLobbyHandicapSet(const char *user, s32 handicap);
 void netLobbyHandicapsReset(void);
 u32 netLobbyHandicapsHash(void);
 void netLobbyChat(const char *text);
+
+// The main menu's chat (pdlobbyd API 4), on the Briefing Room: the page says
+// it is up every frame; lines oldest first
+void netLobbyMainChatWant(void);
+s32 netLobbyMainChatAvailable(void); // 1 yes, -1 the lobby has none, 0 not heard yet
+s32 netLobbyMainChatLines(struct netlobbychat *out, s32 max);
+void netLobbyMainChatSay(const char *text);
 void netLobbySendSettings(void);     // host: the Combat Simulator setup again
+void netLobbyPreviewRoom(struct netlobbyroom *out); // the room this machine's setup makes now (Create Room's preview)
 void netLobbyKick(const char *user);
 void netLobbyLaunch(s32 force);
 void netLobbyCancelLaunch(void);
@@ -184,5 +193,20 @@ void netLobbyHostLost(void);
 // Back from a match that came from a room (menutick.c, mainmenu.c)
 void netLobbyMenuAfterMatch(void);
 void netLobbyMenuFrame(void); // netlobbymenu.c: the Game Lobby back over Online Game after a match
+
+// The Game Lobby's windows (netlobbymenu.c), asked by menu.c of every dialog:
+// its buttons are a dialog held to the right of a widescreen display, the
+// room, its mods and its chat windows drawn around them
+struct menudialog;
+struct menudialogdef;
+s32 netLobbyMenuDialogAlign(struct menudialogdef *def);       // 0 the menu's centre, else the G_ASPECT_*_EXT side it is held to
+s32 netLobbyMenuDialogAlignOffset(struct menudialogdef *def); // how far right of its x that puts it, in menu units
+void netLobbyMenuPlaceDialog(struct menudialog *dialog);      // its dst rectangle, after dialogCalculatePosition's
+void *netLobbyMenuRenderPanels(void *gdl, struct menudialog *dialog); // after the dialog: the windows around it
+const char *netLobbyMenuStatusText(void); // its status line (the chat window's foot; netcooptest.sh reads it)
+s32 netLobbyMenuGetTextScale(void);       // the windows' text size, percent of the fonts' own (Net.LobbyTextScale)
+struct menuitem;
+s32 netLobbyMenuItemPct(struct menudialog *dialog, struct menuitem *item); // a dialog item's size, percent (menu.c); 100 for any other dialog
+void netLobbyMenuSetTextScale(s32 pct);
 
 #endif

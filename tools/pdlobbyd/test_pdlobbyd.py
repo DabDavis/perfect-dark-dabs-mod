@@ -331,6 +331,53 @@ class RoomTests(Base):
         self.assertEqual(codes[:6], [200] * 6)
         self.assertEqual(codes[6:], [429, 429])
 
+    def test_main_chat(self):
+        a = self.client("alpha")
+        b = self.client("bravo")
+        # signed in to read or say
+        anon = Client(self.srv.port, ip="10.0.0.9")
+        self.assertEqual(anon.req("GET", "/chat")[0], 401)
+        self.assertEqual(anon.req("POST", "/chat", {"text": "hi"})[0], 401)
+        st, r = a.req("GET", "/chat")
+        self.assertEqual((st, r["version"], r["chat"]), (200, 0, []))
+        st, r = b.req("POST", "/chat", {"text": "hello\x07 \x1b[2Jthere " + "x" * 300})
+        self.assertEqual(st, 200)
+        v = r["version"]
+        st, r = a.req("GET", "/chat?since=0")
+        self.assertEqual(len(r["chat"]), 1)
+        line = r["chat"][0]
+        self.assertEqual((line["user"], line["v"]), ("bravo", v))
+        self.assertTrue(line["text"].startswith("hello [2Jthere x"))
+        self.assertEqual(len(line["text"]), L.CHAT_MAX)
+        # since the version seen, nothing again; a new line, only it
+        self.assertEqual(a.req("GET", "/chat?since=%d" % v)[1]["chat"], [])
+        self.assertEqual(a.req("POST", "/chat", {"text": "  yo  "})[0], 200)
+        st, r = b.req("GET", "/chat?since=%d" % v)
+        self.assertEqual([(l["user"], l["text"]) for l in r["chat"]], [("alpha", "yo")])
+        self.assertEqual(a.req("POST", "/chat", {"text": "   "})[0], 400)
+        self.assertEqual(a.req("GET", "/chat?since=x")[0], 400)
+        # a room's members say theirs there, and see this one all the same
+        self.assertEqual(a.req("GET", "/ping")[1]["api"], L.API_VERSION)
+
+    def test_main_chat_rate_and_keep(self):
+        a = self.client("alpha")
+        codes = [a.req("POST", "/chat", {"text": "spam %d" % i})[0] for i in range(8)]
+        self.assertEqual(codes[:6], [200] * 6)
+        self.assertEqual(codes[6:], [429, 429])
+        # per account, not per session
+        a2 = self.client("alpha", ip="10.0.0.7")
+        self.assertEqual(a2.req("POST", "/chat", {"text": "again"})[0], 429)
+        # the last chat_keep lines are kept
+        # (filled past the cap by hand, then one said: the oldest go)
+        lobby = self.srv.lobby
+        self.srv.call(lambda: [lobby.mainchat.append((1000 + i, "x", "line %d" % i, 0))
+                               for i in range(80)])
+        b = self.client("bravo")
+        self.assertEqual(b.req("POST", "/chat", {"text": "last"})[0], 200)
+        st, r = a.req("GET", "/chat")
+        self.assertEqual(len(r["chat"]), self.srv.cfg.chat_keep)
+        self.assertEqual(r["chat"][-1]["text"], "last")
+
     def test_settings_host_only_and_unready(self):
         host, (a,) = self.room_with("alpha")
         a.act("ready")

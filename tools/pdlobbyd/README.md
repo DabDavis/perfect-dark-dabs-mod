@@ -75,6 +75,8 @@ empty body is `{}`.
 | `POST /login` | anyone | `username`, `pin` | `session`, `user`, `expires` (unix) |
 | `POST /logout` | session | | |
 | `GET /rooms?proto=&build=` | anyone | `proto` filters to that protocol; `build` adds `same_build` to each | `rooms: [summary]`, newest first |
+| `GET /chat?since=N` | session | | `version`, `chat: [{v, user, text, t}]` after `N` (every kept line for 0); see **Main menu chat** |
+| `POST /chat` | session | `text` | `version` |
 | `POST /rooms` | session | see **Create** | `room`, `token` (host's member token), `secret` (64 hex), `udp_id` (16 hex), `udp_key` (64 hex), `version`, `time` |
 | `POST /rooms/<id>/join` | session | `proto`, `build`, `content`, `password`?, `spectator`?, `can_host`? | `room`, `token`, `udp_id`, `udp_key`, `version`, `time`; plus `ticket`, `ticket_expires` when the room is counting down or launched (a re-join of your own seat) |
 | `GET /rooms/<id>/state?since=N&wait=S` | member | | see **State** |
@@ -201,6 +203,19 @@ and a member whose game crashed can re-join its seat for a new ticket (the
 roster is what the host admits against). `reopen` gives every member a fresh
 30 s. A client should still keep its state poll running through the match:
 that is how it hears the room close.
+
+## Main menu chat
+
+API 4. One chat for everyone signed in, whether in a room or not: the game
+shows it on its Briefing Room, the page of rooms, in place of what used to be
+a status window there (the owner, 2026-10-11: "the small bottom right window
+that says Lobby, let's make that a Main Menu Chat"). Lines are cleaned and
+cut as a room's are (`CHAT_MAX`), said at most `chat_window` (6 in 10 s) per
+account rather than per seat, and the last `chat_keep` (50) are kept; a
+restart empties it, as it empties the rooms. Reading is a plain poll on the
+version (`since`), no parked waits: the game asks every two seconds while the
+page is up, well inside the request rate. A server before API 4 answers 404,
+and the game says so in the window.
 
 ## Host migration
 
