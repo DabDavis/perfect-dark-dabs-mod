@@ -5235,6 +5235,16 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 				dstscroll = dialog->height - dialog->contentheight;
 			}
 
+#ifndef PLATFORM_N64
+			// a dialog placed taller than its rows (the online pages'
+			// windows, netlobbymenu.c): its rows from its top, where the
+			// clamp above put them at its foot (no stock dialog is taller
+			// than its rows)
+			if (dstscroll > 0 && netLobbyMenuDialogAlign(dialog->definition)) {
+				dstscroll = 0;
+			}
+#endif
+
 			dialog->dstscroll = dstscroll;
 		} else {
 			dialog->dstscroll = 0;
@@ -5257,6 +5267,12 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 		if (dialog->dstscroll < dialog->height - dialog->contentheight) {
 			dialog->dstscroll = dialog->height - dialog->contentheight;
 		}
+
+#ifndef PLATFORM_N64
+		if (dialog->dstscroll > 0 && netLobbyMenuDialogAlign(dialog->definition)) {
+			dialog->dstscroll = 0;
+		}
+#endif
 
 		dialog->scroll = dialog->dstscroll;
 	}

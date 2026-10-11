@@ -126,10 +126,13 @@
 - **The Game Lobby's windows (2026-10-11, no wire change)** — the section
   of that name: the owner's mock-up as four windows in two columns, the
   buttons the only real dialog, the rest drawn around it; each column held
-  to its side of a widescreen display. The menu's frame is 320x220, wider
-  than 4:3 (a side alignment moves a side *in* at 4:3), fast3d's scissor
-  under a side alignment was off, and the Mods window
-  (`netContentLobbyRows`).
+  to its side of a widescreen display; then Online Game, the Briefing Room,
+  Create Room and Room Settings the same way (`s_LobbyPages`). The menu's
+  frame is 320x220, wider than 4:3 (a side alignment moves a side *in* at
+  4:3), fast3d's scissor under a side alignment was off, a placed dialog
+  taller than its rows scrolled them to its foot, the Mods window
+  (`netContentLobbyRows`), and the roster: one list, grouped and coloured
+  by team in a team match (the room's `teams` rule).
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -3098,6 +3101,39 @@ under that) over an untitled box of buttons (Ready / Change Team / Chat /
 Kick... / Settings... / Back to Campaign / Leave Lobby). The owner asked for
 it to be mindful of 4:3 and to use a widescreen display's width.
 
+**The other online pages (same day, the owner: "lets do similar to the
+other online screens").** Each page is one entry of `s_LobbyPages` at the
+end of netlobbymenu.c: its dialog, the side (column) it is in, where it goes
+and the windows around it. Online Game: Rooms Open on the left (the room
+list asked for every 10 s while the page is up, two lines a room), the
+account over the buttons on the right. The Briefing Room: the dialog (its
+buttons and the room list, a line a room, sized to the column every tick:
+`briefingListFit`) is the left column; on the right the Room window (the
+room the cursor is on, else the one Join would take, else the first: its
+arena, mode, counts, password, state and its mods with where this machine
+stands) and a Lobby status window sized to its text. Create Room and Room
+Settings: the setup's rows on the left (they scroll), on the right a
+preview of the room as the lobby will list it - `netLobbyPreviewRoom()`
+reads back the very JSON the create or a settings change sends - and a
+status window. The small popups (passwords, names, Kick, the chat
+keyboard, Quick Message) stay PD's centred dialogs.
+
+**The roster (the owner, same day: "instead of team 1, team 2 columns
+just make the player names the same color as the team they are on and only
+in team based modes", "and group the same color teams together").** One
+list of the players, down as many columns as the rows need (three at most);
+in a team match grouped team by team, each name in its team's colour (the
+radar's `g_TeamColours`, lightened as the name tags over a player's head
+are, darker while not ready) under a header of the teams in their colours
+("Red 6  Yellow 4"); the spectators on a line of their own. A guest knows
+the room plays as teams from the room's `teams` rule, which the host now
+sends with its settings (the Teams option, or Capture the Case, which turns
+teams on at its start; pdlobbyd passes any rule key through, so no server
+change; an older host sends none: no teams). With no teams Change Team
+means nothing the roster shows, so its row is Spectate or Play
+(`netLobbySetSpectator`), and hidden for the host, which cannot watch its
+own room.
+
 **How it is built.** The buttons are the only real dialog,
 `g_NetRoomMenuDialog`, now `MENUDIALOGFLAG_DISABLETITLEBAR`, so the pad,
 the keys and the mouse work it as any page. menu.c asks netlobbymenu.c three
@@ -3156,9 +3192,16 @@ Traps met:
   name fits whole in its column and every row fits, else Xs; a ping that
   would cut a name that is whole without it is left out
   (`rosterCellTag`); a narrow column (under 110 units) has the ping
-  without the path tag. The settings go two columns everywhere (one column
-  of seven left a full twelve-player room no rows at 4:3), the long values
-  (arena, mode, weapons, host) on the left.
+  without the path tag. The Game Lobby's settings go two columns (one
+  column of seven left a full twelve-player room no rows at 4:3), the long
+  values (arena, mode, weapons, host) on the left; the preview and Room
+  windows, which have the lines, go one column where two would cut a value.
+- **A dialog taller than its rows had them at its foot.** dialogTick's
+  scroll clamp (`dstscroll` at least `height - contentheight`) is positive
+  when a dialog is taller than its content, which no stock dialog is; a page
+  placed as a whole column (Room Settings) drew its rows from the bottom up.
+  Held at 0 for the placed pages (`netLobbyMenuDialogAlign`), stock dialogs
+  untouched.
 
 **The Mods window** is `netContentLobbyRows()` (netcontent.c): a row each
 for the conversion or ROM hack the room is in (the room's `ge`), the host's
@@ -3174,7 +3217,9 @@ them.
 
 **Looking at it.** Not a gate: a local pdlobbyd with its per-address limits
 raised (`login_window` is 10 sign-ins per 5 minutes per address, which a
-dozen fake members from 127.0.0.1 exceed), the host with
+dozen fake members from 127.0.0.1 exceed; `max_rooms_per_ip` 4 and
+`create_window` stop more than four filler rooms, whose heartbeats then
+stop and the rest time out), the host with
 `--net-lobby-script host --net-lobby-shots --net-lobby-size 12
 --net-lobby-wait 11` (its Game Lobby up and never launching), members
 joined, teamed, readied, given paths and pings and chatting over the HTTP
@@ -3182,5 +3227,10 @@ API, `[Video] DefaultWidth/DefaultHeight` in the save's pd.ini for the
 aspect, and `gdb -p <game> -batch -ex "call (void)screenshotRequest()"` -
 the game's PID, not `timeout`'s. A dialog over the room the same way:
 break on `netLobbyTick` and `call menuPushDialog(&g_NetKickMenuDialog)`.
+Outside a room `netLobbyTick` and `netPump` are not called: break on
+`menuProcessInput`, then `call (int)netLobbyMenuHandlerOnlineMain(6, 0, 0)`
+(MENUOP_SET: Online Game as the Perfect Menu's row opens it) and push the
+Briefing Room or Create Room. `--net-lobby-teams` makes a scripted host's
+room a team match.
 `netlobbyuitest.sh` still shoots both sides' Game Lobby at 640x480.
 

@@ -1779,7 +1779,7 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 	char eweap[40 * 6];
 	char emod[(NETLOBBY_MAXMOD + 1) * 6];
 	char ege[16 * 6];
-	char coop[64] = "";
+	char extra[64] = ""; // the rules beyond the limits: a co-op room's radar and friendly fire, a match's teams
 	struct netcontentneed need;
 	// a co-op room's mission has none (the Combat Simulator setup's are not its)
 	const s32 sims = g_NetCoopSetup.on ? 0 : mpGetNumSimSlotsOn();
@@ -1814,12 +1814,17 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 
 		// what the Game Lobby's summary says of a co-op room in place of
 		// the limits and the simulants
-		snprintf(coop, sizeof(coop), ",\"radar\":%d,\"friendly_fire\":%d", g_NetCoopSetup.radar ? 1 : 0,
+		snprintf(extra, sizeof(extra), ",\"radar\":%d,\"friendly_fire\":%d", g_NetCoopSetup.radar ? 1 : 0,
 				g_NetCoopSetup.friendlyfire ? 1 : 0);
 	} else {
 		lobbyCleanName(mpMenuTextArenaName(NULL), stage, 33);
 		lobbyCleanName(mpMenuTextScenarioShortName(NULL), scenario, 33);
 		lobbyStageKey(key, sizeof(key));
+
+		// a team match: the Game Lobby's roster groups and colours its
+		// players by team (Capture the Case turns teams on at its start)
+		snprintf(extra, sizeof(extra), ",\"teams\":%d",
+				(g_MpSetup.options & MPOPTION_TEAMSENABLED) || g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE ? 1 : 0);
 	}
 
 	// a GoldenEye conversion's set marked as the dropdown marks it, where the
@@ -1839,7 +1844,32 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 			g_MpSetup.timelimit >= 60 ? 0 : g_MpSetup.timelimit + 1,
 			g_MpSetup.scorelimit >= 100 ? 0 : g_MpSetup.scorelimit + 1,
 			g_MpSetup.teamscorelimit >= 400 ? 0 : g_MpSetup.teamscorelimit + 1,
-			eweap, coop, withcompat ? "," : "");
+			eweap, extra, withcompat ? "," : "");
+}
+
+/**
+ * Create Room's and Room Settings' preview (netlobbymenu.c): the room's
+ * summary and rules as this machine's setup now makes them, read back from
+ * the JSON the create and a settings change send (lobbySettingsJson), so
+ * the preview says what the Briefing Room and the Game Lobby will. The
+ * name, host and counts are the caller's to fill.
+ */
+void netLobbyPreviewRoom(struct netlobbyroom *out)
+{
+	static char frag[4096];
+	static char json[8320];
+	struct jspan o;
+	s32 len;
+
+	lobbySettingsJson(frag, sizeof(frag), 0);
+	len = snprintf(json, sizeof(json), "{\"room\":{%s},%s}", frag, frag);
+
+	if (len <= 0 || len >= (s32)sizeof(json) || !jsonParse(json, len, &o)) {
+		memset(out, 0, sizeof(*out));
+		return;
+	}
+
+	lobbyReadState(o, out);
 }
 
 static s32 lobbyCompatJson(char *out, s32 size)
@@ -2015,6 +2045,19 @@ static void lobbyAction(const char *what, const char *body)
 void netLobbySetReady(s32 ready)
 {
 	lobbyAction("ready", ready ? "{\"ready\":true}" : "{\"ready\":false}");
+}
+
+/**
+ * A room with no teams: watching or playing. A host cannot watch its own
+ * room (the lobby refuses it: the room's host plays).
+ */
+void netLobbySetSpectator(s32 on)
+{
+	if (on && !s_MainIsHost) {
+		lobbyAction("team", "{\"spectator\":true}");
+	} else if (!on) {
+		lobbyAction("team", "{\"team\":0,\"spectator\":false}");
+	}
 }
 
 void netLobbyCycleTeam(void)
@@ -3408,6 +3451,7 @@ void netLobbyShutdown(void)
  *   --net-lobby-solo               host: LAUNCH with nobody else in the room
  *   --net-lobby-keep-endscreen     an end screen stays up (the script closes it otherwise)
  *   --net-lobby-rules K=V,...      host: the room's Room Rules set so (they start at stock)
+ *   --net-lobby-teams              host: the room's match is a team match
  *   --net-lobby-menus              host: the room made from the Perfect Menu's Online
  *                                  Game, its Game Lobby up, as a player makes one
  *
@@ -3602,6 +3646,12 @@ static void lobbyScriptTick(void)
 				}
 
 				g_MpSetup.stagenum = sysArgGetInt("--net-test-stage", 0x32);
+
+				// --net-lobby-teams: a team match (the Game Lobby's roster
+				// grouped and coloured by team)
+				if (sysArgCheck("--net-lobby-teams")) {
+					g_MpSetup.options |= MPOPTION_TEAMSENABLED;
+				}
 
 				// --net-test-ge N: GoldenEye's Combat Simulator, scenario N;
 				// --net-test-map NAME: a Stage Loader map by its name (a
