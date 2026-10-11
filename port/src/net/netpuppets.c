@@ -100,6 +100,7 @@ struct netpup {
 	u8 listout;          // ... and what it said
 	u8 deform;           // (protocol 29) the record's NETDEFORM_* byte as applied here
 	u16 deformgen;       // ... for this host generation
+	u32 deformtick;      // ... from a record of this host tick
 };
 
 static struct netpup *s_Pup = NULL;
@@ -2544,13 +2545,23 @@ static void netClientPosePuppetsRun(void)
 		}
 
 		// (protocol 29) the host's crumpling of the object, as state
+		// (decided by the newest record at hand, never an older one: a render
+		// clock that steps back a tick posed the record from before a
+		// crumpling again, and the object was made whole and crumpled anew)
 		if ((rec == NETREC_OBJ || rec == NETREC_DOOR) && prop->obj) {
+			const u8 *nr = ra && netStoreTick(ra) > netStoreTick(rb) ? ra : rb;
+			const u32 nt = (u32)netStoreTick(nr);
+
 			if (u->deformgen != gen) {
 				u->deform = 0;
 				u->deformgen = gen;
+				u->deformtick = 0;
 			}
 
-			u->deform = netWorldClientDeform(prop->obj, st.deform, u->deform);
+			if (nt >= u->deformtick) {
+				u->deformtick = nt;
+				u->deform = netWorldClientDeform(prop->obj, nr[NETSNAP_STOREHDR + (rec == NETREC_OBJ ? 23 : 5)], u->deform);
+			}
 		}
 
 		netPupTrace(rt, id, kind, prop);
