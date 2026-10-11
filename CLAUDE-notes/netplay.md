@@ -2914,8 +2914,20 @@ match's glass before this (their own regeneration timers). gasReleaseFromPos
 on a stage without a second sky crashes in envApplyTransitionFrac: the test
 wreck checks `g_EnvTransitionFrom/To` as the client always did.
 
-**Left.** A client still regenerates a match's pane on its own timer (the
-next block breaks it again quietly while the host's is still out);
+**Measured** (netcrowd.sh at --net-sim 2,75, Grid/G5 with 24 sims and
+Defection co-op, a third client joining ~1500 ticks in; wrecks at 600, 1450,
+2400): every shot-class event's worst lag fell from ~24 ticks to under 3,
+deaths' from ~24 to 5-9; explosions and hits keep their own reliable
+channel and still meet a resend now and then (max ~24). A late joiner had
+none of the glass, crumpling or storms from before it came (co-op: 0/42
+panes, 0/12 objects at 1650; Grid 0/12 objects); now it matches the host
+(42/42, 12/12, the storm part way). Clients in a match also disagreed with
+the host on its regenerating glass before (they never regenerate it, the
+record only hid it); the block now puts a pane back. Bytes to a client
+about the same (-1% to +3%, inside run-to-run noise).
+
+**Left.** An object out of a client's scope gets its crumpling only when it
+comes into scope (invisible meanwhile);
 explosions' scorches and bullet holes are not sent to a joiner; a CCTV
 lens shot out is not replicated at all (as the windowed door pane was not);
 CHAT and SLOTCFG share NET_CHAN_RELIABLE with the GAME events.
