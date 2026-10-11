@@ -108,7 +108,8 @@ static s32 s_RingN = 0;
 static u8 s_Applied[NETWORLD_SIZE];   // the last block applied
 static s32 s_HaveApplied = 0;
 static u32 s_ClGlassFresh = 0;   // panes broken as they broke (shards)
-static u32 s_ClGlassQuiet = 0;   // ... put in as they stand (before this machine came, or again)
+static u32 s_ClGlassQuiet = 0;   // ... put in as they stand (before this machine came, out of scope)
+static u32 s_ClGlassBack = 0;    // a match's panes regenerated on the host
 static u32 s_ClStorms = 0;
 static u32 s_ClStormsLate = 0;   // started part way through
 static u32 s_ClGas = 0;
@@ -282,7 +283,7 @@ void netWorldStageStart(void)
 	s_RingN = 0;
 	memset(s_Applied, 0, sizeof(s_Applied));
 	s_HaveApplied = 0;
-	s_ClGlassFresh = s_ClGlassQuiet = s_ClStorms = s_ClStormsLate = s_ClGas = s_ClBlocks = 0;
+	s_ClGlassFresh = s_ClGlassQuiet = s_ClGlassBack = s_ClStorms = s_ClStormsLate = s_ClGas = s_ClBlocks = 0;
 	s_ClLagSum = s_ClLagMax = 0;
 	s_ClDoorGlass = s_ClDeforms = s_ClUndeforms = 0;
 
@@ -620,29 +621,52 @@ static s32 netWorldApply(const u8 *b, u32 tick, f64 rt)
 	s32 i;
 	s32 k;
 
-	// the glass: a pane the host has broken that stands here
+	// the glass: a pane the host has broken that stands here, and (a
+	// match's) one it has put back. A client never frees or regenerates an
+	// object itself (netPuppetObjTick): glassDestroy's flags stay on its pane
+	// until this takes them off; a match's pane hidden while it waits to
+	// regenerate is the record's NETOBJ_GONE
 	for (i = 0; i < n && i < s_NumGlass && i < NETWORLD_MAXGLASS; i++) {
 		const u8 bit = (u8)(1 << (i & 7));
+		const s32 was = s_HaveApplied && (s_Applied[NW_GLASS + (i >> 3)] & bit);
 		struct defaultobj *obj = s_Glass[i];
+		s32 dead;
 
-		if ((b[NW_GLASS + (i >> 3)] & bit) == 0 || netWorldGlassGone(obj)) {
+		if (!obj->prop || obj->prop->obj != obj) {
+			continue; // freed (a mission's)
+		}
+
+		dead = (obj->hidden2 & OBJH2FLAG_DESTROYED) || (obj->hidden & OBJHFLAG_DELETING);
+
+		if ((b[NW_GLASS + (i >> 3)] & bit) == 0) {
+			if (was && dead) {
+				obj->hidden &= ~OBJHFLAG_DELETING;
+				obj->hidden2 &= ~OBJH2FLAG_DESTROYED;
+				obj->damage = 0;
+				s_ClGlassBack++;
+				changed = 1;
+			}
+
 			continue;
 		}
 
 		// glassDestroy reads the glass's bbox unchecked
-		if (!obj->model || !objFindBboxRodata(obj)) {
+		if (dead || !obj->model || !objFindBboxRodata(obj)) {
 			continue;
 		}
 
 		// seen whole in the last block and broken in this one, in time: as
-		// the host broke it; else (a joiner's first block, a pane this
-		// machine's own regeneration put back early) as it stands
-		if (s_HaveApplied && (s_Applied[NW_GLASS + (i >> 3)] & bit) == 0 && age <= NW_LATE) {
+		// the host broke it (shards, even when the record has hidden it
+		// already); else (a joiner's first block, a pane out of its scope)
+		// as it stands
+		if (s_HaveApplied && !was && age <= NW_LATE) {
 			glassDestroy(obj);
 			s_ClGlassFresh++;
-		} else {
+		} else if ((obj->hidden & OBJHFLAG_GONE) == 0) {
 			netWorldGlassQuiet(obj);
 			s_ClGlassQuiet++;
+		} else {
+			continue;
 		}
 
 		changed = 1;
@@ -791,7 +815,7 @@ u8 netWorldClientDeform(struct defaultobj *obj, u8 rec, u8 applied)
 
 void netWorldLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: world client %s (tick %u): blocks that changed something %u (lag mean %.1f max %.1f ticks), glass broken as it broke %u, as it stood %u, storms %u (part way %u), gas %u, door panes %u, deforms from records %u (made whole %u)",
-			why, g_NetTick, s_ClBlocks, s_ClBlocks ? s_ClLagSum / s_ClBlocks : 0.0, s_ClLagMax, s_ClGlassFresh, s_ClGlassQuiet,
+	sysLogPrintf(LOG_NOTE, "net: world client %s (tick %u): blocks that changed something %u (lag mean %.1f max %.1f ticks), glass broken as it broke %u, as it stood %u, back %u, storms %u (part way %u), gas %u, door panes %u, deforms from records %u (made whole %u)",
+			why, g_NetTick, s_ClBlocks, s_ClBlocks ? s_ClLagSum / s_ClBlocks : 0.0, s_ClLagMax, s_ClGlassFresh, s_ClGlassQuiet, s_ClGlassBack,
 			s_ClStorms, s_ClStormsLate, s_ClGas, s_ClDoorGlass, s_ClDeforms, s_ClUndeforms);
 }
