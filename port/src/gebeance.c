@@ -1,120 +1,670 @@
 /**
- * What is left of the GoldenEye XBLA Community Edition's updater path.
+ * The GoldenEye XBLA Community Edition's ART, applied by the game to the
+ * player's own copy of the release (Mod.GeXblaCommunityEditionArt, "Community
+ * Edition Art" on Mods: Missions).
  *
- * Until 2026-10-10 the game applied the player's CommunityEditionUpdaterV6.zip
- * from added-content/ to their copy of the release (Mod.GeXblaCommunityEdition,
- * HDiffPatch) and drew the overlay it wrote. The owner then made the Community
- * Edition part of the game for everyone, silently on in the HD look and built
- * from our own source rather than from the zip: its data fixes are the
- * converter's g_RomPatches and the HD builder's own tables, its fog distances
- * are gebeanstage.c's, Doctor Doak's face is the release's own head re-pointed
- * (gebeanchrtable.h). See CLAUDE-notes/ge-bean.md, "The Community Edition
- * built in".
+ * Since 2026-10-10 the Community Edition's fixes are the game's own, rebuilt in
+ * our source and always on in the HD look (CLAUDE-notes/ge-bean.md, "The
+ * Community Edition built in"). What only its zip can give is its new art -
+ * pictures and a mesh nobody may ship but the player's own updater - and that
+ * is all this takes from the overlay: gebeanCeFilePath() answers only for the
+ * files on ceArtFiles[], and every other file it changed is read from the
+ * release, with our fixes over it. The overlay itself is written whole, as
+ * before; the choice is made where it is read.
  *
- * All that remains is clearing up after the old path once a start: the
- * overlay folder in the release's cache, and the HD levels built from it
- * (cache/xbla/goldeneye/levels/<key>_<file>_ce.bin), which nothing reads any
- * more. A pd.ini that still has the old key loads as any unknown key does.
+ * On by default when the zip is there (the owner, 2026-10-10): the setting is
+ * -1 until the player chooses, and the old Mod.GeXblaCommunityEdition (whose 0
+ * was only ever the old default) is not read.
+ *
+ * The Community Edition is a set of fixes the community made to the leaked
+ * build: new skydomes, Frigate's water, props, doors, icons and text, and a
+ * patched executable for its multiplayer. It is distributed as patches against
+ * the release - CommunityEditionUpdaterV6.zip, HDiffPatch files - and never as
+ * the files themselves, and the game keeps to that: nothing of it ships here.
+ * The player puts the updater's zip in added-content/ beside the release, and
+ * this applies its files.diff to their copy.
+ *
+ * What comes out is an overlay, not a second release: the files the patch
+ * writes, changes or renames, in the cache, read before the release's own
+ * (gebeanCeFilePath()). The rest it leaves as they are under their own names,
+ * and those are not copied. The executable's patches are no use to a game that does not run it,
+ * but for one table: the CE changes the levels' fog in it, so its xex.diff is
+ * applied in memory and the environment table's rows kept in the overlay
+ * (gebeanCeFogTablePath(), read by gebeanstage.c).
+ *
+ * **It takes a restart.** The release's characters, guns and pictures are
+ * loaded once and kept, so the choice is read at startup and holds for the
+ * session, as a mod does; the menu's Restart Now finishes a change. The patch
+ * itself is applied then, once, with a notice on the window: well under a
+ * second from an unpacked copy, longer from an archive, whose files the patch
+ * reads from have to be unpacked first.
+ *
+ * The patch checks its own checksums of every file it reads, which is the
+ * updater's own rule: it applies to an unmodified Fyodorovna release and to
+ * nothing else. A copy it does not fit is said so in the log, and the release
+ * is drawn as it is.
  */
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <SDL.h>
 #include <PR/ultratypes.h>
 #include "constants.h"
 #include "platform.h"
+#include "config.h"
 #include "system.h"
 #include "fs.h"
+#include "archive.h"
+#include "gexplusrom.h"
+#include "video.h"
 #include "gebean.h"
+#include "gebeanstage.h"
+#include "external/hdiffpatch/hdpglue.h"
 
 #ifndef PLATFORM_N64
 
-#define GEBEANCE_MAXDEPTH 12
+// Where the updater keeps its file patch (GEBEANCE_DIFF_ENTRY, gebean.h), and
+// its executable's
+#define GEBEANCE_XEX_ENTRY "CEUpdate/xex.diff"
+// The environment table's rows out of the patched executable, in the overlay
+#define GEBEANCE_FOG_FILE "fogtable.bin"
+// Written when the overlay is complete, holding the updater's size, so a
+// different updater is applied afresh; the name moves on when what the
+// overlay holds does (2: renamed files are copied, 3: the fog table)
+#define GEBEANCE_DONE_FILE ".applied3"
 
-struct cepurge {
+static s32 ceWanted = -1;      // Mod.GeXblaCommunityEditionArt: -1 not chosen (on with the zip), 0 off, 1 on
+static s32 ceActive;           // what this session is drawing
+static s32 ceFailed;           // chosen at startup and the patch did not fit this copy
+static s32 ceScanned;
+static char ceZip[FS_MAXPATH + 1];
+static char ceRoot[FS_MAXPATH + 1]; // the overlay's files/, when active
+
+PD_CONSTRUCTOR static void gebeanCeConfigInit(void)
+{
+	configRegisterInt("Mod.GeXblaCommunityEditionArt", &ceWanted, -1, 1);
+}
+
+struct cescan {
 	const char *dir;
 	s32 depth;
 };
 
-static void gebeanCePurgeEntry(const char *name, void *arg);
+static void gebeanCeScanDir(const char *dir, s32 depth);
 
-/** A folder and everything in it (fsScanDir() leaves out dot names: the old markers are named). */
-static void gebeanCePurgeTree(const char *path, s32 depth)
+static void gebeanCeScanEntry(const char *name, void *arg)
 {
-	static const char *const markers[] = { ".applied", ".applied2", ".applied3" };
-	struct cepurge scan = { path, depth };
-	char marker[FS_MAXPATH + 1];
-	s32 last = -1;
+	struct cescan *scan = arg;
+	char path[FS_MAXPATH + 1];
 
-	if (depth > GEBEANCE_MAXDEPTH) {
+	if (ceZip[0] || name[0] == '.') {
 		return;
 	}
-
-	for (s32 i = 0; i < ARRAYCOUNT(markers); i++) {
-		snprintf(marker, sizeof(marker), "%s/%s", path, markers[i]);
-		remove(marker);
-	}
-
-	// removing while reading need not visit everything: round again until a
-	// pass removes nothing more
-	for (s32 i = 0; i < 8; i++) {
-		const s32 left = fsScanDir(path, gebeanCePurgeEntry, &scan);
-
-		if (left <= 0 || left == last) {
-			break;
-		}
-
-		last = left;
-	}
-
-	fsRemoveDir(path);
-}
-
-static void gebeanCePurgeEntry(const char *name, void *arg)
-{
-	const struct cepurge *scan = arg;
-	char path[FS_MAXPATH + 1];
 
 	snprintf(path, sizeof(path), "%s/%s", scan->dir, name);
 
-	if (remove(path) != 0) {
-		gebeanCePurgeTree(path, scan->depth + 1);
+	if (archiveIsSupported(path)) {
+		// looked into, never taken on its name
+		if (archiveFindEntry(path, GEBEANCE_DIFF_ENTRY)) {
+			snprintf(ceZip, sizeof(ceZip), "%s", path);
+		}
+	} else if (scan->depth > 0) {
+		gebeanCeScanDir(path, scan->depth - 1);
 	}
 }
 
-static void gebeanCePurgeLevel(const char *name, void *arg)
+static void gebeanCeScanDir(const char *dir, s32 depth)
 {
-	const char *dir = arg;
-	const size_t len = strlen(name);
+	struct cescan scan = { dir, depth };
+
+	fsScanDir(dir, gebeanCeScanEntry, &scan);
+}
+
+/** The updater's zip in added-content/, or a folder in it; found once. */
+static s32 gebeanCeFindZip(void)
+{
+	static const char *const dirs[] = { FS_ADDED_CONTENT_SEARCH };
+
+	if (!ceScanned) {
+		ceScanned = 1;
+
+		for (s32 d = 0; d < ARRAYCOUNT(dirs) && !ceZip[0]; d++) {
+			char dir[FS_MAXPATH + 1];
+
+			snprintf(dir, sizeof(dir), "%s", fsFullPath(dirs[d]));
+
+			gebeanCeScanDir(dir, 1);
+		}
+
+		if (ceZip[0]) {
+			sysLogPrintf(LOG_NOTE, "gebeance: the Community Edition updater is %s", ceZip);
+		}
+	}
+
+	return ceZip[0] != 0;
+}
+
+s32 gebeanCeAvailable(void)
+{
+	return gebeanGetEnabled() && gebeanCeFindZip();
+}
+
+s32 gebeanCeGetWanted(void)
+{
+	return ceWanted != 0;
+}
+
+void gebeanCeSetWanted(s32 on)
+{
+	ceWanted = on ? 1 : 0;
+}
+
+s32 gebeanCeIsActive(void)
+{
+	return ceActive;
+}
+
+/** Whether a start would change what is drawn - never for a copy the patch did not fit. */
+s32 gebeanCeRestartNeeded(void)
+{
+	const s32 wanted = gebeanCeGetWanted();
+
+	return wanted != ceActive && !(wanted && ceFailed);
+}
+
+/**
+ * The overlay's copy of a release file, when this session draws the
+ * Community Edition and the patch wrote one. source is the path under files/,
+ * name the file in it.
+ */
+s32 gebeanCeFogTablePath(char *dst, u32 dstLen)
+{
+	if (!ceActive) {
+		return 0;
+	}
+
+	snprintf(dst, dstLen, "%s/../" GEBEANCE_FOG_FILE, ceRoot);
+
+	return fsFileSize(dst) > 0;
+}
+
+/**
+ * The Community Edition's art: the files of its overlay the game reads that
+ * carry new pictures or meshes. Each is taken whole; where one also carries a
+ * change of the owner's GoldenEye-kept taste (the cyan door tints), our own
+ * table puts the release's bytes back (gebeancefixes.h, the reverts). Every
+ * other file it changed holds fixes only, which are ours (CLAUDE-notes/
+ * ge-bean.md). Its Doak head (headdave: the release's headneil refitted, no
+ * glasses) is taken for Doak and the pool's Dave; its Alan (the release's
+ * headdave face) stays out, the owner's call.
+ */
+static const char *const ceArtFiles[] = {
+	"new/skydome/",                // 21 domes (prefix)
+	"new/texture/bg/water1", "new/texture/bg/water2", // Frigate's sea
+	"new/gun/rocketlauncher", "new/gun/ruger", "new/gun/timedmine",
+	"new/prop/chrrocketlaunch", "new/prop/chrruger", "new/prop/chrtimedmine",
+	"new/prop/steeldoor1", "new/prop/trainextdoor", "new/prop/doorroller4",
+	"new/prop/siloliftdoor", "new/prop/sevdoor3", "new/prop/doordest2",
+	"new/prop/bridgeconsole1a", "new/prop/bridgeconsole3a", "new/prop/bridgeconsole3b",
+	"new/prop/doorconsole", "new/prop/console1", "new/prop/console2", "new/prop/console3",
+	"new/prop/consolesevb", "new/prop/consolesev2b", "new/prop/tv1",
+	"new/prop/chrclipboard",
+	"new/head/headdave",           // its Doak (Cgx051Z with the art on; gebean.c)
+	"new/char/suitlfhand", "new/gun/fist", "new/gun/trigger",
+	"new/background/control", "new/background/bunker2",
+};
+
+static s32 gebeanCeIsArt(const char *source)
+{
+	for (s32 i = 0; i < ARRAYCOUNT(ceArtFiles); i++) {
+		const size_t len = strlen(ceArtFiles[i]);
+
+		if (ceArtFiles[i][len - 1] == '/' ? strncmp(source, ceArtFiles[i], len) == 0 : strcmp(source, ceArtFiles[i]) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+s32 gebeanCeFilePath(char *dst, u32 dstLen, const char *source, const char *name)
+{
+	if (!ceActive || !gebeanCeIsArt(source)) {
+		return 0;
+	}
+
+	snprintf(dst, dstLen, "%s/%s/%s", ceRoot, source, name);
+
+	return fsFileSize(dst) >= 0;
+}
+
+/* ---- applying it ------------------------------------------------------- */
+
+struct cerefs {
+	const char *root;
+	char **missing;
+	s32 nummissing;
+	s32 maxmissing;
+};
+
+static void gebeanCeNoteRef(const char *name, void *arg)
+{
+	struct cerefs *refs = arg;
 	char path[FS_MAXPATH + 1];
 
-	// <key>_<file>_ce.bin, and a .tmp of one a build left half written
-	if ((len > 7 && strcmp(name + len - 7, "_ce.bin") == 0)
-			|| (len > 11 && strcmp(name + len - 11, "_ce.bin.tmp") == 0)) {
-		snprintf(path, sizeof(path), "%s/%s", dir, name);
-		remove(path);
-	}
-}
+	snprintf(path, sizeof(path), "%s/%s", refs->root, name);
 
-void gebeanCePurge(void)
-{
-	char root[FS_MAXPATH + 1], archive[FS_MAXPATH + 1], cache[FS_MAXPATH + 1], path[FS_MAXPATH + 1];
-
-	if (!gebeanTreeInfo(root, sizeof(root), archive, sizeof(archive), cache, sizeof(cache)) || !cache[0]) {
+	if (fsFileSize(path) >= 0) {
 		return;
 	}
 
-	snprintf(path, sizeof(path), "%s/" GEBEAN_CE_DIR, cache);
+	if (refs->nummissing == refs->maxmissing) {
+		char **grown = realloc(refs->missing, sizeof(char *) * (refs->maxmissing + 64));
 
-	if (fsFileSize(path) >= 0) {
-		gebeanCePurgeTree(path, 0);
-		sysLogPrintf(LOG_NOTE, "gebeance: removed the old Community Edition overlay %s", path);
+		if (!grown) {
+			return;
+		}
+
+		refs->missing = grown;
+		refs->maxmissing += 64;
 	}
 
-	snprintf(path, sizeof(path), "%s/levels", cache);
+	refs->missing[refs->nummissing] = malloc(strlen(name) + 1);
 
-	if (fsFileSize(path) >= 0) {
-		fsScanDir(path, gebeanCePurgeLevel, path);
+	if (refs->missing[refs->nummissing]) {
+		strcpy(refs->missing[refs->nummissing++], name);
 	}
+}
+
+/** Whether an archive entry is one of the patch's reference files the copy is missing. */
+static s32 gebeanCeWantRef(const char *name, void *arg)
+{
+	const struct cerefs *refs = arg;
+	char norm[FS_MAXPATH + 1];
+	size_t i;
+
+	for (i = 0; name[i] && i + 1 < sizeof(norm); i++) {
+		norm[i] = name[i] == '\\' ? '/' : name[i];
+	}
+
+	norm[i] = '\0';
+
+	for (s32 k = 0; k < refs->nummissing; k++) {
+		const size_t n = strlen(refs->missing[k]);
+		const size_t len = strlen(norm);
+
+		// the entry ends in files/<ref>
+		if (len > n + 6 && strcmp(norm + len - n, refs->missing[k]) == 0
+				&& strncmp(norm + len - n - 6, "files/", 6) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/** Whether an archive entry is the patch arg names (the files', the xex's, the release's xex). */
+static s32 gebeanCeWantDiff(const char *name, void *arg)
+{
+	const char *want = arg ? arg : GEBEANCE_DIFF_ENTRY;
+	const size_t len = strlen(name);
+	const size_t n = strlen(want);
+	char tail[FS_MAXPATH + 1];
+
+	if (len < n || n >= sizeof(tail)) {
+		return 0;
+	}
+
+	for (size_t i = 0; i < n; i++) {
+		tail[i] = name[len - n + i] == '\\' ? '/' : name[len - n + i];
+	}
+
+	tail[n] = '\0';
+
+	return strcmp(tail, want) == 0 && (len == n || name[len - n - 1] == '/' || name[len - n - 1] == '\\');
+}
+
+/** Finds the one file an extraction wrote, wherever under dir its archive path put it. */
+struct cefind {
+	const char *dir;
+	const char *leaf;
+	char found[FS_MAXPATH + 1];
+	s32 depth;
+};
+
+static void gebeanCeFindEntry(const char *name, void *arg);
+
+static void gebeanCeFindIn(struct cefind *find, const char *dir, s32 depth)
+{
+	struct cefind sub = *find;
+
+	sub.dir = dir;
+	sub.depth = depth;
+	sub.found[0] = '\0';
+	fsScanDir(dir, gebeanCeFindEntry, &sub);
+
+	if (sub.found[0]) {
+		snprintf(find->found, sizeof(find->found), "%s", sub.found);
+	}
+}
+
+static void gebeanCeFindEntry(const char *name, void *arg)
+{
+	struct cefind *find = arg;
+	char path[FS_MAXPATH + 1];
+
+	if (find->found[0] || name[0] == '.') {
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/%s", find->dir, name);
+
+	if (strcmp(name, find->leaf) == 0 && fsFileSize(path) >= 0) {
+		snprintf(find->found, sizeof(find->found), "%s", path);
+	} else if (find->depth > 0) {
+		gebeanCeFindIn(find, path, find->depth - 1);
+	}
+}
+
+struct ceapply {
+	char root[FS_MAXPATH + 1];    // the release's files/
+	char archive[FS_MAXPATH + 1]; // and the archive it came out of, if it did
+	char cache[FS_MAXPATH + 1];   // the release's cache folder
+	char dir[FS_MAXPATH + 1];     // cache/ce
+	char marker[64];
+	s32 result;
+	SDL_atomic_t done;
+	const char *stage;
+};
+
+static u8 *gebeanCeLoad(const char *path, u32 *len)
+{
+	FILE *fp = fopen(path, "rb");
+	u8 *data = NULL;
+	long size;
+
+	*len = 0;
+
+	if (!fp) {
+		return NULL;
+	}
+
+	if (fseek(fp, 0, SEEK_END) == 0 && (size = ftell(fp)) > 0 && fseek(fp, 0, SEEK_SET) == 0
+			&& (data = malloc(size)) != NULL) {
+		if (fread(data, 1, size, fp) == (size_t)size) {
+			*len = size;
+		} else {
+			free(data);
+			data = NULL;
+		}
+	}
+
+	fclose(fp);
+
+	return data;
+}
+
+/**
+ * The CE's executable patch, applied in memory to the release's default.xex
+ * (beside files/, or out of the release's archive), and the environment
+ * table's rows out of what it makes written into the overlay. The levels'
+ * fog is the only thing the game takes from it; a copy this cannot do is
+ * drawn with the release's own fog, and the overlay is made all the same.
+ */
+static void gebeanCeWriteFogTable(struct ceapply *a, const char *unpack)
+{
+	struct cefind find;
+	char xexpath[FS_MAXPATH + 1];
+	char path[FS_MAXPATH + 1];
+	u8 *xex = NULL, *diff = NULL, *patched = NULL;
+	u32 xexlen, difflen, at, n;
+	size_t patchedlen = 0;
+	s32 extracted = 0;
+	FILE *fp;
+
+	if (archiveExtractMatching(ceZip, unpack, gebeanCeWantDiff, GEBEANCE_XEX_ENTRY) <= 0) {
+		sysLogPrintf(LOG_WARNING, "gebeance: no %s in %s; the levels keep the release's fog", GEBEANCE_XEX_ENTRY, ceZip);
+		return;
+	}
+
+	memset(&find, 0, sizeof(find));
+	find.leaf = "xex.diff";
+	gebeanCeFindIn(&find, unpack, 4);
+
+	snprintf(xexpath, sizeof(xexpath), "%s/../default.xex", a->root);
+
+	if (fsFileSize(xexpath) <= 0 && a->archive[0]) {
+		struct cefind xf;
+
+		archiveExtractMatching(a->archive, a->cache, gebeanCeWantDiff, "default.xex");
+		memset(&xf, 0, sizeof(xf));
+		xf.leaf = "default.xex";
+		gebeanCeFindIn(&xf, a->cache, 4);
+
+		if (xf.found[0]) {
+			snprintf(xexpath, sizeof(xexpath), "%s", xf.found);
+			extracted = 1;
+		}
+	}
+
+	if (find.found[0]
+			&& (diff = gebeanCeLoad(find.found, &difflen)) != NULL
+			&& (xex = gebeanCeLoad(xexpath, &xexlen)) != NULL
+			&& hdpApplyMem(xex, xexlen, diff, difflen, &patched, &patchedlen)
+			&& (n = gebeanStageFogTableFind(patched, patchedlen, &at)) > 0) {
+		snprintf(path, sizeof(path), "%s/" GEBEANCE_FOG_FILE, a->dir);
+		fp = fopen(path, "wb");
+
+		if (fp) {
+			fwrite(patched + at, 1, n, fp);
+			fclose(fp);
+			sysLogPrintf(LOG_NOTE, "gebeance: the Community Edition's fog: %u rows", n / 56 - 1);
+		}
+	} else {
+		sysLogPrintf(LOG_WARNING, "gebeance: the executable patch did not apply to %s; the levels keep the release's fog", xexpath);
+	}
+
+	free(diff);
+	free(xex);
+	free(patched);
+
+	if (find.found[0]) {
+		fsRemoveFile(find.found);
+	}
+
+	if (extracted) {
+		fsRemoveFile(xexpath);
+	}
+}
+
+static int gebeanCeWorker(void *arg)
+{
+	struct ceapply *a = arg;
+	struct cerefs refs;
+	struct cefind find;
+	char unpack[FS_MAXPATH + 1];
+	char oldDir[FS_MAXPATH + 2];
+	char outDir[FS_MAXPATH + 2];
+	char path[FS_MAXPATH + 1];
+	FILE *fp;
+
+	a->result = -100;
+
+	// the patch out of the updater
+	a->stage = "READING THE UPDATER";
+	snprintf(unpack, sizeof(unpack), "%s/updater", a->dir);
+	fsCreateDir(unpack);
+
+	if (archiveExtractMatching(ceZip, unpack, gebeanCeWantDiff, NULL) <= 0) {
+		sysLogPrintf(LOG_ERROR, "gebeance: no %s came out of %s", GEBEANCE_DIFF_ENTRY, ceZip);
+		SDL_AtomicSet(&a->done, 1);
+		return 0;
+	}
+
+	memset(&find, 0, sizeof(find));
+	find.leaf = "files.diff";
+	gebeanCeFindIn(&find, unpack, 4);
+
+	if (!find.found[0]) {
+		SDL_AtomicSet(&a->done, 1);
+		return 0;
+	}
+
+	// The files the patch reads from. An unpacked copy has them all; the
+	// game's own unpack of an archive took only what it draws, so the rest
+	// come out of the archive now.
+	memset(&refs, 0, sizeof(refs));
+	refs.root = a->root;
+
+	if (!hdpListOldRefs(find.found, gebeanCeNoteRef, &refs)) {
+		sysLogPrintf(LOG_ERROR, "gebeance: %s is not a patch this reads", find.found);
+		SDL_AtomicSet(&a->done, 1);
+		return 0;
+	}
+
+	if (refs.nummissing > 0) {
+		a->stage = "UNPACKING WHAT IT PATCHES";
+
+		if (a->archive[0]) {
+			archiveExtractMatching(a->archive, a->cache, gebeanCeWantRef, &refs);
+		}
+
+		for (s32 k = 0; k < refs.nummissing; k++) {
+			snprintf(path, sizeof(path), "%s/%s", a->root, refs.missing[k]);
+
+			if (fsFileSize(path) < 0) {
+				sysLogPrintf(LOG_ERROR, "gebeance: the release has no files/%s, which the patch needs",
+						refs.missing[k]);
+				a->result = -7;
+			}
+		}
+	}
+
+	for (s32 k = 0; k < refs.nummissing; k++) {
+		free(refs.missing[k]);
+	}
+
+	free(refs.missing);
+
+	if (a->result == -7) {
+		SDL_AtomicSet(&a->done, 1);
+		return 0;
+	}
+
+	a->stage = "APPLYING IT";
+	snprintf(oldDir, sizeof(oldDir), "%s/", a->root);
+	snprintf(outDir, sizeof(outDir), "%s/files/", a->dir);
+	a->result = hdpApplyOverlay(oldDir, find.found, outDir);
+
+	if (a->result > 0) {
+		a->stage = "READING ITS FOG";
+		gebeanCeWriteFogTable(a, unpack);
+
+		snprintf(path, sizeof(path), "%s/" GEBEANCE_DONE_FILE, a->dir);
+		fp = fopen(path, "wb");
+
+		if (fp) {
+			fputs(a->marker, fp);
+			fclose(fp);
+		}
+	}
+
+	// the patch is not kept: it is the player's zip that is, and the folders
+	// its archive path made are emptied up to updater/ itself (rmdir takes an
+	// empty folder only)
+	fsRemoveFile(find.found);
+
+	for (char *slash = strrchr(find.found, '/'); slash && slash > find.found + strlen(a->dir);
+			slash = strrchr(find.found, '/')) {
+		*slash = '\0';
+		fsRemoveDir(find.found);
+	}
+
+	SDL_AtomicSet(&a->done, 1);
+
+	return 0;
+}
+
+/**
+ * Startup, after the release is unpacked: makes the overlay when the player
+ * has asked for the Community Edition and it is not made yet, and decides
+ * whether this session draws it.
+ */
+void gebeanCePrepareAtStartup(void)
+{
+	static struct ceapply a;
+	char path[FS_MAXPATH + 1];
+	char have[64] = "";
+	SDL_Thread *thread;
+	FILE *fp;
+
+	ceActive = 0;
+
+	if (!gebeanCeGetWanted() || !gebeanCeAvailable()) {
+		if (ceWanted == 1) {
+			sysLogPrintf(LOG_WARNING, "gebeance: the Community Edition is chosen, but %s",
+					gebeanGetEnabled() ? "its updater is not in added-content/" : "the GoldenEye XBLA release is not there");
+		}
+
+		return;
+	}
+
+	memset(&a, 0, sizeof(a));
+
+	if (!gebeanTreeInfo(a.root, sizeof(a.root), a.archive, sizeof(a.archive), a.cache, sizeof(a.cache))) {
+		return;
+	}
+
+	snprintf(a.dir, sizeof(a.dir), "%s/" GEBEAN_CE_DIR, a.cache);
+	snprintf(a.marker, sizeof(a.marker), "%d", fsFileSize(ceZip));
+	snprintf(path, sizeof(path), "%s/" GEBEANCE_DONE_FILE, a.dir);
+
+	fp = fopen(path, "rb");
+
+	if (fp) {
+		if (!fgets(have, sizeof(have), fp)) {
+			have[0] = '\0';
+		}
+
+		fclose(fp);
+	}
+
+	if (strcmp(have, a.marker) != 0) {
+		fsCreateDir(a.dir);
+		SDL_AtomicSet(&a.done, 0);
+		a.stage = "STARTING";
+		thread = SDL_CreateThread(gebeanCeWorker, "gebeance", &a);
+
+		if (!thread) {
+			ceFailed = 1;
+			return;
+		}
+
+		videoUpdateNativeResolution(320, 240);
+
+		while (!SDL_AtomicGet(&a.done)) {
+			s32 done = 0, total = 0;
+
+			archiveGetProgress(&done, &total);
+			gexPlusRomNotice("GOLDENEYE XBLA COMMUNITY EDITION", a.stage, done, total);
+			SDL_Delay(16);
+		}
+
+		SDL_WaitThread(thread, NULL);
+
+		if (a.result <= 0) {
+			ceFailed = 1;
+			sysLogPrintf(LOG_ERROR, "gebeance: the Community Edition's patch did not apply (step %d) - "
+					"it fits an unmodified Fyodorovna release only; the release is drawn as it is", a.result);
+			return;
+		}
+
+		sysLogPrintf(LOG_NOTE, "gebeance: the Community Edition's patch wrote %d files into %s", a.result, a.dir);
+	}
+
+	snprintf(ceRoot, sizeof(ceRoot), "%s/files", a.dir);
+	ceActive = 1;
+	sysLogPrintf(LOG_NOTE, "gebeance: drawing the GoldenEye XBLA Community Edition's art (%s)", ceWanted < 0 ? "on by default with its updater" : "chosen");
 }
 
 #endif

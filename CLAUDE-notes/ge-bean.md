@@ -15006,12 +15006,21 @@ settings gave each player's own bit. RX+ for 20 frames turned +66.5 degrees,
   outdoors it always does - GoldenEye asks only whether the rooms on the way
   are drawn (chrlvStanRoomRelated()). He walked off turning from his pad's
   heading, his escort (chr 2) at his side, and the two steered round each
-  other. And Perfect Dark's first-tick look-ahead (GOPOSFLAG_INIT) cut the
-  escort two waypoints at once; GoldenEye looks ahead only when the age comes
-  round. Both now as GoldenEye's for guards on converted stages (68e0bd4f1):
-  Janus within ~40 of the cartridge's path, arriving the same tick, at 60 and
-  73 FPS. gesolo's replay golden changes from frame 200 (Dam's guards out of
-  sight now move by magic).
+  other. 68e0bd4f1 took GoldenEye's magic test and look-ahead whole; the
+  sweep against ares (twenty missions with the opening played, every chr to
+  tick 1200, ~/wt/f3-1010c-gemission-run/pisweep*.sh + pat2-style distance
+  sums) found guards both closer and further off (Dam's tower patrol chr 44,
+  Statue Park's pursuers 6-8, Jungle's chr 1 worse; Silo 64, Cradle 1 closer):
+  whether GoldenEye goes magic depends on which rooms its renderer drew, which
+  neither PD's test nor a tile-walk test reproduces. Shipped instead
+  (e917bc6ad): a chr spawned at run time (CHRH2FLAG_SPAWNED) that sets off on a
+  route out of sight faces down it at once, as GoldenEye's magic start does;
+  every setup chr of the twenty missions moves exactly as before, Janus within
+  ~95 of the cartridge and on time. Trap: the world leg runs ours with the
+  opening skipped while ares plays its swirl, so a guard's magic (decided by
+  what is on screen) differs at the start - judge out-of-sight movement with
+  GF_MISSION_INTRO=1 on both sides; and a GoldenEye chr in magic keeps its
+  prop at the segment's start, so its sampled position lags its route.
 - **Surface 2's lip corner (F3 20261010-052108).** Walking at the 108-high lip
   near either end jammed the player in the corner of the climb wall and the
   lip's end; ares slides Bond along and up (scratch roofwalk.py, theta 159).
@@ -15076,3 +15085,25 @@ Options for the art left out (owner): keep as is (the release's and GoldenEye's 
 leave to ship their pictures; or rebuild a few by hand from the release's/ROM's pictures (the Control
 placeholders and Bunker 2's patch are small N64-format pictures that may be GoldenEye's own - not checked against
 the ROM). Doak in HD wears the face's own glasses (the release file has them; GoldenEye's Doak has none).
+
+**The Community Edition's art comes back as a toggle (2026-10-10, feat/ce-art-toggle).** The owner: *"lets re add
+the toggle, now it is only for art since we have the code changes"*, then *"default it on when the zip is
+present"*. The fixes above stay built in and always on in the HD look. The zip path is back (gebeance.c, vendored
+HDiffPatch, the overlay in `cache/xbla/goldeneye/ce/` written whole as before), but `gebeanCeFilePath()` answers
+only for `ceArtFiles[]`: the skydomes, Frigate's sea, the rocket launcher/Cougar/timed mine pictures and
+pickups, steeldoor1, trainextdoor, doorroller4, siloliftdoor, sevdoor3, doordest2, the bridge/door consoles and
+screen consoles, chrclipboard, the watch arm/fist/trigger hands, Control and Bunker 2 (pictures only), and its
+Doak head. Every other file the CE changed is read from the release with our fixes over it. Where an art file
+carries one of the owner's GoldenEye-kept tastes (the cyan tints of siloliftdoor and sevdoor3) the generated
+table puts the release's colour bytes back over the CE's (`REVERTS` in gen_cefixtable.py). With the art on:
+the CE's domes (`skyNames[]`), its fog colours for those levels (its table's colours over ours, Facility's
+nibble-swapped colour excepted; the distances are ours either way), Surface 2's horizon, the 512x512 sea, and
+Doak (`Cgx051Z`) on the CE's own `head/headdave` - the release's headneil refitted, without the glasses (the
+pool's "Dave" takes it too); with it off or no zip he wears the release's headneil. The HD level cache keys on
+the toggle again (`_ce` levels). Setting: `Mod.GeXblaCommunityEditionArt`, -1 until the player chooses = on
+when the zip is there; the old `Mod.GeXblaCommunityEdition` is not read (its 0 was only the old default), so
+every existing player gets the art once the zip is present, and an explicit untick is saved as 0. The overlay
+is applied at startup before the release's models load, so the first start with the zip draws it with no
+restart. Menu: "GoldenEye XBLA: Community Edition Art" on Mods: Missions, shown only with the zip, Restart Now
+while a change waits. Online: unchanged - `NETLOOK_GECE` is the host's HD look (the data fixes), art is each
+machine's own picture. Shots: `~/wt/f3-1010c-gehd-run/shots/art-toggle.png`, `doak-art-on-off-nozip.png`.

@@ -53,7 +53,7 @@ per sweep: the release does not change.
 
 ## The Community Edition, both sides
 
-GE Plus's HD look runs with the CE, so both sides do: ours with `Mod.GeXblaCommunityEdition=1` and
+GE Plus's HD look runs with the CE, so both sides do: ours with `Mod.GeXblaCommunityEditionArt=1` and
 `added-content/CommunityEditionUpdaterV6.zip` (the log's `path` is the CE's copy where it replaces a
 file, and census.py reads that), the release as `../xenia/rig.sh`'s default `GF_BEAN=ce` build, indexed
 from its own files: `GF_BEAN_FILES=~/perfect-dark/.xbla-work/ge-bean/BeanCE/filesCE xdraws.py index ...`.
@@ -61,7 +61,7 @@ from its own files: `GF_BEAN_FILES=~/perfect-dark/.xbla-work/ge-bean/BeanCE/file
 ## The rig (`~/wt/gefidelity-run/xbla-run`)
 
 `data/pd.ntsc-final.z64`, `data/save/pd.ini` (`[Mod]` XblaMeshes/XblaMeshTextures/XblaStages/XblaSkies
-=1, GeXblaCommunityEdition=1, MapMods=GoldenEye Arenas; `--savedir save` is relative to `data/`),
+=1, GeXblaCommunityEditionArt=1, MapMods=GoldenEye Arenas; `--savedir save` is relative to `data/`),
 `added-content/` (the GoldenEye ROM, `goldeneye` -> the release, CommunityEditionUpdaterV6.zip),
 `mods/` (converted on first start). run.py takes the directory's lock (`.census.lock`).
 The HD level disk cache is emptied before each run. Never a player's install.

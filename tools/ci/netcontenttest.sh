@@ -438,7 +438,7 @@ run() {
 				"--net-test-input $OUT/respawn.script" "kill()|kill()|gas()|kill()" ;;
 		gegg)   runcase gegg "${GEMAPS}StartArmed=1\n" "$GEMAPS" "--net-test-map Archives --net-test-ge 4" "" ;;
 		# a GoldenEye stage's MUST key that differs: refused at the start, named
-		gelook) runcase gelook "${GEMAPS}XblaMeshes=1\nGeXblaCommunityEdition=1\nStartArmed=1\n" "${GEMAPS}XblaMeshes=0\nGeXblaCommunityEdition=0\n" \
+		gelook) runcase gelook "${GEMAPS}XblaMeshes=1\nGeXblaCommunityEditionArt=1\nStartArmed=1\n" "${GEMAPS}XblaMeshes=0\nGeXblaCommunityEditionArt=0\n" \
 				"--net-test-map Bunker --net-test-ge 0 --net-test-look-switch 900" "--net-test-look-switch 1200" ;;
 		# a ROM hack's mode: Goldfinger 64's Junkyard, its weapon sets; the
 		# client mounts Goldfinger on demand and takes the mode from RULES
