@@ -847,6 +847,12 @@ static Gfx *lobbyLogo(Gfx *gdl, const struct lobbylayout *l, s32 x1, s32 y1, s32
 	viSetFovAspectAndSize(g_Vars.currentplayer->fovy, g_Vars.currentplayer->aspect,
 			g_Vars.currentplayer->viewwidth, g_Vars.currentplayer->viewheight);
 
+	// And the camera's projection the player's again. menuRenderModel()
+	// made the logo's the camera's (vi0000af00()), nothing over a menu's
+	// background puts it back, and the eye piece, drawn first next frame
+	// through camGetPerspectiveMtxL(), came up in the logo's box.
+	gdl = vi0000af00(gdl, viGetCurrentPlayerViewport());
+
 	g_MenuScissorX1 = sx1;
 	g_MenuScissorY1 = sy1;
 	g_MenuScissorX2 = sx2;
@@ -917,11 +923,11 @@ static Gfx *lobbyChromeDraw(Gfx *gdl, const struct lobbydraw *d, const struct lo
 	// the left: the boot screen's logo over the bar's end, the page's name
 	// after it
 	{
-		const s32 lh = h + 8;
+		const s32 lh = h + 2;
 		const s32 lw = (s32)(lh * LOBBY_LOGO_ASPECT);
-		const s32 lx = LOBBY_MARGIN + 2;
+		const s32 lx = LOBBY_MARGIN + 4;
 
-		gdl = lobbyLogo(gdl, l, lx, y1 - 4, lx + lw, y1 - 4 + lh);
+		gdl = lobbyLogo(gdl, l, lx, y1 - 1, lx + lw, y1 - 1 + lh);
 		titlex = lx + lw + 8;
 	}
 

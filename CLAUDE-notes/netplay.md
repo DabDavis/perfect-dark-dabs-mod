@@ -3187,6 +3187,13 @@ learned from a wrong picture:
   for the viewport; the scissor set with no side held, in the stretched
   frame (one set with the centre held is clamped at 0 and cut the logo's left
   off in the 16:9 pillar).
+- The camera's projection put back after it (`vi0000af00()` with the player's
+  view): menuRenderModel() leaves the model's as the camera's, nothing over a
+  menu's background resets it, and the eye piece - drawn first the next frame,
+  through `camGetPerspectiveMtxL()` - came up small in the logo's box. A stock
+  dialog's model goes through the same path, and dialogRender() puts back
+  only the view's position and size after it (not checked whether the eye
+  piece behind a character preview shows it).
 
 **The roster (the owner, same day: "instead of team 1, team 2 columns
 just make the player names the same color as the team they are on and only
