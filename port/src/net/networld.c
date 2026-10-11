@@ -12,6 +12,7 @@
 #include "game/nbomb.h"
 #include "game/propobj.h"
 #include "game/setuputils.h"
+#include "game/explosions.h"
 #include "game/wallhit.h"
 #include "net/nettransport.h"
 #include "net/net.h"
@@ -382,6 +383,7 @@ static void netWorldWreck(s32 phase)
 	s32 i;
 	struct coord at = {0, 0, 0};
 	s32 haveat = 0;
+	RoomNum *atrooms = NULL;
 
 	for (i = phase & 1; i < s_NumGlass; i += 2) {
 		struct defaultobj *obj = s_Glass[i];
@@ -389,6 +391,7 @@ static void netWorldWreck(s32 phase)
 		if (!netWorldGlassGone(obj) && obj->model && objFindBboxRodata(obj)) {
 			if (!haveat) {
 				at = obj->prop->pos;
+				atrooms = obj->prop->rooms;
 				haveat = 1;
 			}
 
@@ -421,6 +424,7 @@ static void netWorldWreck(s32 phase)
 
 			if (!haveat) {
 				at = obj->prop->pos;
+				atrooms = obj->prop->rooms;
 				haveat = 1;
 			}
 		}
@@ -432,6 +436,11 @@ static void netWorldWreck(s32 phase)
 			cctvHandleLensShot(s_Cams[i]);
 			lenses++;
 		}
+	}
+
+	// the third: a gas barrel's long burn (178 ticks), for a joiner to see still burning
+	if (haveat && atrooms && phase == 2) {
+		explosionCreateSimple(NULL, &at, atrooms, EXPLOSIONTYPE_GASBARREL, 0);
 	}
 
 	if (haveat) {
