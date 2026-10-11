@@ -45,6 +45,7 @@ extern s32 g_ModRunFirstRoom;  // --run-room N: and the first landing's room, wi
 bool modRunIsOn(void);
 bool modRunWantsStars(s32 stagenum);
 bool modRunStageIsStockArena(s32 stagenum);
+bool modRunStageStartsMusic(s32 stagenum);
 bool modRunIsPlaying(void);
 bool modRunObjectiveIsDone(void);
 bool modRunIsOver(void);

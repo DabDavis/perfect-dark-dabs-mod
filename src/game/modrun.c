@@ -586,6 +586,32 @@ bool modRunStageIsStockArena(s32 stagenum)
 }
 
 /**
+ * Whether a run's hop onto this stage has to start the level's music itself:
+ * an arena's (a stock one, or a mod map the Stage Loader registers as one).
+ * A mission's intro list starts its music (aiPlayDefaultTracks); an arena is
+ * loaded here as a solo stage, which only sets the stage (musicSetStage()), and
+ * its setup has no such list - the music stayed off until a pause menu's close
+ * started it (F3 20261011-004224 Temple, 010817 Warehouse, 013404 Complex,
+ * 195426 Ruins).
+ */
+bool modRunStageStartsMusic(s32 stagenum)
+{
+	s32 i;
+
+	if (!modRunIsOn() || modRunIsOver() || stagenum != g_ModRunStage) {
+		return false;
+	}
+
+	for (i = 0; i < NUM_SOLOSTAGES; i++) {
+		if ((s32)g_SoloStages[i].stagenum == stagenum) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+/**
  * Whether a stage may be landed in.
  *
  * The pool is built from the game's own two lists of maps - the missions in
