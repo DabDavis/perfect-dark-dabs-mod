@@ -31,6 +31,9 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 59 2026-10-11
+Online: the Main Menu Chat shows only what players say; a message about a join or the lobby shows along the bottom of the Briefing Room instead (thanks dab)
+
 notes 58 2026-10-11
 Online: Space and T now open the Main Menu Chat's line in the Briefing Room, so you can type in it (thanks dab)
 Online: messages from the server show in the match's chat as "Server: ..." in gold, and in the lobby chats; when the lobby server restarts for an update it tells the rooms first (thanks dab)
