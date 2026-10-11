@@ -123,6 +123,13 @@
   that name (`networld.c`): EQOA DRDP's split; broken glass, storms and the
   gas in a world block in SNAP, crumpling and a door's pane in records, the
   events in three classes on channels of their own (shots unreliable).
+- **The Game Lobby's windows (2026-10-11, no wire change)** — the section
+  of that name: the owner's mock-up as four windows in two columns, the
+  buttons the only real dialog, the rest drawn around it; each column held
+  to its side of a widescreen display. The menu's frame is 320x220, wider
+  than 4:3 (a side alignment moves a side *in* at 4:3), fast3d's scissor
+  under a side alignment was off, and the Mods window
+  (`netContentLobbyRows`).
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -3079,3 +3086,101 @@ STAGE_LOAD (once a match), LOADED, GO, MATCH_END, LEAVE, LOBBY, SLOTCFG (on
 a change), ROSTER (on GO and a seat changing hands), RESUME, CHAT,
 CONTENT_* (a served download), the events (one-shots), the SCORES table (a
 joiner's catch-up and a cleared seat).
+
+## The Game Lobby's windows (2026-10-11, no wire change)
+
+The owner's mock-up (`~/perfect-dark/lobby.webp`): four windows in two
+columns. On the left **Game Lobby** (the room's name and count in the Md
+font, its settings, the roster in Team 1 / Team 2 / Spectators columns with
+ready marks and each member's ping) over **Mods**; on the right **Lobby
+Chat** (the room's chat, the status line at its foot, the line being typed
+under that) over an untitled box of buttons (Ready / Change Team / Chat /
+Kick... / Settings... / Back to Campaign / Leave Lobby). The owner asked for
+it to be mindful of 4:3 and to use a widescreen display's width.
+
+**How it is built.** The buttons are the only real dialog,
+`g_NetRoomMenuDialog`, now `MENUDIALOGFLAG_DISABLETITLEBAR`, so the pad,
+the keys and the mouse work it as any page. menu.c asks netlobbymenu.c three
+things of every dialog: `netLobbyMenuPlaceDialog` (from
+`dialogCalculatePosition`, every tick: the box at the foot of the right
+column, as tall as its rows, which come and go with host and campaign),
+`netLobbyMenuDialogAlign` (the side `menuRenderDialog` holds it to) and
+`netLobbyMenuRenderPanels` (after the dialog: the other three windows). The
+windows are drawn with the dialog's own chrome calls (`menugfxRenderGradient`,
+`menugfxDrawShimmer`, `menugfxRenderDialogBackground`, its MIXCOLOUR colours
+and text blends), so they open, fade, dim and change colour with it; they
+are never focused. A dialog pushed over the room (Kick, Settings, the chat
+keyboard) takes the screen alone, the windows going with the room's dialog
+as the old page went, and they grow back open with it when it closes.
+
+**Widescreen.** The left column is drawn under `G_ASPECT_LEFT_EXT`, the
+right column and the dialog under `G_ASPECT_RIGHT_EXT` (both with
+`G_ASPECT_WIDE_EXT`, as Ghost Trials' plaques), each column the wider by
+the screen beside the frame, so the windows reach the window's sides at any
+aspect. `menuProcessInput` moves the mouse's x by the same offset
+(`netLobbyMenuDialogAlignOffset`) for a dialog held to a side.
+
+Traps met:
+
+- **The menu's frame is 320x220, not 4:3.** `videoGetNativeWidth/Height`
+  are 320x220 (aspect 1.45): under `G_ASPECT_CENTER_EXT` a 4:3 window shows
+  only x 13-307 of it (its sides are off the screen), and on a 16:9 window
+  the pillar either side is 35.6 units, not the 53 a 4:3 frame would leave.
+  So at 4:3 a side alignment moves a side *in* by 13 units: the "pillar" is
+  negative. Ghost Trials' plaque offset clamps it to 0, which a plaque does
+  not notice and a layout does (the first build's columns overlapped by 13
+  units at 4:3). `lobbyPillar()` keeps the sign; LEFT-held x 0 is the
+  screen's left edge and RIGHT-held x 320 its right edge at every aspect.
+- **fast3d's scissor under a side alignment stood off what it held.**
+  `gfx_adjust_viewport_or_scissor` added the alignment's offset unscaled,
+  where `gfx_adjust_x_for_aspect_ratio` scales it by native/window for
+  everything drawn: at 16:9 a scissor set under LEFT or RIGHT stood 1/12 of
+  half the screen (18 units) to the side of its content, cutting the left of
+  the right-held dialog. Scaled now; only scissors set under LEFT or RIGHT
+  change (Ghost Trials' plaques and side-aligned cutscene subtitles set
+  theirs whole-view, so they never showed it).
+- **Switching sides takes setting the side, not only clearing the other.**
+  The left column's turn clears RIGHT from CENTER; the right column's then
+  cleared LEFT and left neither, which is centred, and the chat window came
+  out 13 units off the buttons under it. Clear CENTER, set side | WIDE.
+- **Text stops at x 320 of the space it is drawn in** (`text0f15568c` drops
+  a glyph past `viGetWidth()`, and texture rectangles cannot go negative), so
+  each column's coordinates stay in 0-320 of its own side's space: past
+  about 3:1 the columns stop growing (`total` capped at 480) and the gap
+  between them takes the rest.
+- **The chat history.** `NETLOBBY_MAXCHAT` was 6 (the old page showed 3); it
+  is 24 now, pdlobbyd keeps 50. `textWrapN` measures a little narrower than
+  `textMeasure`: wrapped to the window's width, a full line lost its last
+  letter to the dots, so the wrap is 8 units narrower than the fit.
+- **Names before pings.** The roster's font is HandelGothicSm while every
+  name fits whole in its column and every row fits, else Xs; a ping that
+  would cut a name that is whole without it is left out
+  (`rosterCellTag`); a narrow column (under 110 units) has the ping
+  without the path tag. The settings go two columns everywhere (one column
+  of seven left a full twelve-player room no rows at 4:3), the long values
+  (arena, mode, weapons, host) on the left.
+
+**The Mods window** is `netContentLobbyRows()` (netcontent.c): a row each
+for the conversion or ROM hack the room is in (the room's `ge`), the host's
+Perfect Dark mod (`mod`) and the mod its Stage Loader map is from (the
+`stage_key` rule's `map:NAME`, looked up among this machine's maps; the
+map's name alone when it has none), plus any transfer under way that no
+row names. A row says In use (the overlay mod this machine plays with now,
+which a `--moddir` mod is although the installed list leaves it out),
+Installed, Converted, Received (served into memory earlier), From the host
+(the launch brings it: `netContentFollow`), or Downloading/Sending n% from
+`s_Fetch` and `s_Serve`. Rows left over say `<empty>`, as the mock-up has
+them.
+
+**Looking at it.** Not a gate: a local pdlobbyd with its per-address limits
+raised (`login_window` is 10 sign-ins per 5 minutes per address, which a
+dozen fake members from 127.0.0.1 exceed), the host with
+`--net-lobby-script host --net-lobby-shots --net-lobby-size 12
+--net-lobby-wait 11` (its Game Lobby up and never launching), members
+joined, teamed, readied, given paths and pings and chatting over the HTTP
+API, `[Video] DefaultWidth/DefaultHeight` in the save's pd.ini for the
+aspect, and `gdb -p <game> -batch -ex "call (void)screenshotRequest()"` -
+the game's PID, not `timeout`'s. A dialog over the room the same way:
+break on `netLobbyTick` and `call menuPushDialog(&g_NetKickMenuDialog)`.
+`netlobbyuitest.sh` still shoots both sides' Game Lobby at 640x480.
+

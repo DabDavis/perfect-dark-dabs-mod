@@ -23,7 +23,7 @@
 
 #define NETLOBBY_MAXROOMS    48
 #define NETLOBBY_MAXMEMBERS  16
-#define NETLOBBY_MAXCHAT     6
+#define NETLOBBY_MAXCHAT     24 // the Game Lobby's chat window holds this many (pdlobbyd keeps 50)
 #define NETLOBBY_MAXRULES    12
 #define NETLOBBY_MAXUSER     15
 #define NETLOBBY_MAXROOMNAME 32
@@ -184,5 +184,16 @@ void netLobbyHostLost(void);
 // Back from a match that came from a room (menutick.c, mainmenu.c)
 void netLobbyMenuAfterMatch(void);
 void netLobbyMenuFrame(void); // netlobbymenu.c: the Game Lobby back over Online Game after a match
+
+// The Game Lobby's windows (netlobbymenu.c), asked by menu.c of every dialog:
+// its buttons are a dialog held to the right of a widescreen display, the
+// room, its mods and its chat windows drawn around them
+struct menudialog;
+struct menudialogdef;
+s32 netLobbyMenuDialogAlign(struct menudialogdef *def);       // 0 the menu's centre, else the G_ASPECT_*_EXT side it is held to
+s32 netLobbyMenuDialogAlignOffset(struct menudialogdef *def); // how far right of its x that puts it, in menu units
+void netLobbyMenuPlaceDialog(struct menudialog *dialog);      // its dst rectangle, after dialogCalculatePosition's
+void *netLobbyMenuRenderPanels(void *gdl, struct menudialog *dialog); // after the dialog: the windows around it
+const char *netLobbyMenuStatusText(void); // its status line (the chat window's foot; netcooptest.sh reads it)
 
 #endif

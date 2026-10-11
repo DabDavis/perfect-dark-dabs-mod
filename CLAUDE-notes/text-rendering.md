@@ -23,6 +23,15 @@ nameplate and rules windows do that. A scissor set before the alignment stays
 behind in the middle of the screen, because fast3d turns a scissor into pixels
 when the command is sent.
 
+The frame is 320x220 (`videoGetNativeWidth/Height`), which is wider than
+4:3: on a 4:3 window its sides (x below 13 and above 307) are off the
+screen, and LEFT or RIGHT moves what is drawn *in* by those 13 units rather
+than out; at 16:9 the pillar is 35.6 units, not the 53 a 4:3 frame would
+leave. A layout that spans the screen has to keep that sign (the Game
+Lobby, netplay.md "The Game Lobby's windows"). A scissor set under LEFT or
+RIGHT used to stand off what it held (fast3d added the offset unscaled);
+fixed 2026-10-11.
+
 A dialog is as wide as its widest *row*, and a `MENUITEMTYPE_LABEL` does not
 count towards that: a long label is drawn from the dialog's left edge and
 simply runs off it, with no wrap and no ellipsis to say it did. The small font

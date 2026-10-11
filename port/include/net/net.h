@@ -224,6 +224,17 @@ void netStageStart(void);
 void netSessionModSwapped(void); // modmode.c: the host's PD mod was just entered at a STAGE_LOAD's stage change (protocol 25)
 // The Game Lobby (netlobbymenu.c): a client's fetch of the host's content under way, its progress in out; 0 none
 s32 netContentFetchLine(char *out, s32 size);
+// and its Mods window: what the room plays with, and where this machine stands with each
+#define NETCONTENTROW_HERE    0 // installed, converted or served already
+#define NETCONTENTROW_BUSY    1 // on its way: downloading, or (the host) sending
+#define NETCONTENTROW_MISSING 2 // not here: the host sends it at the launch
+struct netcontentrow {
+	char dir[128]; // NET_MAXMAPDIR + 1 (netproto.h)
+	char name[64];
+	char state[32];
+	s32 kind; // NETCONTENTROW_*
+};
+s32 netContentLobbyRows(const char *mod, const char *ge, const char *stagekey, struct netcontentrow *rows, s32 max);
 void netCheckQuit(void);
 
 // Tick passes (pdmain.c mainTick)

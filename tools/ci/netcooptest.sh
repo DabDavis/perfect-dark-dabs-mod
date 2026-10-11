@@ -903,9 +903,9 @@ cat > "$OUT/nomodroom-status.py" <<'PY'
 import gdb
 st = int(gdb.parse_and_eval("netLobbyLaunchState()"))
 try:
-    line = gdb.parse_and_eval("textRoomStatus((struct menuitem *)0)").string()
+    line = gdb.parse_and_eval("netLobbyMenuStatusText()").string()
 except Exception as e:
-    line = "(textRoomStatus: %s)" % e
+    line = "(netLobbyMenuStatusText: %s)" % e
 print("STAGE nomodroom: launch state %d, status line: %s" % (st, " ".join(line.split())))
 PY
 
@@ -1035,7 +1035,7 @@ case_campleave() {
 		sleep 3
 		ap=$(gamepid campleave-a)
 		[ -n "$ap" ] && st=$(timeout 40 gdb -p "$ap" -batch -x "$OUT/campleave.gdb" -ex "call (void)netLobbyMenuPushRoom()" \
-			-ex 'python import gdb; print("STAGE campleave: A launch state %d, status line: %s" % (int(gdb.parse_and_eval("netLobbyLaunchState()")), " ".join(gdb.parse_and_eval("textRoomStatus((struct menuitem *)0)").string().split())))' \
+			-ex 'python import gdb; print("STAGE campleave: A launch state %d, status line: %s" % (int(gdb.parse_and_eval("netLobbyLaunchState()")), " ".join(gdb.parse_and_eval("netLobbyMenuStatusText()").string().split())))' \
 			2>/dev/null | grep "^STAGE")
 		echo "$st" | tee -a "$OUT/stage.log" | sed 's/^/     /'
 		# B's feed drawn over its end screen (a full-screen menu: lvRender's

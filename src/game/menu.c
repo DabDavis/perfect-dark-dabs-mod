@@ -3187,7 +3187,13 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 	// Render the walls/floor/ceiling coming from the projection source.
 	// Each surface is rendered a second time with the colours swapped.
 	// The order is top, right, bottom, left.
-	if (g_MenuData.root != MENUROOT_MPSETUP && (g_MenuData.root != MENUROOT_MPPAUSE || g_Vars.normmplayerisrunning)) {
+	if (g_MenuData.root != MENUROOT_MPSETUP && (g_MenuData.root != MENUROOT_MPPAUSE || g_Vars.normmplayerisrunning)
+#ifndef PLATFORM_N64
+			// drawn later at the menu's centre: not to a dialog held to
+			// one side, whose x is in that side's space
+			&& !netLobbyMenuDialogAlign(dialog->definition)
+#endif
+			) {
 		var800a4634 = menugfxDrawPlane(var800a4634, bgx1, bgy1, bgx2, bgy1, colour4, colour5, MENUPLANE_00);
 		var800a4634 = menugfxDrawPlane(var800a4634, bgx2, bgy1, bgx2, bgy2, colour5, colour4, MENUPLANE_00);
 		var800a4634 = menugfxDrawPlane(var800a4634, bgx2, bgy2, bgx1, bgy2, colour4, colour5, MENUPLANE_00);
@@ -4013,6 +4019,12 @@ void dialogCalculatePosition(struct menudialog *dialog)
 	dialog->dstwidth = width;
 	dialog->dstheight = height;
 
+#ifndef PLATFORM_N64
+	// A dialog that places itself: the Game Lobby's buttons under its chat
+	// (netlobbymenu.c), in the space of the side of the screen it is held to
+	netLobbyMenuPlaceDialog(dialog);
+#endif
+
 	if (dialog->swipedir != 0) {
 		func0f0f7594(dialog->swipedir, &vdir, &hdir);
 
@@ -4254,11 +4266,36 @@ u32 g_MenuCThresh = 120;
 
 Gfx *menuRenderDialog(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool lightweight)
 {
+#ifndef PLATFORM_N64
+	const s32 side = netLobbyMenuDialogAlign(dialog->definition);
+#endif
+
 	mainOverrideVariable("cthresh", &g_MenuCThresh);
 
 	textSetWaveBlend(dialog->unk54, dialog->unk58, g_MenuCThresh);
 
+#ifndef PLATFORM_N64
+	// Held to one side of a widescreen display (the Game Lobby's buttons):
+	// dropping the other half of G_ASPECT_CENTER_EXT moves the dialog out
+	// to that edge at its own size. Set before dialogRender() sets its
+	// scissor, which fast3d turns into pixels with the alignment in force.
+	if (side) {
+		gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
+		gSPSetExtraGeometryModeEXT(gdl++, side | G_ASPECT_WIDE_EXT);
+	}
+#endif
+
 	gdl = dialogRender(gdl, dialog, menu, lightweight);
+
+#ifndef PLATFORM_N64
+	if (side) {
+		gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_WIDE_EXT);
+		gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
+	}
+
+	// and the windows it draws around itself, in the dialog's blends
+	gdl = netLobbyMenuRenderPanels(gdl, dialog);
+#endif
 
 	textResetBlends();
 
@@ -5370,6 +5407,12 @@ void menuProcessInput(void)
 			// aspect correct the X
 			const f32 cx = ((f32)inputs.mousex - (f32)(SCREEN_WIDTH_LO / 2)) * (videoGetAspect() / SCREEN_ASPECT);
 			inputs.mousex = (f32)(SCREEN_WIDTH_LO / 2) + cx;
+
+			// a dialog held to one side of a widescreen display is drawn
+			// that far from where its x says (menuRenderDialog())
+			if (dialog) {
+				inputs.mousex -= netLobbyMenuDialogAlignOffset(dialog->definition);
+			}
 		}
 		if (dialog && inputs.mousemoved) {
 			g_MenuUsingMouse = true;
