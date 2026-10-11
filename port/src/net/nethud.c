@@ -10,6 +10,7 @@
 #include "bss.h"
 #include "data.h"
 #include "config.h"
+#include "net/netlobby.h"
 #include "system.h"
 #include "input.h"
 #include "lib/vi.h"
@@ -971,8 +972,14 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 	const u64 now = netHudNowMs();
 	const s32 open = s_ChatOpen == CHAT_MATCH;
 	const s32 left = viGetViewLeft() + 10;
-	const s32 maxw = viGetViewWidth() * 60 / 100;
-	const s32 bottom = viGetViewTop() + viGetViewHeight() * 60 / 100;
+	// At the online pages' text size (Online Text Size, netlobbymenu.c; the
+	// owner, 2026-10-11): laid out as much bigger as it is drawn smaller,
+	// and drawn scaled from the feed's corner into the same part of the view
+	// (gDPSetRectScaleEXT), more of each line on a line and more lines in
+	// it. Never wider than the 320 units, past which a glyph is dropped.
+	const s32 pct = netLobbyMenuGetTextScale();
+	const s32 maxw = MIN(viGetViewWidth() * 60 / 100 * 100 / pct, viGetWidth() - left - 8);
+	const s32 bottom = top + (viGetViewTop() + viGetViewHeight() * 60 / 100 - top) * 100 / pct;
 	s32 lineh;
 	s32 dummy;
 	s32 room;
@@ -1018,6 +1025,10 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 	}
 
 	y = top;
+
+	if (pct != 100) {
+		gDPSetRectScaleEXT(gdl++, pct / 100.0f, left, top);
+	}
 
 	for (i = nshown - 1; i >= 0; i--) {
 		struct feedline *line = netHudFeedAt(shown[i]);
@@ -1091,6 +1102,10 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 		if (cursor) {
 			gdl = text0f153a34(gdl, left + w + 1, y + 1, left + w + 3, y + lineh - 2, COL_TEXT);
 		}
+	}
+
+	if (pct != 100) {
+		gDPSetRectScaleEXT(gdl++, 1.0f, 0, 0);
 	}
 
 	return gdl;

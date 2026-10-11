@@ -637,7 +637,31 @@ void menuGetItemBlocksRequired(struct menuitem *item, s32 *numwords)
 #define PORT_CJK_LIST_EXTRA 22
 #endif
 
+#ifndef PLATFORM_N64
+static void menuCalculateItemSizeOwn(struct menuitem *item, s16 *width, s16 *height, struct menudialog *dialog);
+
+/**
+ * An item's size, for a dialog that draws its items smaller than their fonts
+ * (the online pages' windows, netLobbyMenuItemPct()): its rows as tall as
+ * what is drawn in them, and the mouse's picking with them (dialogRender()
+ * draws each such item scaled from its corner, laid out at full size).
+ */
 void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struct menudialog *dialog)
+{
+	const s32 pct = netLobbyMenuItemPct(dialog, item);
+
+	menuCalculateItemSizeOwn(item, width, height, dialog);
+
+	if (pct != 100) {
+		*width = (*width * pct + 99) / 100;
+		*height = (*height * pct + 99) / 100;
+	}
+}
+
+static void menuCalculateItemSizeOwn(struct menuitem *item, s16 *width, s16 *height, struct menudialog *dialog)
+#else
+void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struct menudialog *dialog)
+#endif
 {
 	char *text;
 	s32 textwidth;
@@ -1507,8 +1531,19 @@ bool dialogChangeItemFocusWithMouse(struct menudialog *dialog, s32 mx, s32 my)
 
 	for (col = 0; col < dialog->numcols; col++, curx += colwidth) {
 		s32 colindex = dialog->colstart + col;
+		s32 pickwidth;
 		colwidth = menu->cols[colindex].width;
-		if (mx <= curx || mx >= curx + colwidth) {
+		pickwidth = colwidth;
+
+		// the last column as wide as its items are drawn, out to the
+		// dialog's side (dialogRender()): the online pages' windows are
+		// wider than their columns, and a row's right half - where its value
+		// is - did not take the pointer
+		if (col == dialog->numcols - 1 && curx + colwidth < dialog->x + dialog->width - 2) {
+			pickwidth = dialog->x + dialog->width - 2 - curx;
+		}
+
+		if (mx <= curx || mx >= curx + pickwidth) {
 			continue;
 		}
 
@@ -3424,6 +3459,9 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 			s32 focused;
 			s32 colindex;
 			s32 rowindex;
+#ifndef PLATFORM_N64
+			s32 itempct;
+#endif
 
 			sumwidth = 0;
 			curx = dialogleft;
@@ -3487,6 +3525,21 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 					if (context.height == 0) {
 						offscreen = true;
 					}
+
+#ifndef PLATFORM_N64
+					// An item drawn smaller than its font (the online pages,
+					// menuCalculateItemSize()): laid out in a box as much
+					// bigger as it is drawn smaller, and drawn - its text, its
+					// highlight and its shapes - scaled from its corner into
+					// its row
+					itempct = offscreen ? 100 : netLobbyMenuItemPct(dialog, item);
+
+					if (itempct != 100) {
+						context.width = context.width * 100 / itempct;
+						context.height = context.height * 100 / itempct;
+						gDPSetRectScaleEXT(gdl++, itempct / 100.0f, context.x, context.y);
+					}
+#endif
 
 					if (!offscreen) {
 						context.item = item;
@@ -3578,6 +3631,12 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 						}
 					}
 
+#ifndef PLATFORM_N64
+					if (itempct != 100) {
+						gDPSetRectScaleEXT(gdl++, 1.0f, 0, 0);
+					}
+#endif
+
 					cury += menu->rows[rowindex].height;
 				}
 
@@ -3589,6 +3648,9 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 				gdl = textSetPrimColour(gdl, 0x00000000);
 
 				curx = dialogleft;
+#ifndef PLATFORM_N64
+				sumwidth = 0;
+#endif
 
 				for (i = 0; i < dialog->numcols; i++) {
 #if VERSION >= VERSION_NTSC_1_0
@@ -3596,7 +3658,24 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 #else
 					s32 cury = dialogtop + LINEHEIGHT + 1;
 #endif
+#ifndef PLATFORM_N64
+					// The last column as wide as its items were drawn, out
+					// to the dialog's side (the render loop above): a dropdown
+					// is put at its row's right by this width, and a dialog
+					// wider than its columns (the online pages' windows,
+					// netlobbymenu.c) had the list open mid-row, over the
+					// labels, away from the value it sets
+					s32 overlaywidth;
+#endif
 					colindex = dialog->colstart + i;
+#ifndef PLATFORM_N64
+					overlaywidth = menu->cols[colindex].width;
+					sumwidth += overlaywidth;
+
+					if (i == dialog->numcols - 1 && sumwidth < (dialogright - dialogleft) - 2) {
+						overlaywidth += (dialogright - dialogleft) - 2 - sumwidth;
+					}
+#endif
 
 					for (j = 0; j < menu->cols[colindex].numrows; j++) {
 						union menuitemdata *itemdata;
@@ -3610,7 +3689,31 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 							itemdata = (union menuitemdata *)&menu->blocks[menu->rows[rowindex].blockindex];
 						}
 
+#ifndef PLATFORM_N64
+						itempct = netLobbyMenuItemPct(dialog, item);
+
+						if (itempct != 100) {
+							// and the dialog's top and foot, which a dropdown's
+							// list keeps itself between, in the row's frame for it
+							const s32 savedy = dialog->y;
+							const s32 savedheight = dialog->height;
+
+							dialog->y = cury + (savedy - cury) * 100 / itempct;
+							dialog->height = cury + (savedy + savedheight - cury) * 100 / itempct - dialog->y;
+
+							gDPSetRectScaleEXT(gdl++, itempct / 100.0f, curx, cury);
+							gdl = menuitemOverlay(gdl, curx, cury, overlaywidth * 100 / itempct,
+									menu->rows[rowindex].height * 100 / itempct, item, dialog, itemdata);
+							gDPSetRectScaleEXT(gdl++, 1.0f, 0, 0);
+
+							dialog->y = savedy;
+							dialog->height = savedheight;
+						} else {
+							gdl = menuitemOverlay(gdl, curx, cury, overlaywidth, menu->rows[rowindex].height, item, dialog, itemdata);
+						}
+#else
 						gdl = menuitemOverlay(gdl, curx, cury, menu->cols[colindex].width, menu->rows[rowindex].height, item, dialog, itemdata);
+#endif
 
 						cury += menu->rows[rowindex].height;
 					}

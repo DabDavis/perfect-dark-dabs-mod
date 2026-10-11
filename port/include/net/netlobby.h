@@ -198,6 +198,8 @@ void netLobbyMenuPlaceDialog(struct menudialog *dialog);      // its dst rectang
 void *netLobbyMenuRenderPanels(void *gdl, struct menudialog *dialog); // after the dialog: the windows around it
 const char *netLobbyMenuStatusText(void); // its status line (the chat window's foot; netcooptest.sh reads it)
 s32 netLobbyMenuGetTextScale(void);       // the windows' text size, percent of the fonts' own (Net.LobbyTextScale)
+struct menuitem;
+s32 netLobbyMenuItemPct(struct menudialog *dialog, struct menuitem *item); // a dialog item's size, percent (menu.c); 100 for any other dialog
 void netLobbyMenuSetTextScale(s32 pct);
 
 #endif

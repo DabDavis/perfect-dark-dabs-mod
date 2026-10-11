@@ -51,15 +51,21 @@ text needs no other kind of font: `gDPSetRectScaleEXT(gdl, scale, x, y)`
 `scale` times their size about the point x, y, their texels spread over the
 smaller rectangle as over the whole one, until it is set again with 1
 (`gfx_draw_rectangle()`, before the aspect adjustment; `gfx_run()` clears it
-each frame). The layout is still the font's own, so `textMeasure()` widths
+each frame). 2D shapes (a focused row's line, a dropdown's background:
+`gfx_sp_load_vertex()`, in the view's clip space) and scissors set while it
+is on (`gfx_dp_set_scissor()`) are scaled about the same point, so a whole
+menu row or dropdown list laid out at full size draws scaled (menu.c's
+`dialogRender()` for the online pages' rows). The layout is still the font's own, so `textMeasure()` widths
 and line heights are the caller's to scale. One trap: `text0f15568c()` drops
 a glyph whose *full-size* x is past `viGetWidth()`, so a line laid out near
 the right edge loses glyphs it would have drawn smaller; scale it about its
 end, laying it out leftwards from there (netlobbymenu.c `lobbyText()`). The
-online pages use it for their windows' text (Net.LobbyTextScale, Online Text
-Size on the Advanced page, 75% by default), and the XBLA release's glyphs
-(XBLA Font) keep their sharpness at the smaller size. A UI scale for the
-stock menus would need their item heights scaled too, and the mouse.
+online pages use it for their windows' text, their stock rows and the
+in-match chat (Net.LobbyTextScale, Online Text Size on the Advanced page, 75%
+by default), and the XBLA release's glyphs (XBLA Font) keep their sharpness
+at the smaller size. A UI scale for the rest of the stock menus is the same
+machinery with `netLobbyMenuItemPct()` answering for them, plus the mouse's
+hard-coded geometry in menuitem.c (a slider's 82 units, the keyboard's 12).
 
 ## The dark box behind outlined text is the font, not the renderer
 

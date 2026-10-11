@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <math.h>
 #include <PR/ultratypes.h>
 #include <ultra64.h>
 #include "platform.h"
@@ -11,6 +12,9 @@
 #include "system.h"
 #include "game/menu.h"
 #include "game/menugfx.h"
+#include "game/file.h"
+#include "game/gfxmemory.h"
+#include "lib/model.h"
 #include "game/game_006900.h"
 #include "game/challenge.h"
 #include "game/mplayer/setup.h"
@@ -163,6 +167,29 @@ s32 netLobbyMenuGetTextScale(void)
 void netLobbyMenuSetTextScale(s32 pct)
 {
 	s_LobbyTextScale = pct < 50 ? 50 : pct > 100 ? 100 : pct;
+}
+
+static const struct lobbypage *lobbyPageOf(struct menudialogdef *def);
+
+/**
+ * The online pages' own dialogs draw their stock items - Create Room's
+ * setup, the Game Lobby's buttons, Name Entry's Next and Back - at the
+ * windows' text size too (menu.c: menuCalculateItemSize(), dialogRender()).
+ * Not the lists drawn here, whose rows are sized and scaled already (the
+ * Briefing Room's cards, Name Entry's box), and not the stock pages pushed
+ * over them (an arena's list, the weapons), which are the game's own.
+ */
+s32 netLobbyMenuItemPct(struct menudialog *dialog, struct menuitem *item)
+{
+	if (dialog == NULL || dialog->definition == NULL || lobbyPageOf(dialog->definition) == NULL) {
+		return 100;
+	}
+
+	if (item && item->type == MENUITEMTYPE_LIST && (item->flags & MENUITEMFLAG_LIST_CUSTOMRENDER)) {
+		return 100;
+	}
+
+	return lobbyPct();
 }
 
 struct lobbylayout {
@@ -589,28 +616,244 @@ static Gfx *lobbyPanel(Gfx *gdl, const struct lobbydraw *d, s32 x1, s32 y1, s32 
 /*
  * The header and the footer (the owner's WWE SmackDown! vs. Raw reference,
  * 2026-10-11: a bar across the top with a logo badge and the page's name,
- * the buttons' hints along the foot). The badge is Perfect Dark's emblem,
- * the port's own icon compiled in (netlobbyart.c), so every player has it:
- * the XBLA release's logo would have been there only for a player with
- * that package.
+ * the buttons' hints along the foot).
  */
 
-extern const u8 g_MenuImagePdEmblem[];
-extern const u32 g_MenuImagePdEmblemLen;
-
-static struct menuimage s_PdEmblem;
-
-PD_CONSTRUCTOR static void lobbyArtInit(void)
+PD_CONSTRUCTOR static void lobbyConfigInit(void)
 {
 	configRegisterInt("Net.LobbyTextScale", &s_LobbyTextScale, 50, 100);
-
-	s_PdEmblem.png = g_MenuImagePdEmblem;
-	s_PdEmblem.pnglen = g_MenuImagePdEmblemLen;
-	s_PdEmblem.name = "pd emblem";
-	menuImageRegister(&s_PdEmblem);
 }
 
-#define LOBBY_EMBLEM_W(h) ((h) * 69 / 96) // the emblem's shape (netlobbyart.c)
+/**
+ * The header's logo: the boot screen's last frame (title.c's
+ * titleRenderPdLogo()), Perfect Dark's emblem with PERFECT over DARK across
+ * it - the owner's choice over the port's icon and "PD / Online", and drawn
+ * from the ROM rather than shipped. The ROM's own two models in 3D, through
+ * the menus' model renderer the way the Ghost Trials nameplate draws its
+ * head (ghostmenu.c), each with memory and a viewport of its own: the menus'
+ * are the pages' character previews'.
+ *
+ * Both are the title's morphs at their end, which is the shape under their
+ * second toggle as it stands (titleRenderPdLogoModel() at frac 1 draws the
+ * first toggle's lists through the second's vertices; the words' end, arg2
+ * false, is the second toggle itself): the first toggle off, the second on.
+ * The emblem is lit flat, as the title's front face is once the other sides
+ * have darkened (those are edge on or behind it here), the words by the light
+ * where the title's comes to rest, and both reflect as under the title's
+ * LookAt, a camera on the z axis.
+ *
+ * The title's camera is 46 degrees high at 4000 units, the emblem at scale
+ * 0.35 and the words 1000 units nearer at 0.308, grown 5% by the end: the
+ * words' projected scale is 1.23 times the emblem's, and the emblem is 340 of
+ * 720 lines, 4580 of its model's units tall. Here both stand at the menu
+ * models' depth, the emblem as tall as the rectangle, and the depth is
+ * cleared between the two, which is what the title's 1000 units are for: the
+ * words in front.
+ */
+#define LOBBY_LOGO_ASPECT  2.376f  // the boot screen's logo, 808 x 340 at 720p
+#define LOBBY_LOGO_EMBLEMH 4580.0f // the emblem's height in its model's units
+#define LOBBY_LOGO_WORDS   1.232f  // the words' projected scale over the emblem's
+#define LOBBY_LOGO_TEXMEM  0x40000 // each model's textures, after its file
+
+static struct menumodel s_LogoModels[2];
+static Vp s_LogoViewports[2][2];
+static LookAt s_LogoLookAt;
+static s32 s_LogoLookSet = 0;
+static const u16 s_LogoFiles[2] = { FILE_PNLOGO, FILE_PPDTWO };
+
+static struct modelpartvisibility s_LogoParts[] = {
+	{ MODELPART_LOGO_0000, false },
+	{ MODELPART_LOGO_0001, true },
+	{ 255, false },
+};
+
+static Lights1 s_LogoLightFlat = gdSPDefLights1(0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00);
+static Lights1 s_LogoLightWords = gdSPDefLights1(0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00, 0x39, 0x71);
+
+static struct menumodel *lobbyLogoModel(s32 i)
+{
+	struct menumodel *m = &s_LogoModels[i];
+
+	if (m->allocstart == NULL) {
+		const u32 len = ALIGN64(fileGetInflatedSize(s_LogoFiles[i], LOADTYPE_MODEL)) + 0x4000 + LOBBY_LOGO_TEXMEM;
+		// 64-byte aligned, as the model loader assumes (ghostmenu.c)
+		u8 *mem = sysMemAlloc(len + 64);
+
+		if (mem == NULL) {
+			return NULL;
+		}
+
+		menuResetModel(m, len, false);
+		m->allocstart = (u8 *)ALIGN64((uintptr_t)mem);
+		m->alloclen = len;
+	}
+
+	return m;
+}
+
+// The title's lights and LookAt, set in front of the visible side's lists;
+// the morph's first shape (Nintendo's cube, for the emblem) never drawn
+static void lobbyLogoLight(struct menumodel *m, s32 words)
+{
+	static const u8 parts[] = { MODELPART_LOGO_0003, MODELPART_LOGO_0005, MODELPART_LOGO_0007, MODELPART_LOGO_0009 };
+	static const u8 hidden[] = { MODELPART_LOGO_FRONTSIDE, MODELPART_LOGO_RIGHTSIDE, MODELPART_LOGO_BACKSIDE, MODELPART_LOGO_LEFTSIDE };
+	s32 i;
+
+	for (i = 0; i < ARRAYCOUNT(hidden); i++) {
+		struct modelnode *node = modelGetPart(m->bodymodeldef, hidden[i]);
+		Gfx *dl;
+
+		if (node == NULL || (node->type & 0xff) != MODELNODETYPE_DL) {
+			continue;
+		}
+
+		dl = gfxAllocate(sizeof(Gfx));
+		gSPEndDisplayList(dl);
+		((struct modelrwdata_dl *)modelGetNodeRwData(&m->bodymodel, node))->gdl = dl;
+	}
+
+	for (i = 0; i < ARRAYCOUNT(parts); i++) {
+		struct modelnode *node = modelGetPart(m->bodymodeldef, parts[i]);
+		struct modelrwdata_dl *rwdata;
+		Gfx *start;
+		Gfx *dl;
+
+		if (node == NULL || (node->type & 0xff) != MODELNODETYPE_DL) {
+			continue;
+		}
+
+		rwdata = modelGetNodeRwData(&m->bodymodel, node);
+		start = dl = gfxAllocate(12 * sizeof(Gfx));
+
+		// lit, as the title draws them: the lists' colours are normals,
+		// and menuRenderModel()'s setup turns lighting off
+		gSPSetGeometryMode(dl++, G_LIGHTING);
+
+		// The lists blend the morph's two textures, Nintendo's cube's and
+		// Perfect Dark's, by the primitive colour's alpha, which the title
+		// sets for each model (titleRenderPdLogoModel()). These are the
+		// lists of the morph's second toggle, whose alpha at the end is 256
+		// less the cap: 16 for the emblem (capped at 240), 1 for the words
+		// (255). Left to the menu's, the emblem came up in Nintendo's green
+		// and blue whenever the last colour set had some alpha (an open
+		// dropdown's).
+		gDPSetPrimColor(dl++, 0, 0, 0x00, 0x00, 0x00, words ? 1 : 16);
+
+		if (words) {
+			gSPSetLights1(dl++, s_LogoLightWords);
+		} else {
+			gSPSetLights1(dl++, s_LogoLightFlat);
+		}
+
+		gSPLookAt(dl++, &s_LogoLookAt);
+		gSPBranchList(dl++, node->rodata->dl.opagdl);
+
+		rwdata->gdl = start;
+	}
+}
+
+/**
+ * The logo in x1-y2 of the left-held space. A model is drawn through a
+ * viewport, which takes no side's offset, and its vertices take the side's
+ * as a share of the viewport rather than of the screen: so it is drawn with
+ * the centre held, the rectangle moved into the centre's frame by hand.
+ */
+static Gfx *lobbyLogo(Gfx *gdl, const struct lobbylayout *l, s32 x1, s32 y1, s32 x2, s32 y2)
+{
+	const s32 sx1 = g_MenuScissorX1;
+	const s32 sy1 = g_MenuScissorY1;
+	const s32 sx2 = g_MenuScissorX2;
+	const s32 sy2 = g_MenuScissorY2;
+	// the view's height at the models' depth (menuRenderModel(): 100 in front)
+	const f32 viewh = 2.0f * tanf(g_Vars.currentplayer->fovy * (M_PI / 360.0f)) * 100.0f;
+	s32 i;
+
+	if (!s_LogoLookSet) {
+		static Mtx lookmtx;
+
+		guLookAtReflect(&lookmtx, &s_LogoLookAt, 0.0f, 0.0f, 4000.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+		s_LogoLookSet = 1;
+	}
+
+	for (i = 0; i < 2; i++) {
+		struct menumodel *m = lobbyLogoModel(i);
+
+		if (m == NULL) {
+			continue;
+		}
+
+		m->newparams = MENUMODELPARAMS_SET_FILENUM(s_LogoFiles[i]);
+		m->newanimnum = 0;
+		m->partvisibility = s_LogoParts;
+		m->curposx = m->newposx = 0.0f;
+		m->curposy = m->newposy = 0.0f;
+		m->curposz = m->newposz = 0.0f;
+		m->currotx = m->newrotx = 0.0f;
+		m->curroty = m->newroty = 0.0f;
+		m->currotz = m->newrotz = 0.0f;
+		m->curscale = m->newscale = viewh / LOBBY_LOGO_EMBLEMH * (i == 1 ? LOBBY_LOGO_WORDS : 1.0f);
+
+		if (m->bodymodeldef != NULL) {
+			lobbyLogoLight(m, i == 1);
+		}
+
+		// a depth of its own: the words over the emblem. Cleared over the
+		// whole window, its pillars too, with no side held: a scissor set
+		// with the centre held is squeezed into the middle's frame and the
+		// logo stands in the left pillar. Done here, so that
+		// menuRenderModel() does not clear it again for the words.
+		gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT);
+		g_MenuScissorX1 = viGetViewLeft() / g_ScaleX;
+		g_MenuScissorY1 = viGetViewTop();
+		g_MenuScissorX2 = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX;
+		g_MenuScissorY2 = viGetViewTop() + viGetViewHeight();
+		gdl = menuApplyScissor(gdl);
+		gdl = viPrepareZbuf(gdl);
+		gdl = vi0000b1d0(gdl);
+		g_MenuData.usezbuf = false;
+
+		// The rectangle as the scissor, still with no side held: in the
+		// stretched frame's units, the centre's squeezed into it as
+		// menuRenderModel() squeezes them for the viewport. With the centre
+		// held a scissor stops at the middle's frame (it is clamped at 0),
+		// which cut the logo's left off in the pillar at 16:9.
+		{
+			const f32 ratio = SCREEN_ASPECT / videoGetAspect();
+
+			g_MenuScissorX1 = (s32)floorf(SCREEN_WIDTH_LO / 2 + (x1 - l->pillar - SCREEN_WIDTH_LO / 2) * ratio);
+			g_MenuScissorX2 = (s32)ceilf(SCREEN_WIDTH_LO / 2 + (x2 - l->pillar - SCREEN_WIDTH_LO / 2) * ratio);
+			g_MenuScissorY1 = y1;
+			g_MenuScissorY2 = y2;
+			gdl = menuApplyScissor(gdl);
+		}
+
+		// and the rectangle in the centre's frame, with the centre held, for
+		// the viewport: a viewport takes no side's offset and is not
+		// squeezed, and the model's vertices are squeezed with the centre held
+		gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
+		g_MenuScissorX1 = x1 - l->pillar;
+		g_MenuScissorX2 = x2 - l->pillar;
+		g_MenuScissorY1 = y1;
+		g_MenuScissorY2 = y2;
+
+		gSPSetGeometryMode(gdl++, G_ZBUFFER);
+		g_MenuModelViewport = s_LogoViewports[i];
+		gdl = menuRenderModel(gdl, m, MENUMODELTYPE_DEFAULT);
+		g_MenuModelViewport = NULL;
+		gSPClearGeometryMode(gdl++, G_ZBUFFER);
+	}
+
+	viSetViewPosition(g_Vars.currentplayer->viewleft, g_Vars.currentplayer->viewtop);
+	viSetFovAspectAndSize(g_Vars.currentplayer->fovy, g_Vars.currentplayer->aspect,
+			g_Vars.currentplayer->viewwidth, g_Vars.currentplayer->viewheight);
+
+	g_MenuScissorX1 = sx1;
+	g_MenuScissorY1 = sy1;
+	g_MenuScissorX2 = sx2;
+	g_MenuScissorY2 = sy2;
+
+	return menuApplyScissor(gdl);
+}
 
 // The header's bar from x1 to x2: the dialogs' title bar, taller, its rails
 // along the top and the foot
@@ -642,8 +885,6 @@ static Gfx *lobbyChromeDraw(Gfx *gdl, const struct lobbydraw *d, const struct lo
 	const s32 h = l->headery2 - l->headery1;
 	const s32 y1 = l->headery1;
 	const s32 y2 = l->headery1 + (s32)(h * d->grow);
-	const s32 badgeh = h + 4;
-	const s32 badgew = LOBBY_EMBLEM_W(badgeh);
 	char buf[96];
 	s32 titlex;
 	s32 titleend;
@@ -673,28 +914,20 @@ static Gfx *lobbyChromeDraw(Gfx *gdl, const struct lobbydraw *d, const struct lo
 		return gdl;
 	}
 
-	// the left: the badge over the bar's end, "PD" over "Online" laid across
-	// its right half as the boot screen lays PERFECT DARK across the emblem
-	// (the owner: the emblem alone did not say Perfect Dark), the page's
-	// name after them
-	gdl = lobbyAlign(gdl, G_ASPECT_LEFT_EXT);
-	gdl = menuImageDraw(gdl, &s_PdEmblem, LOBBY_MARGIN + 4, y1 - 2, LOBBY_MARGIN + 4 + badgew, y1 - 2 + badgeh, alpha);
+	// the left: the boot screen's logo over the bar's end, the page's name
+	// after it
+	{
+		const s32 lh = h + 8;
+		const s32 lw = (s32)(lh * LOBBY_LOGO_ASPECT);
+		const s32 lx = LOBBY_MARGIN + 2;
 
+		gdl = lobbyLogo(gdl, l, lx, y1 - 4, lx + lw, y1 - 4 + lh);
+		titlex = lx + lw + 8;
+	}
+
+	gdl = lobbyAlign(gdl, G_ASPECT_LEFT_EXT);
 	gdl = text0f153628(gdl);
 	textSetWaveColours(g_MenuWave2Colours[dialog->type].dialog_titlefg, g_MenuWave1Colours[dialog->type].dialog_titlefg);
-
-	{
-		const s32 wx = LOBBY_MARGIN + 4 + badgew / 2;
-		const s32 pdw = lobbyTextWidth("PD", LOBBYFONT_MD);
-		const s32 onw = lobbyTextWidth("Online", LOBBYFONT_SM);
-
-		gdl = lobbyText(gdl, wx + 1, y1 + 1, "PD", LOBBYFONT_MD, titlefg & 0xff, 0);
-		gdl = lobbyText(gdl, wx, y1, "PD", LOBBYFONT_MD, titlefg, 0);
-		gdl = lobbyText(gdl, wx + 1, y1 + LOBBY_MDROW - 1, "Online", LOBBYFONT_SM, alpha / 2, 0);
-		gdl = lobbyText(gdl, wx, y1 + LOBBY_MDROW - 2, "Online", LOBBYFONT_SM, lobbyAlpha(0xff503000, alpha), 0);
-
-		titlex = wx + (pdw > onw ? pdw : onw) + 12;
-	}
 
 	gdl = lobbyText(gdl, titlex + 1, y1 + (h - LOBBY_MDROW) / 2 + 2, title, LOBBYFONT_MD, titlefg & 0xff, 0);
 	gdl = lobbyText(gdl, titlex, y1 + (h - LOBBY_MDROW) / 2 + 1, title, LOBBYFONT_MD, titlefg, 0);

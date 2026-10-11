@@ -2531,6 +2531,17 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
         const float z = pos[2];
         const float w = pos[3];
 
+        // G_SETRECTSCALE_EXT on a menu's own shapes too (a focused row's
+        // line, a dropdown's background), about the same point the
+        // rectangles are scaled about, in the view's clip space
+        if (rdp.rect_scale_on) {
+            const float ox = rdp.rect_scale_x / (4.0f * HALF_SCREEN_WIDTH) - 1.0f;
+            const float oy = -(rdp.rect_scale_y / (4.0f * HALF_SCREEN_HEIGHT)) + 1.0f;
+
+            x = ox * w + (x - ox * w) * rdp.rect_scale;
+            y = oy * w + (y - oy * w) * rdp.rect_scale;
+        }
+
         x = gfx_adjust_x_for_aspect_ratio(x, w);
 
         if (taa_active && !fbActive) {
@@ -7044,6 +7055,18 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
     float y = lry / 4.0f;
     float width = (lrx - ulx) / 4.0f;
     float height = (lry - uly) / 4.0f;
+
+    // G_SETRECTSCALE_EXT on a scissor set while it is on too: what it clips
+    // (a dropdown's list, laid out at full size) is drawn scaled
+    if (rdp.rect_scale_on) {
+        const float ox = rdp.rect_scale_x / 4.0f;
+        const float oy = rdp.rect_scale_y / 4.0f;
+
+        x = ox + (x - ox) * rdp.rect_scale;
+        y = oy + (y - oy) * rdp.rect_scale;
+        width *= rdp.rect_scale;
+        height *= rdp.rect_scale;
+    }
 
     rdp.scissor.x = x;
     rdp.scissor.y = y;

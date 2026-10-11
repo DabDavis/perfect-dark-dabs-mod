@@ -3121,15 +3121,14 @@ keyboard, Quick Message) stay PD's centred dialogs.
 **After WWE SmackDown! vs. Raw (same day).** The owner pointed at that
 game's online mode (its video at 31:37 and 32:28: "no gamespy logo, just the
 nice layouts", and "we can even have the PD logo in the header"). Every page
-now has a header bar across the screen - Perfect Dark's emblem as a badge
-over its left end, the page's name, what the page is about on the right
-(the account; the room's name and count) - and the buttons' hints along the
-foot (`lobbyChrome`, the page's `title`, `info` and `hints` in
-`s_LobbyPages`). The emblem is the port's own icon
-(`dist/linux/...perfect_dark.png`) compiled in as `netlobbyart.c` through
-menuimage.c, so every player has it; the XBLA release's logo (xblaui.c) was
-the first idea and would have shown only for a player with that package.
-The bar is one piece drawn with no side held (`G_ASPECT_MODE_EXT` cleared:
+now has a header bar across the screen - Perfect Dark's logo over its left
+end, the page's name, what the page is about on the right (the account; the
+room's name and count) - and the buttons' hints along the foot
+(`lobbyChrome`, the page's `title`, `info` and `hints` in `s_LobbyPages`).
+The logo is the boot screen's, drawn from the ROM ("The header's logo"
+below): the XBLA release's (xblaui.c) would have shown only for a player
+with that package, and the port's icon compiled in, tried in between, is
+art shipped in the binary, which the project does not do. The bar is one piece drawn with no side held (`G_ASPECT_MODE_EXT` cleared:
 the 320 units stretch across the window, which a gradient does not mind);
 two halves held to the sides met in a visible seam. Online Game opens on
 Name Entry (the reference's name screen): the account's name in a box that
@@ -3147,9 +3146,47 @@ text is drawn at Net.LobbyTextScale percent of the fonts' own size (75 by
 default; text-rendering.md "Text smaller than its glyphs"), every row height
 in netlobbymenu.c is `lobbyRow()` of the font's, and the cards are as tall as
 their three smaller lines; the header and footer are drawn full size
-(`lobbyChrome()` sets `s_LobbyFullSize`). The header's emblem has "PD" over
-"Online" across its right half, and its right side cuts the room's name
-rather than its count when both do not fit.
+(`lobbyChrome()` sets `s_LobbyFullSize`). The header's right side cuts the
+room's name rather than its count when both do not fit. Then (the owner:
+"the dropdown menus need to be adjusted and create game screen") the pages'
+stock rows too: `netLobbyMenuItemPct()` names the online pages' own dialogs
+(not the Briefing Room's cards or Name Entry's box, drawn here and sized
+already, nor the stock pages pushed over them), `menuCalculateItemSize()`
+scales their rows' sizes, and `dialogRender()` lays each such row out in a
+box as much bigger as it is drawn smaller and draws it scaled from its
+corner, highlight and dropdown list included - Create Room now fits its
+window with Create in it. Two bugs of windows wider than their columns went
+with it: a dropdown's list opened by the column's width, mid-row over the
+labels (the overlay pass now takes the width the rows were drawn with), and
+the pointer did not take a row's right half (`dialogChangeItemFocusWithMouse()`
+the same). The in-match chat feed (nethud.c) is drawn at the same size,
+laid out as much bigger, never past the 320 units.
+
+**The header's logo (same day).** "PD / Online" over the port's icon gave
+way to the boot screen's own logo, the owner's choice, drawn from the ROM
+("we can't ship assets"): `lobbyLogo()` draws title.c's two models (FILE_PNLOGO
+the emblem, FILE_PPDTWO the words) as menu models in memory and viewports of
+their own, as the Ghost Trials nameplate draws its head. What it took, each
+learned from a wrong picture:
+- The title's end is the morph's second toggle's shape drawn as it stands
+  (part 0001 on, 0000 off; the first toggle's lists, Nintendo's cube, are
+  given empty lists besides).
+- The lists blend the morph's two textures by the primitive colour's alpha
+  (combine (TEXEL1-TEXEL0)*PRIM_ALPHA+TEXEL0, then *SHADE): the title sets it
+  per model, and for the second toggle's lists at the end it is 256 less the
+  cap - 16 for the emblem, 1 for the words. Left to the menu's, an open
+  dropdown's colour made the emblem Nintendo's green and blue.
+- Lit (`G_LIGHTING`): the lists' colours are normals, and menuRenderModel()'s
+  setup clears lighting; the title's front light (ambient white) and the
+  words' light where the title's comes to rest, its LookAt (a camera on z).
+- Sized from the title's camera (46 degrees at 4000, emblem 0.35, words 1000
+  nearer at 0.308 and grown 5%): the words' projected scale is 1.23 times the
+  emblem's, the emblem 4580 model units tall; the depth cleared between them.
+- Drawn with the centre held (a model's vertices take a side's offset as a
+  share of the viewport), its rectangle moved into the centre's frame by hand
+  for the viewport; the scissor set with no side held, in the stretched
+  frame (one set with the centre held is clamped at 0 and cut the logo's left
+  off in the 16:9 pillar).
 
 **The roster (the owner, same day: "instead of team 1, team 2 columns
 just make the player names the same color as the team they are on and only

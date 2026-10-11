@@ -367,12 +367,13 @@
 }
 
 /*
- * Rectangles after this - texture and fill - are drawn scale times their size
- * about the point x, y (screen units, to a quarter), their texels spread over
- * the smaller rectangle as they were over the whole one, until it is set
- * again with a scale of 1: a line of the game's own font drawn smaller than
- * its glyphs (the online pages' text size, netlobbymenu.c). x and y go in w0
- * as signed 12 bit quarter units, the scale in w1 as 16.16.
+ * Rectangles after this - texture and fill - and 2D shapes are drawn scale
+ * times their size about the point x, y (screen units, to a quarter), their
+ * texels spread over the smaller rectangle as they were over the whole one,
+ * until it is set again with a scale of 1: a line of the game's own font
+ * drawn smaller than its glyphs, and a menu row with its highlight (the
+ * online pages' text size, netlobbymenu.c, menu.c). x and y go in w0 as
+ * signed 12 bit quarter units, the scale in w1 as 16.16.
  */
 #define gDPSetRectScaleEXT(pkt, scale, x, y)                                           \
 {                                                                                      \
