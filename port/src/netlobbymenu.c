@@ -24,6 +24,7 @@
 #include "modmode.h"
 #include "fs.h"
 #include "video.h"
+#include "menuimage.h"
 #include "gexplusrom.h"
 #include "net/net.h"
 #include "net/netlobby.h"
@@ -85,82 +86,6 @@ static s32 isCurrent(struct menudialogdef *def)
 	return g_Menus[g_MpPlayerNum].curdialog && g_Menus[g_MpPlayerNum].curdialog->definition == def;
 }
 
-// A cell, drawn at x, y (menu units from the row's top left), cut to maxchars
-static Gfx *drawCellAt(Gfx *gdl, struct menuitemrenderdata *rd, s32 x, s32 y, const char *text, s32 maxchars, u32 colour)
-{
-	char buf[48];
-	s32 tx = rd->x + x;
-	s32 ty = rd->y + y;
-	s32 n = strlen(text);
-
-	if (n > maxchars) {
-		n = maxchars;
-	}
-
-	if (n > (s32)sizeof(buf) - 1) {
-		n = sizeof(buf) - 1;
-	}
-
-	memcpy(buf, text, n);
-	buf[n] = '\0';
-
-	return textRenderProjected(gdl, &tx, &ty, buf, g_CharsHandelGothicSm, g_FontHandelGothicSm, colour, viGetWidth(), viGetHeight(), 0, 0);
-}
-
-static s32 fontWidth(const char *text, s32 label)
-{
-	s32 w = 0;
-	s32 h = 0;
-
-	// a MENUITEMFLAG_SMALLFONT label draws in HandelGothicXs (menuitem.c),
-	// the cells drawCellAt draws in HandelGothicSm
-	if (label) {
-		textMeasure(&h, &w, (char *)text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
-	} else {
-		textMeasure(&h, &w, (char *)text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
-	}
-
-	return w;
-}
-
-static s32 cellWidth(const char *text)
-{
-	return fontWidth(text, 0);
-}
-
-// text cut (in place) to width, ".." where it was cut
-static void fitDots(char *text, s32 size, s32 width, s32 label)
-{
-	s32 n = strlen(text);
-
-	if (fontWidth(text, label) <= width) {
-		return;
-	}
-
-	while (n > 0) {
-		text[--n] = '\0';
-
-		while (n > 0 && text[n - 1] == ' ') {
-			text[--n] = '\0';
-		}
-
-		if (n + 3 <= size) {
-			memcpy(text + n, "..", 3);
-
-			if (fontWidth(text, label) <= width) {
-				return;
-			}
-
-			text[n] = '\0';
-		}
-	}
-}
-
-static void cellFitDots(char *text, s32 size, s32 width)
-{
-	fitDots(text, size, width, 0);
-}
-
 static u32 headerColour(u32 colour)
 {
 	return 0xffc04000 | (colour & 0xff);
@@ -207,13 +132,19 @@ static u32 dimColour(u32 colour)
 
 struct lobbylayout {
 	s32 pillar;    // the screen past the menu's 320-unit frame on each side, in menu units (negative at 4:3)
-	s32 top;
+	s32 headery1;  // the header bar across the top (the logo, the page's title)
+	s32 headery2;
+	s32 top;       // the windows, between the header and the footer
 	s32 bottom;
+	s32 footery;   // the footer's line of hints
 	s32 lx1;       // the left column, in its (left-held) space
 	s32 lx2;
 	s32 rx1;       // the right column, in its (right-held) space
 	s32 rx2;
 };
+
+#define LOBBY_HEADERH 26 // the header bar
+#define LOBBY_FOOTERH 11 // the footer's line
 
 /**
  * How far G_ASPECT_RIGHT_EXT moves what is drawn under it, in menu units
@@ -258,8 +189,15 @@ static void lobbyLayout(struct lobbylayout *l)
 #endif
 
 	l->pillar = lobbyPillar();
-	l->top = ymin;
-	l->bottom = ymax;
+
+	// the header bar, the windows, the footer's hints (the owner's WWE
+	// SmackDown! vs. Raw reference, 2026-10-11: a bar with the logo and
+	// the page's name across the top, the buttons' hints along the foot)
+	l->headery1 = ymin;
+	l->headery2 = ymin + LOBBY_HEADERH;
+	l->top = l->headery2 + LOBBY_VGAP;
+	l->footery = ymax - LOBBY_FOOTERH + 2;
+	l->bottom = ymax - LOBBY_FOOTERH;
 
 	// left-held, x 0 is the screen's left edge; right-held, the frame's
 	// right edge (SCREEN_WIDTH_LO) is the screen's right edge
@@ -586,63 +524,254 @@ static Gfx *lobbyPanel(Gfx *gdl, const struct lobbydraw *d, s32 x1, s32 y1, s32 
 }
 
 /*
+ * The header and the footer (the owner's WWE SmackDown! vs. Raw reference,
+ * 2026-10-11: a bar across the top with a logo badge and the page's name,
+ * the buttons' hints along the foot). The badge is Perfect Dark's emblem,
+ * the port's own icon compiled in (netlobbyart.c), so every player has it:
+ * the XBLA release's logo would have been there only for a player with
+ * that package.
+ */
+
+extern const u8 g_MenuImagePdEmblem[];
+extern const u32 g_MenuImagePdEmblemLen;
+
+static struct menuimage s_PdEmblem;
+
+PD_CONSTRUCTOR static void lobbyArtInit(void)
+{
+	s_PdEmblem.png = g_MenuImagePdEmblem;
+	s_PdEmblem.pnglen = g_MenuImagePdEmblemLen;
+	s_PdEmblem.name = "pd emblem";
+	menuImageRegister(&s_PdEmblem);
+}
+
+#define LOBBY_EMBLEM_W(h) ((h) * 69 / 96) // the emblem's shape (netlobbyart.c)
+
+// The header's bar from x1 to x2: the dialogs' title bar, taller, its rails
+// along the top and the foot
+static Gfx *lobbyHeaderBar(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
+{
+	const u32 border1 = MIXCOLOUR(dialog, dialog_border1);
+	const u32 titlebg = MIXCOLOUR(dialog, dialog_titlebg);
+	const u32 border2 = MIXCOLOUR(dialog, dialog_border2);
+
+	gdl = menugfxRenderGradient(gdl, x1, y1, x2, y2, border1, titlebg, border2);
+	gdl = menugfxDrawShimmer(gdl, x1, y1, x2, y1 + 1, (border1 & 0xff) >> 1, 1, 40, 0);
+	gdl = menugfxDrawShimmer(gdl, x1, y2 - 1, x2, y2, (border1 & 0xff) >> 1, 0, 40, 1);
+
+	return gdl;
+}
+
+/**
+ * The header across the whole screen - the emblem and the page's name on
+ * the left, what the page is about (the room, the account) on the right -
+ * and the footer's hints. The bar is one piece stretched across the window
+ * (two halves held to the sides met in a seam); the emblem and the name are
+ * held left, the information right.
+ */
+static Gfx *lobbyChrome(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l, const char *title, const char *info, const char *hints)
+{
+	struct menudialog *dialog = d->dialog;
+	const u32 alpha = (MIXCOLOUR(dialog, dialog_titlefg)) & 0xff;
+	const u32 titlefg = MIXCOLOUR(dialog, dialog_titlefg);
+	const s32 h = l->headery2 - l->headery1;
+	const s32 y1 = l->headery1;
+	const s32 y2 = l->headery1 + (s32)(h * d->grow);
+	const s32 badgeh = h + 4;
+	const s32 badgew = LOBBY_EMBLEM_W(badgeh);
+	char buf[96];
+	s32 titlex;
+	s32 titleend;
+
+	// the bar in one piece, with no side held: the 320 units then stretch
+	// across the whole window, which a gradient does not mind (text would;
+	// there is none in it). Its ends where the columns' outer edges are:
+	// LOBBY_MARGIN in from the screen's sides, or past 16:9 from where WIDE
+	// holds the columns in.
+	{
+		const f32 window = videoGetAspect();
+		const f32 native = (f32)videoGetNativeWidth() / (f32)videoGetNativeHeight();
+		const f32 wtrue = SCREEN_WIDTH_LO * window / native;
+		const f32 held = (wtrue - (SCREEN_WIDTH_LO + 2 * l->pillar)) / 2 + LOBBY_MARGIN;
+		const s32 bx1 = (s32)(held * SCREEN_WIDTH_LO / wtrue);
+
+		gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT);
+		g_MenuScissorX1 = viGetViewLeft() / g_ScaleX;
+		g_MenuScissorY1 = viGetViewTop();
+		g_MenuScissorX2 = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX;
+		g_MenuScissorY2 = viGetViewTop() + viGetViewHeight();
+		gdl = menuApplyScissor(gdl);
+		gdl = lobbyHeaderBar(gdl, dialog, bx1, y1, SCREEN_WIDTH_LO - bx1, y2);
+	}
+
+	if (!d->withtext) {
+		return gdl;
+	}
+
+	// the left: the badge over the bar's end, the page's name after it
+	gdl = lobbyAlign(gdl, G_ASPECT_LEFT_EXT);
+	gdl = menuImageDraw(gdl, &s_PdEmblem, LOBBY_MARGIN + 4, y1 - 2, LOBBY_MARGIN + 4 + badgew, y1 - 2 + badgeh, alpha);
+
+	titlex = LOBBY_MARGIN + 4 + badgew + 8;
+	gdl = text0f153628(gdl);
+	textSetWaveColours(g_MenuWave2Colours[dialog->type].dialog_titlefg, g_MenuWave1Colours[dialog->type].dialog_titlefg);
+	gdl = lobbyText(gdl, titlex + 1, y1 + (h - LOBBY_MDROW) / 2 + 2, title, LOBBYFONT_MD, titlefg & 0xff, 0);
+	gdl = lobbyText(gdl, titlex, y1 + (h - LOBBY_MDROW) / 2 + 1, title, LOBBYFONT_MD, titlefg, 0);
+	titleend = titlex + lobbyTextWidth(title, LOBBYFONT_MD);
+
+	// the footer's hints, at the foot of the left column
+	if (hints && hints[0]) {
+		gdl = lobbyText(gdl, LOBBY_MARGIN + 4, l->footery, hints, LOBBYFONT_XS, lobbyAlpha(0xc0c0c000, alpha), 0);
+	}
+
+	gdl = text0f153780(gdl);
+
+	// the right: the page's information, as far right as the bar goes and
+	// cut where it would run into the name (in the screen's own measure:
+	// the right half is 2 pillars on)
+	if (info && info[0]) {
+		const s32 right = SCREEN_WIDTH_LO - LOBBY_MARGIN - 6;
+		const s32 room = right + 2 * l->pillar - (titleend + 12);
+
+		snprintf(buf, sizeof(buf), "%s", info);
+
+		if (room > 20) {
+			gdl = lobbyAlign(gdl, G_ASPECT_RIGHT_EXT);
+			gdl = text0f153628(gdl);
+			lobbyFit(buf, sizeof(buf), room, LOBBYFONT_SM);
+			gdl = lobbyTextRight(gdl, right, y1 + (h - LOBBY_SMROW) / 2 + 1, buf, LOBBYFONT_SM, titlefg);
+			gdl = text0f153780(gdl);
+		}
+	}
+
+	return gdl;
+}
+
+/*
  * Online Game
  */
 
 extern struct menudialogdef g_GhostAccountMenuDialog;
 
-/**
- * Sign In: the account page (ghostmenu.c, shared with Ghost Trials), where a
- * name and PIN are typed and one Sign In signs in or, for a new name, makes
- * the account; it closes itself once that has worked. It used to open
- * Ghost Trials' list of remembered accounts ("No account - ghosts stay on
- * this machine", "< Empty >", and a list the cursor could not leave upwards)
- * with the page behind New Account on it. Signed in, the row is Change
- * Account and opens the same page. The lobby signs in with what the page
- * leaves in Mod.GhostUser/GhostPin as this page comes back (dialogOnline).
+/*
+ * Name Entry: the page Online Game opens on (the owner's WWE SmackDown! vs.
+ * Raw reference, 2026-10-11: "the name screen, a screen before the main
+ * online screen"). The name this game plays online as in a box of its own
+ * and Next: the box opens the account page (ghostmenu.c, shared with Ghost
+ * Trials), where a name and PIN are typed and one Sign In signs in or, for a
+ * new name, makes the account; Next goes on to the Briefing Room once signed
+ * in (signing in first when it is not). The page used to be a hub of four
+ * buttons with the rooms beside them; the Briefing Room is that now.
  */
-static char *textSignIn(struct menuitem *item)
+
+#define NAMEBOX_W 190
+#define NAMEBOX_H 44
+
+static s32 s_NameNext = 0; // Next was pressed before the sign-in finished: on to the rooms when it has
+
+static MenuItemHandlerResult handlerNameBox(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	return netLobbySignedIn() ? "Change Account...\n" : "Sign In...\n";
+	struct menuitemrenderdata *rd;
+	struct menudialog *dialog = g_Menus[g_MpPlayerNum].curdialog;
+	Gfx *gdl;
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->list.value = 1;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)"";
+	case MENUOP_GETOPTIONHEIGHT:
+		data->list.value = NAMEBOX_H;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->list.value = 0;
+		break;
+	case MENUOP_GETOPTGROUPCOUNT:
+		data->list.value = 0;
+		break;
+	case MENUOP_GETOPTGROUPTEXT:
+		return 0;
+	case MENUOP_GETGROUPSTARTINDEX:
+		data->list.groupstartindex = 0;
+		break;
+	case MENUOP_SET:
+		netLobbyClearMessage();
+		s_NameNext = 0;
+		menuPushDialog(&g_GhostAccountMenuDialog);
+		break;
+	case MENUOP_RENDER:
+		gdl = data->type19.gdl;
+		rd = data->type19.renderdata2;
+
+		if (dialog) {
+			const s32 focused = dialog->focuseditem == item;
+			const u32 alpha = rd->colour & 0xff;
+			const s32 x1 = rd->x + 10;
+			const s32 x2 = rd->x + rd->width - 10;
+			const s32 y1 = rd->y + 13;
+			const s32 y2 = rd->y + NAMEBOX_H - 3;
+			const char *name = netLobbyAccount();
+			const char *prompt = "Please enter your name.";
+			const u32 edge = focused ? lobbyAlpha(0xff303000, alpha) : lobbyAlpha(0x2060a000, alpha);
+			s32 w;
+
+			// the box, its edge red where the cursor is (the reference's)
+			gdl = textSetPrimColour(gdl, lobbyAlpha(0x00000000, alpha * 3 / 5));
+			gDPFillRectangleScaled(gdl++, x1, y1, x2, y2);
+			gdl = text0f153838(gdl);
+			gdl = menugfxDrawDialogBorderLine(gdl, x1, y1, x2, y1 + 1, edge, edge);
+			gdl = menugfxDrawDialogBorderLine(gdl, x1, y2 - 1, x2, y2, edge, edge);
+			gdl = menugfxDrawDialogBorderLine(gdl, x1, y1, x1 + 1, y2, edge, edge);
+			gdl = menugfxDrawDialogBorderLine(gdl, x2 - 1, y1, x2, y2, edge, edge);
+
+			gdl = text0f153628(gdl);
+			w = lobbyTextWidth(prompt, LOBBYFONT_SM);
+			gdl = lobbyText(gdl, rd->x + (rd->width - w) / 2, rd->y + 1, prompt, LOBBYFONT_SM, lobbyAlpha(0xc0c0ff00, alpha), 0);
+
+			if (name && name[0]) {
+				char buf[64];
+
+				snprintf(buf, sizeof(buf), "%s", name);
+				lobbyFit(buf, sizeof(buf), x2 - x1 - 8, LOBBYFONT_MD);
+				w = lobbyTextWidth(buf, LOBBYFONT_MD);
+				gdl = lobbyText(gdl, (x1 + x2 - w) / 2, (y1 + y2 - LOBBY_MDROW) / 2 + 1, buf, LOBBYFONT_MD, lobbyAlpha(0xffffff00, alpha), 0);
+			} else {
+				w = lobbyTextWidth("Your name", LOBBYFONT_MD);
+				gdl = lobbyText(gdl, (x1 + x2 - w) / 2, (y1 + y2 - LOBBY_MDROW) / 2 + 1, "Your name", LOBBYFONT_MD, dimColour(alpha), 0);
+			}
+
+			gdl = text0f153780(gdl);
+		}
+
+		return (uintptr_t)gdl;
+	}
+
+	return 0;
 }
 
-static MenuItemHandlerResult handlerSignIn(s32 operation, struct menuitem *item, union handlerdata *data)
+static MenuItemHandlerResult handlerNameNext(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	if (operation == MENUOP_CHECKDISABLED) {
+		return s_NameNext;
+	}
+
 	if (operation == MENUOP_SET) {
 		netLobbyClearMessage();
-		menuPushDialog(&g_GhostAccountMenuDialog);
+
+		if (netLobbySignedIn()) {
+			menuPushDialog(&g_NetBriefingMenuDialog);
+		} else if (netLobbyAvailable()) {
+			// signed in first; dialogOnline goes on when it is in
+			s_NameNext = 1;
+			netLobbySignInAgain();
+		} else {
+			menuPushDialog(&g_GhostAccountMenuDialog);
+		}
 	}
 
 	return 0;
 }
-
-static MenuItemHandlerResult handlerBrowse(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	if (operation == MENUOP_CHECKDISABLED) {
-		return !netLobbyAvailable();
-	}
-
-	if (operation == MENUOP_SET) {
-		menuPushDialog(&g_NetBriefingMenuDialog);
-	}
-
-	return 0;
-}
-
-static MenuItemHandlerResult handlerCreateOpen(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	if (operation == MENUOP_CHECKDISABLED) {
-		return !netLobbyAvailable();
-	}
-
-	if (operation == MENUOP_SET) {
-		menuPushDialog(&g_NetCreateMenuDialog);
-	}
-
-	return 0;
-}
-
-static u64 s_OnlineListAt = 0; // when the Online Game page last asked for the room list (us)
 
 static MenuDialogHandlerResult dialogOnline(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
@@ -650,7 +779,7 @@ static MenuDialogHandlerResult dialogOnline(s32 operation, struct menudialogdef 
 		netLobbyClearMessage();
 		netLobbyWarm();
 		netLobbySignInAgain();
-		s_OnlineListAt = 0;
+		s_NameNext = 0;
 	}
 
 	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
@@ -665,29 +794,23 @@ static MenuDialogHandlerResult dialogOnline(s32 operation, struct menudialogdef 
 		netLobbySignIn();
 		netLobbyTick();
 
-		// the Rooms Open window's list: asked for once signed in, and
-		// every 10 s while the page is up
-		if (netLobbySignedIn() && !netLobbyBusy()) {
-			const u64 now = sysGetMicroseconds();
-
-			if (s_OnlineListAt == 0 || now - s_OnlineListAt > 10000000) {
-				s_OnlineListAt = now;
-				netLobbyRefresh();
-			}
+		if (s_NameNext && netLobbySignedIn()) {
+			s_NameNext = 0;
+			menuPushDialog(&g_NetBriefingMenuDialog);
+		} else if (s_NameNext && !netLobbyBusy() && netLobbyMessage()[0]) {
+			// it did not sign in: why is under the box
+			s_NameNext = 0;
 		}
 	}
 
 	return 0;
 }
 
-// The buttons: the dialog itself, the box at the foot of the right column
-// (the account and the rooms are windows: lobbyOnlinePanels)
+// The name box, Next and Back: the dialog, in the middle of the screen
 static struct menuitem s_OnlineItems[] = {
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Browse Rooms\n", 0, handlerBrowse },
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Create Room\n", 0, handlerCreateOpen },
-	{ MENUITEMTYPE_SEPARATOR, 0, 0, 0, 0, NULL },
-	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textSignIn, 0, handlerSignIn },
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
+	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER | MENUITEMFLAG_LIST_LEAVEATENDS, NAMEBOX_W, NAMEBOX_H, handlerNameBox },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE, (uintptr_t)"Next\n", 0, handlerNameNext },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
 	{ MENUITEMTYPE_END },
 };
 
@@ -700,138 +823,73 @@ struct menudialogdef g_NetOnlineMenuDialog = {
 	NULL,
 };
 
-/**
- * The account, over the buttons: who this machine signs in as, what the
- * lobby last said, and what the buttons do
- */
-static Gfx *lobbyOnlineAccountWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
+// In the middle of the screen, a little over the middle of the windows' room
+static void lobbyNamePlace(struct menudialog *dialog, const struct lobbylayout *l)
 {
-	const u32 normal = MIXCOLOUR(dialog, item_unfocused);
-	const u32 label = MIXCOLOUR(dialog, listgroup_headerfg);
-	const u32 white = MIXCOLOUR(dialog, item_focused_inner);
-	const u32 alpha = (MIXCOLOUR(dialog, item_unfocused)) & 0xff;
-	const s32 inner = x2 - x1 - 2 * LOBBY_INSET;
-	const s32 tx = x1 + LOBBY_INSET;
-	const s32 lines = (y2 - 3 - (y1 + LINEHEIGHT + 3)) / LOBBY_XSROW;
-	s32 y = y1 + LINEHEIGHT + 3;
-	char text[160];
+	const s32 w = NAMEBOX_W + 16;
+	const s32 h = dialog->contentheight;
 
-	if (netLobbySignedIn()) {
-		gdl = lobbyText(gdl, tx, y, "Signed in as", LOBBYFONT_XS, label, inner);
-		y += LOBBY_XSROW;
-		gdl = lobbyTitleLine(gdl, netLobbyAccount(), "", tx, &y, inner, normal);
-	} else if (netLobbyAvailable() && netLobbyBusy()) {
-		gdl = lobbyText(gdl, tx, y, "Signing in as", LOBBYFONT_XS, label, inner);
-		y += LOBBY_XSROW;
-		gdl = lobbyTitleLine(gdl, netLobbyAccount(), "...", tx, &y, inner, normal);
-	} else {
-		gdl = lobbyTitleLine(gdl, "Not signed in", "", tx, &y, inner, normal);
-	}
-
-	y += 2;
-
-	// what the lobby last said, else what to do
-	if (netLobbyBusy()) {
-		gdl = lobbyParagraph(gdl, "Asking the lobby...", tx, &y, inner, white, 2);
-	} else if (netLobbyMessage()[0]) {
-		gdl = lobbyParagraph(gdl, netLobbyMessage(), tx, &y, inner, white, 4);
-	} else if (!netLobbyAvailable()) {
-		// Sign In makes the account when the name is new: there is no
-		// Create Account to find first (players could not tell they needed
-		// one, 2026-10-08)
-		gdl = lobbyParagraph(gdl, "Sign In below: a new name makes your account.", tx, &y, inner, white, 3);
-	}
-
-	y += 4;
-
-	if (y + 2 * LOBBY_XSROW <= y1 + LINEHEIGHT + 3 + lines * LOBBY_XSROW) {
-		snprintf(text, sizeof(text), "%s", "Browse Rooms to join a game, or Create Room to host one.");
-		gdl = lobbyParagraph(gdl, text, tx, &y, inner, dimColour(alpha), (y2 - 3 - y) / LOBBY_XSROW);
-	}
-
-	return gdl;
-}
-
-/**
- * The rooms open now, as the Briefing Room lists them (two lines each:
- * the name and how full, then the arena, mode and host), read only:
- * Browse Rooms is where one is joined
- */
-static Gfx *lobbyOnlineRoomsWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
-{
-	const u32 normal = MIXCOLOUR(dialog, item_unfocused);
-	const u32 alpha = (MIXCOLOUR(dialog, item_unfocused)) & 0xff;
-	const s32 inner = x2 - x1 - 2 * LOBBY_INSET;
-	const s32 tx = x1 + LOBBY_INSET;
-	const s32 n = netLobbyNumRooms();
-	s32 y = y1 + LINEHEIGHT + 3;
-	s32 fit;
-	char buf[96];
-	s32 i;
-
-	if (!netLobbyAvailable()) {
-		gdl = lobbyParagraph(gdl, "Sign in to see the rooms open now.", tx, &y, inner, normal, 2);
-		return gdl;
-	}
-
-	if (n == 0) {
-		gdl = lobbyParagraph(gdl, netLobbyBusy() ? "Asking the lobby..." : "No rooms open now: create one.", tx, &y, inner, normal, 2);
-		return gdl;
-	}
-
-	snprintf(buf, sizeof(buf), "%d room%s open", n, n == 1 ? "" : "s");
-	gdl = lobbyText(gdl, tx, y, buf, LOBBYFONT_SM, headerColour(alpha), inner);
-	y += LOBBY_SMROW + 2;
-
-	fit = (y2 - 3 - y) / (LOBBY_SMROW + LOBBY_XSROW + 2);
-
-	for (i = 0; i < n && i < fit; i++) {
-		const struct netlobbyroomsum *r = netLobbyRoomAt(i);
-		const u32 colour = r->compat == NETLOBBY_COMPAT_OK ? normal : dimColour(alpha);
-		char count[24];
-		s32 cw;
-
-		if (i == fit - 1 && n > fit) {
-			snprintf(buf, sizeof(buf), "+%d more in Browse Rooms", n - i);
-			gdl = lobbyText(gdl, tx, y, buf, LOBBYFONT_XS, dimColour(alpha), inner);
-			break;
-		}
-
-		snprintf(count, sizeof(count), "%d/%d", r->humans, r->maxhumans);
-		cw = lobbyTextWidth(count, LOBBYFONT_SM);
-		snprintf(buf, sizeof(buf), "%s%s", r->compat != NETLOBBY_COMPAT_OK ? "! " : "", r->name);
-		gdl = lobbyText(gdl, tx, y, buf, LOBBYFONT_SM, colour, inner - cw - 6);
-		gdl = lobbyTextRight(gdl, tx + inner, y, count, LOBBYFONT_SM, colour);
-		y += LOBBY_SMROW;
-
-		snprintf(buf, sizeof(buf), "%s  %s  %s", r->stage[0] ? r->stage : "-", roomMode(r), r->host);
-		gdl = lobbyText(gdl, tx + 6, y, buf, LOBBYFONT_XS, dimColour(alpha), inner - 6);
-		y += LOBBY_XSROW + 2;
-	}
-
-	return gdl;
-}
-
-static void lobbyOnlinePlace(struct menudialog *dialog, const struct lobbylayout *l)
-{
-	s32 y;
-	s32 h;
-
-	lobbyButtonsAtFoot(l, dialog->contentheight, &y, &h);
-
-	dialog->dstx = l->rx1;
-	dialog->dsty = y;
-	dialog->dstwidth = l->rx2 - l->rx1;
+	dialog->dstx = (SCREEN_WIDTH_LO - w) / 2;
+	dialog->dsty = (l->top + l->bottom - h) / 2 - 12;
+	dialog->dstwidth = w;
 	dialog->dstheight = h;
 }
 
-static Gfx *lobbyOnlinePanels(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l)
+/**
+ * Under the box: what the lobby says (signing in, a wrong PIN), else what a
+ * new player needs to know, centred under the dialog
+ */
+static Gfx *lobbyNamePanels(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l)
 {
-	gdl = lobbyAlign(gdl, G_ASPECT_LEFT_EXT);
-	gdl = lobbyPanel(gdl, d, l->lx1, l->top, l->lx2, l->bottom, "Rooms Open", lobbyOnlineRoomsWindow);
+	struct menudialog *dialog = d->dialog;
+	const u32 alpha = (MIXCOLOUR(dialog, item_unfocused)) & 0xff;
+	const char *text;
+	char in[320];
+	char out[400];
+	char *p = out;
+	s32 y = dialog->y + dialog->height + 6;
+	s32 n = 0;
 
-	gdl = lobbyAlign(gdl, G_ASPECT_RIGHT_EXT);
-	gdl = lobbyPanel(gdl, d, l->rx1, l->top, l->rx2, d->dialog->y + LINEHEIGHT - LOBBY_VGAP, "Online Game", lobbyOnlineAccountWindow);
+	if (!d->withtext) {
+		return gdl;
+	}
+
+	if (netLobbyBusy()) {
+		text = "Signing in...";
+	} else if (netLobbyMessage()[0]) {
+		text = netLobbyMessage();
+	} else if (netLobbySignedIn()) {
+		text = "Signed in. Next goes to the Briefing Room.";
+	} else {
+		text = "Select the box to type your name and PIN: a new name makes your account.";
+	}
+
+	gdl = lobbyAlignRestore(gdl);
+	gdl = text0f153628(gdl);
+	snprintf(in, sizeof(in), "%s\n", text);
+	textWrapN(NAMEBOX_W + 40, in, out, sizeof(out), g_CharsHandelGothicXs, g_FontHandelGothicXs);
+
+	while (*p && n < 4) {
+		char *end = strchr(p, '\n');
+		s32 w;
+
+		if (end) {
+			*end = '\0';
+		}
+
+		w = lobbyTextWidth(p, LOBBYFONT_XS);
+		gdl = lobbyText(gdl, (SCREEN_WIDTH_LO - w) / 2, y, p, LOBBYFONT_XS, lobbyAlpha(0xffffff00, alpha), 0);
+		y += LOBBY_XSROW;
+		n++;
+
+		if (!end) {
+			break;
+		}
+
+		p = end + 1;
+	}
+
+	gdl = text0f153780(gdl);
 
 	return gdl;
 }
@@ -934,29 +992,44 @@ static void roomPing(const struct netlobbyroomsum *r, char *out, s32 size)
 }
 
 /**
- * The room list: a line a room - its name, how full it is and its ping -
- * as wide as the left column. The rest of a room (its arena, mode, host,
- * mods, why this game cannot join it) is the Room window's on the right,
- * for the room the cursor is on. A cell too wide is cut with "..".
+ * The room list as cards (the owner's WWE SmackDown! vs. Raw reference,
+ * 2026-10-11): a room's state and mode on its first line, its name on the
+ * second, its host, count and ping on the third; then a Create Room card
+ * and a Refresh card, as the reference ends its list with Create Game. The
+ * rest of a room (its arena, password, mods, why this game cannot join it)
+ * is the Room window's on the right, for the card the cursor is on.
  */
-#define ROOMROWH 12
+#define ROOMROWH 33 // a card
+
+static u64 s_BriefingListAt = 0; // when the Briefing Room last asked for the list (us; every 10 s)
+
+static void lobbyRect(Gfx **gdlp, s32 x1, s32 y1, s32 x2, s32 y2, u32 fill, u32 edge)
+{
+	Gfx *gdl = *gdlp;
+
+	gdl = textSetPrimColour(gdl, fill);
+	gDPFillRectangleScaled(gdl++, x1, y1, x2, y2);
+	gdl = text0f153838(gdl);
+	gdl = menugfxDrawDialogBorderLine(gdl, x1, y1, x2, y1 + 1, edge, edge);
+	gdl = menugfxDrawDialogBorderLine(gdl, x1, y2 - 1, x2, y2, edge, edge);
+	gdl = menugfxDrawDialogBorderLine(gdl, x1, y1, x1 + 1, y2, edge, edge);
+	gdl = menugfxDrawDialogBorderLine(gdl, x2 - 1, y1, x2, y2, edge, edge);
+
+	*gdlp = gdl;
+}
 
 static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	struct menuitemrenderdata *rd;
 	const struct netlobbyroomsum *r;
+	const s32 n = netLobbyNumRooms();
+	struct menudialog *dialog = g_Menus[g_MpPlayerNum].curdialog;
 	Gfx *gdl;
-	char buf[64];
-	char in[16];
-	char ping[16];
-	u32 colour;
 	s32 index;
-	s32 right;
-	s32 pingx;
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->list.value = netLobbyNumRooms() + 1;
+		data->list.value = n + 2;
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		return (intptr_t)"";
@@ -976,19 +1049,36 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 		break;
 	case MENUOP_LISTITEMFOCUS:
 		// the Room window shows the room the cursor is on; a reason from
-		// the last row picked goes with the cursor
-		s_SelectedRoom = (s32)data->list.value - 1;
+		// the last card picked goes with the cursor
+		index = (s32)data->list.value;
+		s_SelectedRoom = index < n ? index : -1;
 		netLobbyClearMessage();
 		s_BriefingNote[0] = '\0';
 		break;
 	case MENUOP_SET:
-		s_SelectedRoom = (s32)data->list.value - 1;
-		r = netLobbyRoomAt(s_SelectedRoom);
+		index = (s32)data->list.value;
+
+		if (index == n) {
+			netLobbyClearMessage();
+			menuPushDialog(&g_NetCreateMenuDialog);
+			break;
+		}
+
+		if (index > n) {
+			s_BriefingNote[0] = '\0';
+			netLobbyClearMessage();
+			netLobbyRefresh();
+			s_BriefingListAt = sysGetMicroseconds();
+			break;
+		}
+
+		s_SelectedRoom = index;
+		r = netLobbyRoomAt(index);
 
 		if (r == NULL) {
 			netLobbyRefresh();
 		} else if (r->compat != NETLOBBY_COMPAT_OK) {
-			// the mark's reason, on the status window
+			// the reason, on the status window
 			snprintf(s_BriefingNote, sizeof(s_BriefingNote), "%s", netLobbyCompatText(r->compat));
 			menuPlaySound(MENUSOUND_ERROR);
 		} else if (r->locked) {
@@ -1004,31 +1094,68 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 		gdl = data->type19.gdl;
 		rd = data->type19.renderdata2;
 		index = (s32)data->type19.unk04;
-		colour = rd->colour;
-		right = rd->width - 10;
-		pingx = right - cellWidth("PING");
-		gdl = text0f153628(gdl);
 
-		if (index == 0) {
-			colour = headerColour(colour);
-			gdl = drawCellAt(gdl, rd, 4, 1, "ROOM", 20, colour);
-			gdl = drawCellAt(gdl, rd, pingx - 8 - cellWidth("IN"), 1, "IN", 20, colour);
-			gdl = drawCellAt(gdl, rd, pingx, 1, "PING", 20, colour);
-		} else if ((r = netLobbyRoomAt(index - 1)) != NULL) {
-			if (r->compat != NETLOBBY_COMPAT_OK) {
-				colour = dimColour(colour);
+		{
+			const u32 alpha = rd->colour & 0xff;
+			const s32 focused = rd->unk10 && dialog && dialog->focuseditem == item;
+			const s32 x1 = rd->x + 2;
+			const s32 x2 = rd->x + rd->width - 8;
+			const s32 y1 = rd->y + 1;
+			const s32 y2 = rd->y + ROOMROWH - 2;
+			const s32 inner = x2 - x1 - 10;
+			const s32 tx = x1 + 5;
+			const u32 edge = focused ? lobbyAlpha(0xff303000, alpha) : lobbyAlpha(0x2060a000, alpha);
+			char buf[96];
+			char count[48];
+			s32 w;
+
+			lobbyRect(&gdl, x1, y1, x2, y2, lobbyAlpha(0x00000000, alpha / 2), edge);
+			gdl = text0f153628(gdl);
+
+			if (index >= n) {
+				// Create Room, Refresh: the reference's Create Game card
+				const char *label = index == n ? "Create Room" : "Refresh List";
+				const s32 font = index == n ? LOBBYFONT_MD : LOBBYFONT_SM;
+
+				w = lobbyTextWidth(label, font);
+				gdl = lobbyText(gdl, (x1 + x2 - w) / 2, (y1 + y2 - (font == LOBBYFONT_MD ? LOBBY_MDROW : LOBBY_SMROW)) / 2 + 1,
+						label, font, lobbyAlpha(0xffffff00, alpha), 0);
+			} else if ((r = netLobbyRoomAt(index)) != NULL) {
+				const s32 can = r->compat == NETLOBBY_COMPAT_OK;
+				const char *state = !can ? "Can't join" : strcmp(r->state, "launched") == 0 ? "In a match"
+					: strcmp(r->state, "countdown") == 0 ? "Starting" : "Open";
+				const u32 statecol = !can ? lobbyAlpha(0xffff6000, alpha) : lobbyAlpha(0x60a0ff00, alpha);
+				const u32 namecol = can ? lobbyAlpha(0xffffff00, alpha) : dimColour(alpha);
+				char ping[16];
+				s32 bw;
+
+				// the state and the mode, the mode in a badge at the right
+				gdl = lobbyText(gdl, tx, y1 + 2, state, LOBBYFONT_SM, statecol, inner / 2);
+
+				snprintf(buf, sizeof(buf), "%s", roomMode(r));
+				lobbyFit(buf, sizeof(buf), inner / 2, LOBBYFONT_XS);
+				bw = lobbyTextWidth(buf, LOBBYFONT_XS) + 8;
+				gdl = text0f153780(gdl);
+				lobbyRect(&gdl, x2 - 4 - bw, y1 + 2, x2 - 4, y1 + 11, lobbyAlpha(0x20208000, alpha), lobbyAlpha(0x8080ff00, alpha));
+				gdl = text0f153628(gdl);
+				gdl = lobbyText(gdl, x2 - 4 - bw + 4, y1 + 3, buf, LOBBYFONT_XS, lobbyAlpha(0xffffff00, alpha), 0);
+
+				// the name
+				snprintf(buf, sizeof(buf), "%s%s", r->locked ? "[pw] " : "", r->name);
+				gdl = lobbyText(gdl, tx, y1 + 12, buf, LOBBYFONT_SM, namecol, inner);
+
+				// the host, how full, the ping
+				roomPing(r, ping, sizeof(ping));
+				snprintf(count, sizeof(count), "%d/%d   %s ms", r->humans, r->maxhumans, ping);
+				w = lobbyTextWidth(count, LOBBYFONT_XS);
+				snprintf(buf, sizeof(buf), "Host: %s", r->host);
+				gdl = lobbyText(gdl, tx, y1 + 22, buf, LOBBYFONT_XS, dimColour(alpha), inner - w - 6);
+				gdl = lobbyText(gdl, tx + inner - w, y1 + 22, count, LOBBYFONT_XS, dimColour(alpha), 0);
 			}
 
-			roomPing(r, ping, sizeof(ping));
-			snprintf(in, sizeof(in), "%d/%d", r->humans, r->maxhumans);
-			snprintf(buf, sizeof(buf), "%s%s%s", r->compat != NETLOBBY_COMPAT_OK ? "! " : "", r->locked ? "[pw] " : "", r->name);
-			cellFitDots(buf, sizeof(buf), pingx - 8 - cellWidth("12/12") - 12);
-			gdl = drawCellAt(gdl, rd, 4, 1, buf, sizeof(buf) - 1, colour);
-			gdl = drawCellAt(gdl, rd, pingx - 8 - cellWidth(in), 1, in, sizeof(in) - 1, colour);
-			gdl = drawCellAt(gdl, rd, right - cellWidth(ping), 1, ping, sizeof(ping) - 1, dimColour(colour));
+			gdl = text0f153780(gdl);
 		}
 
-		gdl = text0f153780(gdl);
 		return (uintptr_t)gdl;
 	}
 
@@ -1052,21 +1179,6 @@ static void briefingStatusText(char *out, s32 size)
 	}
 }
 
-static MenuItemHandlerResult handlerRefresh(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	if (operation == MENUOP_CHECKDISABLED) {
-		return netLobbyBusy();
-	}
-
-	if (operation == MENUOP_SET) {
-		s_BriefingNote[0] = '\0';
-		netLobbyClearMessage();
-		netLobbyRefresh();
-	}
-
-	return 0;
-}
-
 static const struct netlobbyroomsum *joinTarget(void)
 {
 	const struct netlobbyroomsum *r = netLobbyRoomAt(s_SelectedRoom);
@@ -1080,28 +1192,6 @@ static const struct netlobbyroomsum *joinTarget(void)
 	}
 
 	return r;
-}
-
-static MenuItemHandlerResult handlerJoin(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	const struct netlobbyroomsum *r = joinTarget();
-
-	if (operation == MENUOP_CHECKDISABLED) {
-		return netLobbyBusy() || r == NULL || r->compat != NETLOBBY_COMPAT_OK;
-	}
-
-	if (operation == MENUOP_SET && r) {
-		snprintf(s_JoinId, sizeof(s_JoinId), "%s", r->id);
-
-		if (r->locked) {
-			menuPushDialog(&g_NetJoinPasswordMenuDialog);
-		} else {
-			s_WaitingForRoom = 1;
-			netLobbyJoin(r->id, "");
-		}
-	}
-
-	return 0;
 }
 
 /**
@@ -1145,17 +1235,13 @@ static void listClamp(struct menudialog *dialog, struct menuitem *item, s32 rowh
 	}
 }
 
-#define BRIEFING_LIST 3 // s_BriefingItems' room list
+#define BRIEFING_LIST 0 // s_BriefingItems' room list
 
-// The buttons and the list: the dialog, the whole of the left column
+// The cards: the dialog, the whole of the left column; a card joins its
+// room, the last two create one and ask for the list again; Back is the
+// menus' own back
 static struct menuitem s_BriefingItems[] = {
-	// the buttons above the list: a list keeps the cursor once it has it
-	// (its rows wrap), so below it they could not be reached by keys; a
-	// room's row joins it, and Back is the menus' own back
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Refresh\n", 0, handlerRefresh },
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Join\n", 0, handlerJoin },
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Create\n", 0, handlerCreateOpen },
-	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER | MENUITEMFLAG_LIST_LEAVEATENDS, 304, ROOMROWH * 8, handlerRoomList },
+	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER, 304, ROOMROWH * 5, handlerRoomList },
 	{ MENUITEMTYPE_END },
 };
 
@@ -1182,7 +1268,7 @@ static void briefingListFit(struct menudialog *dialog)
 	}
 
 	h = h / ROOMROWH * ROOMROWH;
-	s_BriefingItems[BRIEFING_LIST].param3 = h < ROOMROWH * 3 ? ROOMROWH * 3 : h;
+	s_BriefingItems[BRIEFING_LIST].param3 = h < ROOMROWH * 2 ? ROOMROWH * 2 : h;
 	s_BriefingItems[BRIEFING_LIST].param2 = l.lx2 - l.lx1 - 4;
 }
 
@@ -1193,6 +1279,7 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 		s_SelectedRoom = -1;
 		netLobbyClearMessage();
 		netLobbyRefresh();
+		s_BriefingListAt = sysGetMicroseconds();
 	}
 
 	if (operation == MENUOP_TICK && g_Menus[g_MpPlayerNum].curdialog
@@ -1209,6 +1296,13 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 			menuPushDialog(&g_NetRoomMenuDialog);
 		} else if (s_WaitingForRoom && !netLobbyBusy()) {
 			s_WaitingForRoom = 0;
+		}
+
+		// the list asked for again every 10 s while the page is up: it is
+		// the main page now, where a player waits for a room to open
+		if (!s_WaitingForRoom && !netLobbyBusy() && sysGetMicroseconds() - s_BriefingListAt > 10000000) {
+			s_BriefingListAt = sysGetMicroseconds();
+			netLobbyRefresh();
 		}
 	}
 
@@ -1230,7 +1324,7 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 
 struct menudialogdef g_NetBriefingMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Briefing Room",
+	(uintptr_t)"Rooms",
 	s_BriefingItems,
 	dialogBriefing,
 	MENUDIALOGFLAG_LITERAL_TEXT,
@@ -2078,7 +2172,7 @@ static struct menuitem s_CreateItems[] = {
 
 struct menudialogdef g_NetCreateMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Create Room",
+	(uintptr_t)"Room Setup",
 	s_CreateItems,
 	dialogCreate,
 	MENUDIALOGFLAG_LITERAL_TEXT,
@@ -2481,9 +2575,10 @@ static Gfx *lobbyPairsBlock(Gfx *gdl, struct menudialog *dialog, const struct lo
 	}
 
 	// one column with fewer lines than the settings (a narrow window): the
-	// first ones, which the caller puts first because they matter most
-	if (cols == 1 && maxrows > 0 && nsettings > maxrows) {
-		nsettings = maxrows < 4 ? 4 : maxrows;
+	// first ones, which the caller puts first because they matter most;
+	// none where the window has no line left
+	if (cols == 1 && nsettings > maxrows) {
+		nsettings = maxrows > 0 ? maxrows : 0;
 	}
 
 	nleft = cols == 2 ? (nsettings + 1) / 2 : nsettings;
@@ -2576,7 +2671,6 @@ static Gfx *lobbyRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1,
 	const s32 inner = x2 - x1 - 2 * LOBBY_INSET;
 	const s32 tx = x1 + LOBBY_INSET;
 	char buf[128];
-	char count[24];
 	s32 y = y1 + LINEHEIGHT + 3;
 	s32 i;
 
@@ -2584,11 +2678,10 @@ static Gfx *lobbyRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1,
 		return lobbyText(gdl, tx, y, "Waiting for the room...", LOBBYFONT_SM, normal, inner);
 	}
 
-	snprintf(count, sizeof(count), " (%d/%d)", room->sum.humans, room->sum.maxhumans);
-	gdl = lobbyTitleLine(gdl, room->sum.name, count, tx, &y, inner, normal);
-
-	// two columns: the roster needs the rows
-	gdl = lobbySettingsBlock(gdl, dialog, room, tx, y, inner, 0, &i);
+	// the room's name and count are the header's (lobbyInfoRoom)
+	// two columns: the roster needs the rows (a window too narrow for two
+	// has four lines of them)
+	gdl = lobbySettingsBlock(gdl, dialog, room, tx, y, inner, 4, &i);
 	y += i * LOBBY_XSROW + 4;
 
 	// the players: one list (the owner, 2026-10-11: no team columns), in a
@@ -3359,7 +3452,21 @@ struct menudialogdef g_NetRoomMenuDialog = {
 	NULL,
 };
 
-#define LOBBY_MODSH (LINEHEIGHT + 3 + 4 * LOBBY_SMROW + 2) // the mods window: four rows
+/**
+ * The mods window: as many rows as the room plays with, two to four (the
+ * rows left over say <empty>, as the mock-up has them); the roster has the
+ * rest of the column
+ */
+static s32 lobbyModsHeight(void)
+{
+	const struct netlobbyroom *room = netLobbyGetRoom();
+	struct netcontentrow rows[8];
+	s32 n = room->valid ? netContentLobbyRows(room->sum.mod, room->sum.ge, ruleValue("stage_key"), rows, ARRAYCOUNT(rows)) : 0;
+
+	n = n < 2 ? 2 : n > 4 ? 4 : n;
+
+	return LINEHEIGHT + 3 + n * LOBBY_SMROW + 2;
+}
 
 /**
  * The Game Lobby's buttons at the foot of the right column, as wide as the
@@ -3386,10 +3493,10 @@ static void lobbyRoomPlace(struct menudialog *dialog, const struct lobbylayout *
  */
 static Gfx *lobbyRoomPanels(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l)
 {
-	const s32 modsy1 = l->bottom - LOBBY_MODSH;
+	const s32 modsy1 = l->bottom - lobbyModsHeight();
 
 	gdl = lobbyAlign(gdl, G_ASPECT_LEFT_EXT);
-	gdl = lobbyPanel(gdl, d, l->lx1, l->top, l->lx2, modsy1 - LOBBY_VGAP, "Game Lobby", lobbyRoomWindow);
+	gdl = lobbyPanel(gdl, d, l->lx1, l->top, l->lx2, modsy1 - LOBBY_VGAP, "Room", lobbyRoomWindow);
 	gdl = lobbyPanel(gdl, d, l->lx1, modsy1, l->lx2, l->bottom, "Mods", lobbyModsWindow);
 
 	gdl = lobbyAlign(gdl, G_ASPECT_RIGHT_EXT);
@@ -3523,7 +3630,7 @@ static struct menuitem s_RoomSettingsItems[] = {
 };
 
 struct menudialogdef g_NetRoomSettingsMenuDialog = {
-	MENUDIALOGTYPE_DEFAULT, (uintptr_t)"Room Settings", s_RoomSettingsItems, dialogRoomSettings, MENUDIALOGFLAG_LITERAL_TEXT, NULL,
+	MENUDIALOGTYPE_DEFAULT, (uintptr_t)"Room Setup", s_RoomSettingsItems, dialogRoomSettings, MENUDIALOGFLAG_LITERAL_TEXT, NULL,
 };
 
 /**
@@ -3680,6 +3787,9 @@ void netLobbyMenuPushRoomAfterMatch(void)
 			func0f0f3704(&g_NetOnlineMenuDialog);
 		}
 
+		// the Briefing Room between them: Leave lands on the rooms, as it
+		// does for a room joined from them (Online Game is Name Entry now)
+		menuPushDialog(&g_NetBriefingMenuDialog);
 		netLobbyMenuPushRoom();
 		return;
 	}
@@ -3721,6 +3831,11 @@ void netLobbyMenuFrame(void)
 	}
 
 	s_RoomOverOnline = 0;
+
+	if (top == &g_NetOnlineMenuDialog) {
+		menuPushDialog(&g_NetBriefingMenuDialog);
+	}
+
 	netLobbyMenuPushRoom();
 }
 
@@ -3751,17 +3866,49 @@ s32 netLobbyMenuPageUp(s32 room)
 
 struct lobbypage {
 	struct menudialogdef *def;
-	s32 side; // G_ASPECT_LEFT_EXT or RIGHT_EXT: the column the dialog is in
+	s32 side; // G_ASPECT_LEFT_EXT or RIGHT_EXT: the column the dialog is in; 0 the middle
 	void (*place)(struct menudialog *dialog, const struct lobbylayout *l);
 	Gfx *(*panels)(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l);
+	const char *title;                      // the header's name for the page
+	void (*info)(char *out, s32 size);      // what the header's right says (NULL nothing)
+	const char *hints;                      // the footer's
 };
 
+// The header's right: who this machine plays as, and how many rooms are open
+static void lobbyInfoRooms(char *out, s32 size)
+{
+	const s32 n = netLobbyNumRooms();
+
+	snprintf(out, size, "%d room%s   %s", n, n == 1 ? "" : "s", netLobbySignedIn() ? netLobbyAccount() : "");
+}
+
+static void lobbyInfoAccount(char *out, s32 size)
+{
+	snprintf(out, size, "%s", netLobbySignedIn() ? netLobbyAccount() : "");
+}
+
+// the room's name and how full it is
+static void lobbyInfoRoom(char *out, s32 size)
+{
+	const struct netlobbyroom *room = netLobbyGetRoom();
+
+	if (room->valid) {
+		snprintf(out, size, "%s   %d/%d", room->sum.name, room->sum.humans, room->sum.maxhumans);
+	} else {
+		out[0] = '\0';
+	}
+}
+
+#define LOBBY_HINTS_SELECT "A / Enter: Select     B / Esc: Back"
+
 static const struct lobbypage s_LobbyPages[] = {
-	{ &g_NetOnlineMenuDialog, G_ASPECT_RIGHT_EXT, lobbyOnlinePlace, lobbyOnlinePanels },
-	{ &g_NetBriefingMenuDialog, G_ASPECT_LEFT_EXT, lobbyBriefingPlace, lobbyBriefingPanels },
-	{ &g_NetCreateMenuDialog, G_ASPECT_LEFT_EXT, lobbyPreviewPlace, lobbyPreviewPanels },
-	{ &g_NetRoomSettingsMenuDialog, G_ASPECT_LEFT_EXT, lobbyPreviewPlace, lobbyPreviewPanels },
-	{ &g_NetRoomMenuDialog, G_ASPECT_RIGHT_EXT, lobbyRoomPlace, lobbyRoomPanels },
+	{ &g_NetOnlineMenuDialog, 0, lobbyNamePlace, lobbyNamePanels, "NAME ENTRY", NULL, LOBBY_HINTS_SELECT },
+	{ &g_NetBriefingMenuDialog, G_ASPECT_LEFT_EXT, lobbyBriefingPlace, lobbyBriefingPanels, "BRIEFING ROOM", lobbyInfoRooms,
+		"A / Enter: Join or Create     B / Esc: Back" },
+	{ &g_NetCreateMenuDialog, G_ASPECT_LEFT_EXT, lobbyPreviewPlace, lobbyPreviewPanels, "CREATE ROOM", lobbyInfoAccount, LOBBY_HINTS_SELECT },
+	{ &g_NetRoomSettingsMenuDialog, G_ASPECT_LEFT_EXT, lobbyPreviewPlace, lobbyPreviewPanels, "ROOM SETTINGS", lobbyInfoRoom, LOBBY_HINTS_SELECT },
+	{ &g_NetRoomMenuDialog, G_ASPECT_RIGHT_EXT, lobbyRoomPlace, lobbyRoomPanels, "GAME LOBBY", lobbyInfoRoom,
+		"A / Enter: Select     Space or T: Chat" },
 };
 
 static const struct lobbypage *lobbyPageOf(struct menudialogdef *def)
@@ -3827,7 +3974,7 @@ void *netLobbyMenuRenderPanels(void *gdlptr, struct menudialog *dialog)
 	d.dialog = dialog;
 	d.withtext = dialog->state != MENUDIALOGSTATE_PREOPEN;
 	d.grow = 1.0f;
-	d.dx = dialog->x - (page->side == G_ASPECT_LEFT_EXT ? l.lx1 : l.rx1);
+	d.dx = page->side == G_ASPECT_LEFT_EXT ? dialog->x - l.lx1 : page->side == G_ASPECT_RIGHT_EXT ? dialog->x - l.rx1 : 0;
 
 	if (dialog->state == MENUDIALOGSTATE_PREOPEN) {
 		// as dialogRender() grows the dialog open
@@ -3836,6 +3983,19 @@ void *netLobbyMenuRenderPanels(void *gdlptr, struct menudialog *dialog)
 	}
 
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
+
+	{
+		char info[96];
+
+		info[0] = '\0';
+
+		if (page->info) {
+			page->info(info, sizeof(info));
+		}
+
+		gdl = lobbyChrome(gdl, &d, &l, page->title, info, page->hints);
+	}
+
 	gdl = page->panels(gdl, &d, &l);
 
 	return lobbyAlignRestore(gdl);
