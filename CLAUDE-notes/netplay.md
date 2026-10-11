@@ -3061,6 +3061,19 @@ things still went as full copies over and over:
   the spectators change (once a second for five, unreliable) and at a match's
   start and at the barrier.
 
+Measured (netcrowd, 3 clients, the third joining at ~1500; census of the
+bg marks host vs client at 900/1650/2400/3300): marks before were a
+client's own (c1 22 of the host's 62 in co-op); now equal, often to the
+placement checksum, within the few in flight (rocket match: c1's equal at all
+four ticks); a joiner has the host's within ~5 s. Upstream per client
+(host received in 60 s): 60 ms RTT 473 -> 141 KB, 120 ms 793 -> 156 KB,
+192 ms 1120 -> 175 KB (-84%); the commands 1.3-2.5 bytes each as deltas,
+field masks 2.2-2.6, whole 25: XOR-delta it is. Downstream +1-6% (the
+marks block), co-op -3%.
+
+Trap: `netcontenttest` reads the *last* "net: world client" line, so a new
+line of a module's own needs its own name ("net: marks client").
+
 Left as they are, rare or one-shot: CONNECT/ACCEPT/REFUSE, RULES and
 STAGE_LOAD (once a match), LOADED, GO, MATCH_END, LEAVE, LOBBY, SLOTCFG (on
 a change), ROSTER (on GO and a seat changing hands), RESUME, CHAT,
