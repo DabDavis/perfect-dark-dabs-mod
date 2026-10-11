@@ -66,25 +66,34 @@
  * time recording is switched on.
  *
  * The official FFmpeg repository publishes source and no binaries, so this
- * comes from BtbN's builds, which are the ones everything else points at. The
- * tag is pinned rather than "latest": latest is a rolling release whose assets
- * are rebuilt daily, and a build that is known to work beats whichever one was
- * published this morning.
+ * comes from BtbN's builds, which are the ones everything else points at.
  *
- * The shared build rather than the static one - 73MB against 162MB - so the
+ * The first is pinned: a release branch's build (9.0.1) from a month-end
+ * autobuild. BtbN deletes its daily autobuilds after about two weeks and keeps
+ * the month-end ones for two years; the daily the first version pinned
+ * (autobuild-2026-09-02) was gone within five weeks, and every download 404'd
+ * (F3 20261010-222200, 222314). The second is the same branch's rolling build
+ * under the "latest" tag, whose name does not change: what is fetched when the
+ * pinned one has gone too.
+ *
+ * The shared build rather than the static one - 76MB against 160MB - so the
  * whole bin/ folder is kept together and the exe inside it is what gets run.
  */
-#define RECORD_FFMPEG_TAG   "autobuild-2026-09-02-13-13"
-#define RECORD_FFMPEG_ASSET "ffmpeg-N-126390-g9fc8c785e2-win64-gpl-shared.zip"
 #define RECORD_FFMPEG_URL   "https://github.com/BtbN/FFmpeg-Builds/releases/download"
+
+static const char *const g_RecordFfmpegAssets[] = {
+	"autobuild-2026-08-31-13-27/ffmpeg-n9.0.1-11-ge47273f4d9-win64-gpl-shared-9.0.zip",
+	"latest/ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip",
+};
 
 // What the download comes to, and what it leaves on disk once the player, the
 // prober and the documentation have been taken back off - both said in the
-// prompt, because they are not close and somebody agreeing to spend 73MB should
-// not be surprised by what lands. Measured, not estimated: the pruned install
-// is 165MB, of which 161MB is the three big libraries and not reducible.
-#define RECORD_FFMPEG_MB    73
-#define RECORD_FFMPEG_DISK  165
+// prompt, because they are not close and somebody agreeing to spend 76MB should
+// not be surprised by what lands. Measured, not estimated (the pinned 9.0.1
+// build: a 76.4MB zip, 170.7MB pruned, of which 157MB is the three big
+// libraries and not reducible).
+#define RECORD_FFMPEG_MB    76
+#define RECORD_FFMPEG_DISK  171
 
 // Where it lands, beside the game the way screenshots and packs do.
 #define RECORD_FFMPEG_DIR   "ffmpeg"
@@ -2519,38 +2528,57 @@ static int recordFfmpegWorker(void *arg)
 
 	(void)arg;
 
-	snprintf(url, sizeof(url), RECORD_FFMPEG_URL "/%s/%s", RECORD_FFMPEG_TAG, RECORD_FFMPEG_ASSET);
 	snprintf(zip, sizeof(zip), "%s/ffmpeg.zip", ffmpegDir);
 
 	recordFfmpegSetStatus("Downloading ffmpeg...");
 
-	f = fopen(zip, "wb");
+	// the pinned build, then the rolling one when it has gone
+	for (u32 i = 0; i < ARRAYCOUNT(g_RecordFfmpegAssets); i++) {
+		snprintf(url, sizeof(url), RECORD_FFMPEG_URL "/%s", g_RecordFfmpegAssets[i]);
 
-	if (!f) {
-		recordFfmpegSetStatus("Could not write to %s", ffmpegDir);
-		SDL_AtomicSet(&ffmpegFailed, 1);
-		SDL_AtomicSet(&ffmpegBusy, 0);
-		return 0;
-	}
+		f = fopen(zip, "wb");
 
-	memset(&req, 0, sizeof(req));
-	memset(&buf, 0, sizeof(buf));
-	req.url = url;
-	req.redirect = true; // a release asset is a redirect to wherever it lives
-	req.timeout = 1800;
-	buf.sink = f;
+		if (!f) {
+			recordFfmpegSetStatus("Could not write to %s", ffmpegDir);
+			SDL_AtomicSet(&ffmpegFailed, 1);
+			SDL_AtomicSet(&ffmpegBusy, 0);
+			return 0;
+		}
 
-	if (!ghostnetSend(&req, &buf, &status, err, sizeof(err)) || status != 200) {
+		memset(&req, 0, sizeof(req));
+		memset(&buf, 0, sizeof(buf));
+		req.url = url;
+		req.redirect = true; // a release asset is a redirect to wherever it lives
+		req.timeout = 1800;
+		buf.sink = f;
+		status = 0;
+		// set only when the request itself fails: a 404 left it as the stack
+		// had it, and the log line read "@" and "??"
+		err[0] = '\0';
+
+		const bool sent = ghostnetSend(&req, &buf, &status, err, sizeof(err));
+
 		fclose(f);
-		remove(zip);
-		sysLogPrintf(LOG_ERROR, "record: %s: %s", url, err[0] ? err : "download failed");
-		recordFfmpegSetStatus("Could not download ffmpeg");
-		SDL_AtomicSet(&ffmpegFailed, 1);
-		SDL_AtomicSet(&ffmpegBusy, 0);
-		return 0;
-	}
 
-	fclose(f);
+		if (sent && status == 200) {
+			break;
+		}
+
+		remove(zip);
+
+		if (sent) {
+			sysLogPrintf(LOG_ERROR, "record: %s: HTTP %d", url, status);
+		} else {
+			sysLogPrintf(LOG_ERROR, "record: %s: %s", url, err[0] ? err : "download failed");
+		}
+
+		if (i + 1 == ARRAYCOUNT(g_RecordFfmpegAssets)) {
+			recordFfmpegSetStatus(sent ? "Could not download ffmpeg (HTTP %d)" : "Could not download ffmpeg", status);
+			SDL_AtomicSet(&ffmpegFailed, 1);
+			SDL_AtomicSet(&ffmpegBusy, 0);
+			return 0;
+		}
+	}
 
 	recordFfmpegSetStatus("Unpacking ffmpeg...");
 
