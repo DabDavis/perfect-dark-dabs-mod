@@ -107,7 +107,8 @@ static const char *const s_EvNames[NETEV_COUNT] = {
 #define NETEV_SURECLS 3 // not a channel: sent in SHOT messages, several times (s_Sure)
 
 #define NETEV_SUREMAX   192  // an event's bytes, at most, to go this way (else FX)
-#define NETEV_SURERING  256
+#define NETEV_SURERING  2048 // a rocket match makes ~30 hits a tick, more in a burst: five ticks' worth and room
+#define NETEV_BOOMRING  64   // the explosions alone, for a joiner's catch-up
 #define NETEV_SURELIFE  240  // ticks an explosion is kept for a joiner's catch-up, at most
 
 struct netevsure {
@@ -124,6 +125,8 @@ struct netevsure {
 };
 
 static struct netevsure s_Sure[NETEV_SURERING];
+static struct netevsure s_Boom[NETEV_BOOMRING];
+static u16 s_BoomN = 0;
 static u16 s_SureSerial = 0;
 static u32 s_SureCopies = 0;  // copies sent (host)
 static u32 s_SureDupes = 0;   // copies dropped as already had (client)
@@ -521,8 +524,10 @@ static void netEvEnd(struct netbuf *b, s32 type, s32 target, s32 exclude)
 		memcpy(u->bytes, s_One, len);
 
 		if (type == NETEV_EXPLOSION) {
-			// the burn, as explosionTick ends it (age past duration + 7 flares)
+			// the burn, as explosionTick ends it (age past duration + 7
+			// flares), and a copy kept apart from the hits that churn the ring
 			u->life = s_SureLife;
+			s_Boom[s_BoomN++ % NETEV_BOOMRING] = *u;
 		}
 
 		s_HostRecorded[type]++;
@@ -1153,8 +1158,8 @@ void netEventsHostCatchUp(s32 view)
 
 		// (protocol 29) the explosions still burning, oldest first: the
 		// joiner puts them in at their age (a SURE copy, ticks back)
-		for (i = 0; i < NETEV_SURERING; i++) {
-			const struct netevsure *u = &s_Sure[(s_SureSerial + i) % NETEV_SURERING];
+		for (i = 0; i < NETEV_BOOMRING; i++) {
+			const struct netevsure *u = &s_Boom[(s_BoomN + i) % NETEV_BOOMRING];
 			u8 pre[4];
 
 			if (!u->inuse || u->type != NETEV_EXPLOSION || g_NetTick - u->tick >= u->life || g_NetTick - u->tick > 255
@@ -2628,6 +2633,8 @@ void netEventsStageStart(void)
 	s_HudDupes = 0;
 	memset(s_HostClassMsgs, 0, sizeof(s_HostClassMsgs));
 	memset(s_Sure, 0, sizeof(s_Sure));
+	memset(s_Boom, 0, sizeof(s_Boom));
+	s_BoomN = 0;
 	memset(s_SeenSure, 0, sizeof(s_SeenSure));
 	s_SureSerial = 0;
 	s_SureCopies = s_SureDupes = s_SureCatchUp = 0;
