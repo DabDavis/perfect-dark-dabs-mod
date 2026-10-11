@@ -29,6 +29,7 @@
 #include "net/nettransport.h"
 #include "net/netsnap.h"
 #include "net/netdelta.h"
+#include "net/netcmd.h"
 #include "netint.h"
 
 /**
@@ -66,25 +67,7 @@
 #define NET_PPM_PER_DEPTH  130  // clock trim per 1/256th of a command off target
 #define NET_PPM_MAX        50000
 
-struct netcmd {
-	u32 buttons;
-	s8 sx;
-	s8 sy;
-	s8 rsx;
-	s8 rsy;
-	f32 mdx;
-	f32 mdy;
-	u8 flags;
-	u32 viewtick;            // the host tick the client's puppets were drawn at
-	u8 viewfrac;             // ... and the fraction past it, in 1/256ths (NETCMD_NOVIEW: none)
-	u8 viewdelay;            // how far its render clock sat behind the newest snapshot, 1/8 ticks
-	u8 equip[2];             // NETCMD_EQUIP: the guns a menu put in the hands, right and left (0 none)
-	u8 device[2];            // NETCMD_DEVICE: a device's weapon number, and on or off
-	u16 body[2];             // NETCMD_BODY: the tethered body's facing and travel, 65536ths of a turn
-	u8 bodyflags;            // ... NETBODY_TRAVEL
-};
 
-#define NETCMD_NOVIEW 0xffffffff
 
 // A remote pad on the host
 struct netpadq {
@@ -117,6 +100,7 @@ s32 g_NetRemotePass = 0;
 s32 g_NetPassPlayer = -1;
 
 static struct netpadq s_Pads[MAX_PLAYERS];
+static u32 s_CmdNoBase = 0; // (protocol 30) CMDs dropped: their base command was not here
 
 // a spectator's commands drive nothing: only their snapshot ack is taken,
 // and the newest tick kept for its CMDACK (the clock trim)
@@ -136,6 +120,9 @@ static u32 s_SentTick[NETCMD_RING];
 static s32 s_HaveNewest = 0;
 static u32 s_Newest = 0;
 static u32 s_AckNext = 0;        // the first tick the host does not have
+static u32 s_BaseTick = 0;       // (protocol 30) the newest command the host acked: CMD's base
+static s32 s_HaveBase = 0;
+static u32 s_BaseSince = 0;
 static s32 s_DepthAvg = NET_DEPTH_TARGET;
 static s32 s_Ppm = 0;
 static u32 s_HostTick = 0;
@@ -1118,82 +1105,70 @@ void netPlayersHostSpecGone(s32 view)
  * packet's usercmds: a held stick or button, an unmoved mouse, the same view
  * delay cost nothing. The packet stands alone (no baseline to have acked)
  */
-#define NETCMD_PACKED 32
+/**
+ * (protocol 30) The host keeps every command it took, packed, by tick, per
+ * view: the base a client's next CMD names for its first command (the newest
+ * the host acked), so even that one goes as a delta
+ */
+static u8 s_HostBase[NET_MAXVIEWS][NETCMD_RING][NETCMD_PACKED];
+static u32 s_HostBaseTick[NET_MAXVIEWS][NETCMD_RING]; // tick + 1, 0 none
+static u32 s_HostBaseMatch[NET_MAXVIEWS][NETCMD_RING]; // ... of this match
 
-static void netCmdPack(const struct netcmd *c, u32 tick, u8 *p)
+static void netCmdBaseKeep(s32 view, u32 tick, const u8 *packed)
 {
-	const u32 vt = c->viewtick == NETCMD_NOVIEW ? NETCMD_NOVIEW : tick - c->viewtick;
-	u32 v;
-	s32 i = 0;
-
-	memset(p, 0, NETCMD_PACKED);
-#define PUT8(x) p[i++] = (u8)(x)
-#define PUT32(x) do { v = (u32)(x); PUT8(v); PUT8(v >> 8); PUT8(v >> 16); PUT8(v >> 24); } while (0)
-	PUT32(c->buttons);
-	PUT8(c->sx); PUT8(c->sy); PUT8(c->rsx); PUT8(c->rsy);
-	memcpy(&v, &c->mdx, 4); PUT32(v);
-	memcpy(&v, &c->mdy, 4); PUT32(v);
-	PUT8(c->flags);
-	PUT32(vt);
-	PUT8(c->viewfrac); PUT8(c->viewdelay);
-	PUT8(c->equip[0]); PUT8(c->equip[1]);
-	PUT8(c->device[0]); PUT8(c->device[1]);
-	PUT8(c->body[0]); PUT8(c->body[0] >> 8); PUT8(c->body[1]); PUT8(c->body[1] >> 8);
-	PUT8(c->bodyflags);
-#undef PUT8
-#undef PUT32
+	if (view >= 0 && view < NET_MAXVIEWS) {
+		memcpy(s_HostBase[view][tick % NETCMD_RING], packed, NETCMD_PACKED);
+		s_HostBaseTick[view][tick % NETCMD_RING] = tick + 1;
+		s_HostBaseMatch[view][tick % NETCMD_RING] = netSessionMatchId();
+	}
 }
 
-static void netCmdUnpack(const u8 *p, u32 tick, struct netcmd *c)
+static const u8 *netCmdBaseFind(s32 view, u32 tick)
 {
-	s32 i = 0;
-	u32 v;
-	u32 vt;
-
-#define GET8() (p[i++])
-#define GET32() (i += 4, (u32)p[i - 4] | ((u32)p[i - 3] << 8) | ((u32)p[i - 2] << 16) | ((u32)p[i - 1] << 24))
-	c->buttons = GET32();
-	c->sx = (s8)GET8(); c->sy = (s8)GET8(); c->rsx = (s8)GET8(); c->rsy = (s8)GET8();
-	v = GET32(); memcpy(&c->mdx, &v, 4);
-	v = GET32(); memcpy(&c->mdy, &v, 4);
-	c->flags = GET8();
-	vt = GET32();
-	c->viewtick = vt == NETCMD_NOVIEW ? NETCMD_NOVIEW : tick - vt;
-	c->viewfrac = GET8(); c->viewdelay = GET8();
-	c->equip[0] = GET8(); c->equip[1] = GET8();
-	c->device[0] = GET8(); c->device[1] = GET8();
-	c->body[0] = (u16)(p[i] | (p[i + 1] << 8)); i += 2;
-	c->body[1] = (u16)(p[i] | (p[i + 1] << 8)); i += 2;
-	c->bodyflags = GET8();
-#undef GET8
-#undef GET32
-
-	// the optional fields mean nothing without their flags
-	if (!(c->flags & NETCMD_EQUIP)) {
-		c->equip[0] = c->equip[1] = 0;
+	if (view < 0 || view >= NET_MAXVIEWS || s_HostBaseTick[view][tick % NETCMD_RING] != tick + 1
+			|| s_HostBaseMatch[view][tick % NETCMD_RING] != netSessionMatchId()) {
+		return NULL;
 	}
 
-	if (!(c->flags & NETCMD_DEVICE)) {
-		c->device[0] = c->device[1] = 0;
-	}
-
-	if (!(c->flags & NETCMD_BODY)) {
-		c->body[0] = c->body[1] = 0;
-		c->bodyflags = 0;
-	}
+	return s_HostBase[view][tick % NETCMD_RING];
 }
 
 /**
  * One command off the wire, after prev (the packet's command before it, or
- * NULL for its first): prev holds its packed bytes and takes this one's
+ * for its first, the base the CMD named, or zeros): prev holds its packed
+ * bytes and takes this one's
  */
-static void netCmdRead(struct netbuf *b, struct netcmd *c, u32 tick, u8 *prev, s32 first)
+static void netCmdRead(struct netbuf *b, struct netcmd *c, u32 tick, u8 *prev, const u8 *firstbase, s32 first, s32 view)
 {
 	u8 cur[NETCMD_PACKED];
 
-	netDeltaRead(b, first ? NULL : prev, cur, NETCMD_PACKED);
+	netDeltaRead(b, first ? firstbase : prev, cur, NETCMD_PACKED);
 	memcpy(prev, cur, NETCMD_PACKED);
 	netCmdUnpack(cur, tick, c);
+
+	if (netBufOk(b)) {
+		netCmdBaseKeep(view, tick, cur);
+	}
+}
+
+// CMD's base tick: the command the first is delta'd against (0xffffffff none)
+static const u8 *netCmdReadBase(struct netbuf *b, s32 view)
+{
+	const u32 basetick = netBufReadU32(b);
+	const u8 *base;
+
+	if (basetick == 0xffffffff) {
+		return NULL;
+	}
+
+	base = netCmdBaseFind(view, basetick);
+
+	if (!base) {
+		s_CmdNoBase++;
+		b->error = 1; // dropped: the commands come again in the next CMD
+	}
+
+	return base;
 }
 
 /**
@@ -1225,11 +1200,12 @@ void netPlayersHostSpecCmd(s32 view, struct netbuf *b)
 
 	{
 		u8 prev[NETCMD_PACKED];
+		const u8 *base = netCmdReadBase(b, view);
 
 		for (i = 0; i < count && netBufOk(b); i++) {
 			struct netcmd c;
 
-			netCmdRead(b, &c, first + (u32)i, prev, i == 0);
+			netCmdRead(b, &c, first + (u32)i, prev, base, i == 0, view);
 		}
 	}
 
@@ -1263,6 +1239,7 @@ static void netPlayersLogSlot(s32 slot, const char *why)
 	sysLogPrintf(LOG_NOTE, "net: slot %d commands %s: played %u (ticks 0..%d in order, %u out of order), folded %u, dry %u, lost %u, fire presses %u, mean depth %.2f",
 			slot, why, q->played, q->lastplayed, q->outoforder, q->folded, q->dry, q->lost, q->presses,
 			q->played + q->dry ? (f32)q->depthsum / (f32)(q->played + q->dry - q->folded) : 0.f);
+	sysLogPrintf(LOG_NOTE, "net: commands host %s: CMDs dropped for a base not here %u (all views)", why, s_CmdNoBase);
 }
 
 /**
@@ -1352,9 +1329,10 @@ void netPlayersHostOnCmd(s32 slot, struct netbuf *b)
 	}
 
 	u8 prev[NETCMD_PACKED];
+	const u8 *base = netCmdReadBase(b, slot);
 
 	for (i = 0; i < count && netBufOk(b); i++) {
-		netCmdRead(b, &cmds[i], first + (u32)i, prev, i == 0);
+		netCmdRead(b, &cmds[i], first + (u32)i, prev, base, i == 0, slot);
 
 		// nothing from the wire is trusted: a mouse that is not a number,
 		// or a turn of more than a whole screen in one tick, is none
@@ -1612,6 +1590,7 @@ void netPlayersClientMatchStart(s32 pad)
 	s_HaveNewest = 0;
 	s_Newest = 0;
 	s_AckNext = 0;
+	s_HaveBase = 0;
 	s_DepthAvg = NET_DEPTH_TARGET;
 	s_Ppm = 0;
 	s_PpmMin = 0;
@@ -1899,6 +1878,33 @@ u32 netPlayersClientNewest(void)
 	return s_HaveNewest ? s_Newest : 0;
 }
 
+// the measure the codec was picked by: Quake 3's field masks (2 bytes, then
+// each field that differs whole) against the XOR-delta's bytes
+static u64 s_CmdBytesDelta = 0, s_CmdBytesMask = 0, s_CmdCount = 0, s_CmdPktBytes = 0;
+
+static s32 netCmdMaskSize(const u8 *base, const u8 *cur)
+{
+	static const u8 fsz[15] = { 4, 1, 1, 1, 1, 4, 4, 1, 4, 1, 1, 2, 2, 4, 1 };
+	static const u8 zero[NETCMD_PACKED];
+	s32 n = 2;
+	s32 off = 0;
+	s32 k;
+
+	if (!base) {
+		base = zero;
+	}
+
+	for (k = 0; k < 15; k++) {
+		if (memcmp(base + off, cur + off, fsz[k]) != 0) {
+			n += fsz[k];
+		}
+
+		off += fsz[k];
+	}
+
+	return n;
+}
+
 static void netPlayersClientSend(void)
 {
 	struct netbuf b;
@@ -1932,16 +1938,40 @@ static void netPlayersClientSend(void)
 	{
 		u8 prev[NETCMD_PACKED];
 		u8 cur[NETCMD_PACKED];
+		// (protocol 30) the first against the newest command the host
+		// acked, which it keeps; none while there is none in reach
+		// (a base that has not moved for half a second may be one the host
+		// never had - a tick it gave up on as lost: a keyframe then)
+		const s32 hasbase = s_HaveBase && s_BaseTick < first && s_Newest - s_BaseTick < NETCMD_RING - NET_MAXCMDSEND
+			&& g_NetTick - s_BaseSince < 30;
+
+		netBufWriteU32(&b, hasbase ? s_BaseTick : 0xffffffff);
+
+		if (hasbase) {
+			netCmdPack(&s_Sent[s_BaseTick % NETCMD_RING], s_BaseTick, prev);
+		}
 
 		for (t = first; t <= s_Newest; t++) {
+			const s32 at = netBufLen(&b);
+
 			netCmdPack(&s_Sent[t % NETCMD_RING], t, cur);
-			netDeltaWrite(&b, cur, t == first ? NULL : prev, NETCMD_PACKED);
+			netDeltaWrite(&b, cur, t == first && !hasbase ? NULL : prev, NETCMD_PACKED);
+			s_CmdBytesDelta += netBufLen(&b) - at;
+			s_CmdBytesMask += netCmdMaskSize(t == first && !hasbase ? NULL : prev, cur);
+			s_CmdCount++;
 			memcpy(prev, cur, NETCMD_PACKED);
 		}
 	}
 
 	if (netSessionSendServer(NET_CHAN_UNRELIABLE, s_CmdBuf, netBufLen(&b), 0) == 0) {
 		s_CmdsSent++;
+		s_CmdPktBytes += netBufLen(&b);
+	}
+
+	if (g_NetTick % 1800 == 0 && s_CmdCount) {
+		sysLogPrintf(LOG_NOTE, "net: commands codec so far (tick %u): %llu commands in %u packets, %llu bytes of packets; commands %.1f bytes each as deltas (field masks would be %.1f, whole 25)",
+				g_NetTick, (unsigned long long)s_CmdCount, s_CmdsSent, (unsigned long long)s_CmdPktBytes,
+				(f64)s_CmdBytesDelta / s_CmdCount, (f64)s_CmdBytesMask / s_CmdCount);
 	}
 }
 
@@ -1962,6 +1992,13 @@ void netPlayersClientOnAck(struct netbuf *b)
 
 	if (ack != 0xffffffff && ack + 1 > s_AckNext && ack <= s_Newest) {
 		s_AckNext = ack + 1;
+	}
+
+	// (protocol 30) the newest acked command, the base of the next CMD
+	if (ack != 0xffffffff && ack <= s_Newest && (!s_HaveBase || ack > s_BaseTick)) {
+		s_BaseTick = ack;
+		s_BaseSince = g_NetTick;
+		s_HaveBase = 1;
 	}
 
 	// time dilation: run fast while the host's queue is short, slow while

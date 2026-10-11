@@ -774,3 +774,148 @@ s32 snapTestHostile(void)
 
 	return fails;
 }
+
+/*
+ * (protocol 30) The commands' codec: a client's CMD body (each command
+ * packed and XOR-delta'd against the one before it, the first against the
+ * host's acked base or zeros) read back by the host decodes to exactly the
+ * commands sent, field for field
+ */
+#include "net/netcmd.h"
+#include "net/netproto.h"
+
+s32 cmdTestCodec(void)
+{
+	const char *name = "commands codec";
+	static struct netcmd sent[256];
+	u8 pkt[2048];
+	s32 fails = 0;
+	s32 step;
+	u64 bytes = 0;
+	u64 cmds = 0;
+	u64 maskbytes = 0;
+	s32 i;
+
+	for (i = 0; i < 256; i++) {
+		struct netcmd *c = &sent[i];
+		const struct netcmd *p = i ? &sent[i - 1] : NULL;
+
+		memset(c, 0, sizeof(*c));
+		// held for a while, then changed: a player's hands
+		c->buttons = p && srnd() % 8 ? p->buttons : (u32)srnd() & 0xffff;
+		c->sx = p && srnd() % 4 ? p->sx : (s8)(srnd() % 160 - 80);
+		c->sy = p && srnd() % 4 ? p->sy : (s8)(srnd() % 160 - 80);
+		c->mdx = srnd() % 3 ? 0 : srndf(-20, 20);
+		c->mdy = srnd() % 3 ? 0 : srndf(-20, 20);
+		c->flags = (u8)(NETCMD_MOUSELOCKED | (srnd() % 20 == 0 ? NETCMD_EQUIP : 0) | (srnd() % 30 == 0 ? NETCMD_DEVICE : 0)
+				| (srnd() % 2 ? NETCMD_BODY : 0));
+		c->viewtick = i < 5 ? NETCMD_NOVIEW : 1000 + (u32)i - 7 - (u32)(srnd() % 2);
+		c->viewfrac = (u8)srnd();
+		c->viewdelay = (u8)(40 + srnd() % 3);
+
+		if (c->flags & NETCMD_EQUIP) {
+			c->equip[0] = (u8)srnd();
+			c->equip[1] = (u8)srnd();
+		}
+
+		if (c->flags & NETCMD_DEVICE) {
+			c->device[0] = (u8)srnd();
+			c->device[1] = (u8)(srnd() & 1);
+		}
+
+		if (c->flags & NETCMD_BODY) {
+			c->body[0] = (u16)srnd();
+			c->body[1] = (u16)srnd();
+			c->bodyflags = (u8)(srnd() & 1);
+		}
+	}
+
+	for (step = 0; step < 4000; step++) {
+		// a window of 1-16 unacked commands, and a base some ticks before it (or none)
+		const s32 count = 1 + srnd() % NET_MAXCMDSEND;
+		const s32 first = 20 + srnd() % (256 - 20 - count);
+		const s32 basetick = srnd() % 5 == 0 ? -1 : first - 1 - srnd() % 12;
+		struct netbuf b;
+		u8 prev[NETCMD_PACKED];
+		u8 cur[NETCMD_PACKED];
+		s32 t;
+
+		netBufInitWrite(&b, pkt, sizeof(pkt));
+
+		if (basetick >= 0) {
+			netCmdPack(&sent[basetick], 1000 + basetick, prev);
+		}
+
+		for (t = first; t < first + count; t++) {
+			netCmdPack(&sent[t], 1000 + t, cur);
+			netDeltaWrite(&b, cur, t == first && basetick < 0 ? NULL : prev, NETCMD_PACKED);
+			memcpy(prev, cur, NETCMD_PACKED);
+		}
+
+		bytes += netBufLen(&b);
+		cmds += count;
+
+		// for comparison only: Quake 3's way, a 2-byte mask of the fields
+		// that differ from the command before and those fields whole
+		{
+			static const u8 fsz[15] = { 4, 1, 1, 1, 1, 4, 4, 1, 4, 1, 1, 2, 2, 4, 1 };
+			u8 a[NETCMD_PACKED];
+			u8 c2[NETCMD_PACKED];
+			s32 k;
+
+			memset(a, 0, sizeof(a));
+
+			if (basetick >= 0) {
+				netCmdPack(&sent[basetick], 1000 + basetick, a);
+			}
+
+			for (t = first; t < first + count; t++) {
+				s32 off = 0;
+
+				netCmdPack(&sent[t], 1000 + t, c2);
+				maskbytes += 2;
+
+				for (k = 0; k < 15; k++) {
+					if (memcmp(a + off, c2 + off, fsz[k]) != 0) {
+						maskbytes += fsz[k];
+					}
+
+					off += fsz[k];
+				}
+
+				memcpy(a, c2, sizeof(a));
+			}
+		}
+
+		// the host's read, its base from its own copy of that command
+		netBufInitRead(&b, pkt, netBufLen(&b));
+
+		if (basetick >= 0) {
+			netCmdPack(&sent[basetick], 1000 + basetick, prev);
+		}
+
+		for (t = first; t < first + count; t++) {
+			struct netcmd got;
+			const struct netcmd *want = &sent[t];
+
+			netDeltaRead(&b, t == first && basetick < 0 ? NULL : prev, cur, NETCMD_PACKED);
+			memcpy(prev, cur, NETCMD_PACKED);
+			netCmdUnpack(cur, 1000 + t, &got);
+
+			SCHECK(got.buttons == want->buttons && got.sx == want->sx && got.sy == want->sy
+					&& got.rsx == want->rsx && got.rsy == want->rsy && got.flags == want->flags
+					&& memcmp(&got.mdx, &want->mdx, 4) == 0 && memcmp(&got.mdy, &want->mdy, 4) == 0
+					&& got.viewtick == want->viewtick
+					&& got.viewfrac == want->viewfrac && got.viewdelay == want->viewdelay
+					&& memcmp(got.equip, want->equip, 2) == 0 && memcmp(got.device, want->device, 2) == 0
+					&& got.body[0] == want->body[0] && got.body[1] == want->body[1] && got.bodyflags == want->bodyflags);
+		}
+
+		SCHECK(netBufOk(&b) && netBufRemaining(&b) == 0);
+	}
+
+	printf("  commands: %llu sent in %llu bytes, %.1f bytes a command (was 25 whole; field masks would be %.1f)\n",
+			(unsigned long long)cmds, (unsigned long long)bytes, cmds ? (f64)bytes / cmds : 0.0, cmds ? (f64)maskbytes / cmds : 0.0);
+
+	return fails;
+}

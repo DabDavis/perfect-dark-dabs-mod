@@ -174,9 +174,10 @@
 //    events apart"): SNAP ends in a marks block (the host's wall-hit pool,
 //    a u16 serial per slot, delta'd, and up to 3 records of 74 bytes a
 //    snapshot), which replaces MARKS (27, gone); a client draws no bg mark
-//    but its own shots' bullet holes; CMD's commands are packed to 32 bytes
-//    and each XOR-delta'd against the one before it in the packet (the
-//    first against zeros); the world block grows to 352 bytes, the players
+//    but its own shots' bullet holes; CMD names a base tick (the newest
+//    command the host acked) and its commands are packed to 32 bytes, the
+//    first XOR-delta'd against the base, each after it against the one
+//    before (port/src/net/netcmd.c); the world block grows to 352 bytes, the players
 //    list's pings at 320, and PLAYERS goes only when the spectators change
 #define NET_PROTOCOL_VERSION 30
 
@@ -645,9 +646,16 @@
  *                                 needs again (its local prop went stale)
  *   u32     first                 the first command's tick
  *   u8      count                 1..NET_MAXCMDSEND
+ *   u32     basetick              (protocol 30) the command the first is
+ *                                 delta'd against: the newest the host acked
+ *                                 (it keeps every command it took, by tick,
+ *                                 per view), 0xffffffff none (zeros); a CMD
+ *                                 whose base the host has not got is dropped
+ *                                 (the client keyframes when its base has not
+ *                                 moved for 30 ticks)
  *   per command, ticks first, first+1, ...: (protocol 30) a netdelta of its
  *     32 packed bytes against the command before it in this packet (the
- *     first against zeros): u32 buttons, s8 x4, f32 mdx, mdy, u8 flags, u32
+ *     first against basetick's): u32 buttons, s8 x4, f32 mdx, mdy, u8 flags, u32
  *     tick - viewtick (0xffffffff none), u8 viewfrac, viewdelay, u8
  *     equip[2], u8 device[2], u16 body[2], u8 bodyflags (0 where the flag is
  *     clear); before 30 each command's fields as follows, whole:
