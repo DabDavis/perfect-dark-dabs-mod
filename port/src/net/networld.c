@@ -217,9 +217,12 @@ void netWorldClientDoorGlass(struct doorobj *door, s32 fresh)
 	s_ClDoorGlass++;
 }
 
+// A pane broken: freed for good (a mission), being freed, or in a match
+// waiting to regenerate (propExecuteTickOperation: OBJHFLAG_GONE with
+// timetoregen, OBJH2FLAG_DESTROYED cleared again)
 static s32 netWorldGlassGone(struct defaultobj *obj)
 {
-	return (obj->hidden2 & OBJH2FLAG_DESTROYED) || (obj->hidden & OBJHFLAG_DELETING) || obj->prop == NULL
+	return (obj->hidden2 & OBJH2FLAG_DESTROYED) || (obj->hidden & (OBJHFLAG_DELETING | OBJHFLAG_GONE)) || obj->prop == NULL
 		|| obj->prop->obj != obj;
 }
 
