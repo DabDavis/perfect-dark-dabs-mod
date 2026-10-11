@@ -1124,7 +1124,19 @@ before = bg()
 gdb.execute("call (void)setCurrentPlayerNum(0)")
 gdb.execute("call (void)playerDie(1)")
 print("STAGE gebunker: the host's player killed at tick %d" % i("g_NetTick"))
-brk(2150)
+# the new life comes when the death's animation has played out and the
+# fade is black: GoldenEye's death animations are dealt at random (the
+# host's RNG, so a run's pick varies with the clients' timing) and run 68
+# to 120-odd frames, which put the new life anywhere from about tick 1990
+# to past 2170 - a fixed look at 2150 failed half the runs that dealt a
+# long one. Wait for it (to tick 3000) and say when it came.
+brk(1700)
+anim = i("modelGetAnimNum(&g_Vars.players[0]->model)")
+t = 1700
+while i("g_Vars.players[0]->isdead") and t < 3000:
+    t += 10
+    brk(t)
+print("STAGE gebunker: the host's new life at tick %d (death animation %d)" % (i("g_NetTick"), anim))
 after = bg()
 print("STAGE gebunker: lists (chrnum:p1p2@list) before %s" % before)
 print("STAGE gebunker: lists after the new life %s (player 0 dead %d)" % (after, i("g_Vars.players[0]->isdead")))
@@ -1134,13 +1146,13 @@ case_gebunker() {
 	local name=gebunker port=$((PORT + 12)) H=$OUT/gebunker-host.log C=$OUT/gebunker-client.log
 	echo "== $name"
 	game gebunker-host 300 '[Mod]\nMapMods=GoldenEye Arenas\nMissionRespawn=1\nMissionLives=0\n' --host "$port" --net-test-host 1 --rng-seed 7 \
-		--net-test-coop 4 --net-test-coop-game ge --exit-frame 3000 &
+		--net-test-coop 4 --net-test-coop-game ge --exit-frame 3600 &
 	local host=$!
 	waitfor "$H" "net: hosting on UDP port\|cannot be played online" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; return; }
 	if grep -q "cannot be played online" "$H"; then
 		echo "skip $name: GoldenEye is not converted here"; kill -TERM $host; wait $host; return
 	fi
-	game gebunker-client 290 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join --exit-frame 2800 --net-test-equip 1000,0x7d &
+	game gebunker-client 290 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join --exit-frame 3400 --net-test-equip 1000,0x7d &
 	local client=$!
 	waitfor "$C" "net: match 1: GO" 150 || echo "     no GO on the client"
 	local hp; hp=$(gamepid gebunker-host)
@@ -1153,7 +1165,7 @@ case_gebunker() {
 	crashed "$C" && fail "$name: the client crashed" || { [ "$cx" = 0 ] && pass "$name: client ran to the end" || fail "$name: client exit $cx"; }
 	grep -q "net: co-op: starting Bunker (GoldenEye, index 4" "$H" && pass "$name: the host started Bunker" || fail "$name: the host did not start Bunker"
 	grep -q "net: co-op: player 0 died (the mission's death 1, tick [0-9]*): a new life" "$H" && pass "$name: the host's death comes back" || fail "$name: no new life for the host's death"
-	grep -q "STAGE gebunker: lists after the new life [0-9:@a-f ]*(player 0 dead 0)" "$OUT/stage.log" && pass "$name: the host's player back by tick 2150" || fail "$name: the host's player not back by tick 2150"
+	grep -q "STAGE gebunker: lists after the new life [0-9:@a-f ]*(player 0 dead 0)" "$OUT/stage.log" && pass "$name: $(grep -o "the host's new life at tick.*" "$OUT/stage.log" | head -1)" || fail "$name: the host's player not back by tick 3000"
 	grep "STAGE gebunker: lists after" "$OUT/stage.log" | grep -q ":[1-9][0-9]*@" && fail "$name: a list's Bond moved off the host's player: $(grep -o 'lists after.*' "$OUT/stage.log" | head -1)"
 	grep -q "STAGE gebunker: lists unchanged" "$OUT/stage.log" && pass "$name: no list took the death for Bond's end" || fail "$name: a list moved on the death: $(grep -o 'lists after.*' "$OUT/stage.log" | head -1)"
 	grep -q "STAGE gebunker: the mainframe used by a co-op player at tick [0-9]*, player 1 holding 0x7d, Bond player 0" "$OUT/stage.log" && pass "$name: the client held the data thief, Bond the host's player" || fail "$name: the client did not hold the data thief"
