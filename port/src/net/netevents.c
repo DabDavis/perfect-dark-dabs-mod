@@ -2486,8 +2486,16 @@ void netEventsClientDrain(s32 haveclock, f64 rt)
 			s_NextKill += NETEV_KILLEVERY;
 		}
 
-		// the scenario's blocks from before this tick first (netscen.c)
-		netScenClientBeforeEvent(e->tick);
+		// the scenario's blocks from before this tick first (netscen.c).
+		// Only before a GAME event: its channel is ordered, so one of a later
+		// tick says every GAME event before it is in, which netscen.c's
+		// strict apply leans on; a SHOT or SURE event of a later tick comes
+		// on a channel of its own and says nothing of a death resent behind
+		// it (netscenariotest pacloss, merge/batch56: a block of tick 829
+		// applied before the resent death of 828)
+		if (netEvClassOf(e->type) == NETEV_GAME) {
+			netScenClientBeforeEvent(e->tick);
+		}
 		netEvApply(e, rt);
 		s_QHead = (s_QHead + 1) % NETEV_QUEUE;
 		s_QCount--;
