@@ -1839,7 +1839,7 @@ void netLagCompBlastNote(s32 expindex, s32 type, s32 owner, struct coord *pos)
 		f32 rz;
 		s32 slot;
 
-		if (i == owner || !prop || !prop->chr || g_Vars.players[i]->isdead) {
+		if (!prop || !prop->chr || g_Vars.players[i]->isdead) {
 			continue;
 		}
 
@@ -1847,7 +1847,7 @@ void netLagCompBlastNote(s32 expindex, s32 type, s32 owner, struct coord *pos)
 		rz = prop->pos.z;
 		slot = netLcSlotOf(prop->chr);
 
-		if (would > 0 && slot >= 0 && s_Hist && netLcPoseAt(prop->chr, slot, (f64)g_NetTick - would, &pose)) {
+		if (would > 0 && i != owner && slot >= 0 && s_Hist && netLcPoseAt(prop->chr, slot, (f64)g_NetTick - would, &pose)) {
 			rx = pose.pos[0];
 			rz = pose.pos[2];
 		}

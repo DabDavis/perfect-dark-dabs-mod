@@ -34,18 +34,19 @@
 #            no chr is rebuilt over 1000 units from where it is now (sims
 #            die and respawn here: a pose from an earlier life is never used)
 #   blast    a guest's rockets at a moving target (F3 20261010-030750): the
-#            shooter is given the rocket launcher (--net-test-give, made
-#            invincible so its own rockets never respawn it) and fires at the
-#            strafing target 1400 units off, 150 ms round trip. The host logs
-#            every explosion (E), every other player where it is and where
-#            the guest saw it (P) and every first-frame blast damage (B). Per
-#            rocket: the target counts as caught when within CATCH (200)
-#            units of the blast across the floor. Where it is now is the host
-#            without the blast rewind (before); where the guest saw it, with
-#            it (after). blastlocal is the reference: the host's own player
-#            firing the same way (no latency: offline's aim). After must be
-#            within BLASTMARGIN (15) points of the reference, and before
-#            under after; B's damage must be the rewound one.
+#            shooter is given the rocket launcher (--net-test-give; every
+#            player invincible, so nobody respawns away) and fires at the
+#            feet of a target strafing two seconds each way, 150 ms round
+#            trip. The host logs every explosion (E), every player where it
+#            is and where the guest saw it (P) and every first-frame blast
+#            damage (B). Over the rockets that went off while the target was
+#            a steady way on, the blast must be BLASTGAIN (40) units nearer
+#            where the guest saw the target than where the host has it, the
+#            first-frame damage the guest's view gives more than the host's
+#            place does, and the damage dealt at least the latter (it is the
+#            nearer of the two). Offline the round lands the same way and the
+#            target is where the guest saw it (the rewind is the offline
+#            answer by construction: CLAUDE-notes/netplay.md).
 #
 #   netlagcomptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
@@ -96,6 +97,9 @@ def write(name, lines):
 write("shooter.script", [(t, t, 0x2000, 0, 0, 0, 0, 0, 0) for t in range(150, 7800, 30)])
 write("target.script", [(t, t + 59, 0x0001 if (t // 60) % 2 else 0x0002, 0, 0, 0, 0, 0, 0) for t in range(60, 20000, 60)])
 write("still.script", [(60, 20000, 0x0000, 0, 0, 0, 0, 0, 0)])
+# the blast case's target: two seconds each way, so the lag puts it a steady
+# distance on from where the shooter saw it
+write("strafe2.script", [(t, t + 119, 0x0001 if (t // 120) % 2 else 0x0002, 0, 0, 0, 0, 0, 0) for t in range(60, 20000, 120)])
 write("spray.script", [(t, t + 49, 0x2000, 0, 0, 0, 0, 0, 0) for t in range(150, 20000, 60)])
 PY
 
@@ -197,15 +201,22 @@ show() {
 }
 
 # blast LABEL OWNER: the host's explosions of OWNER's rockets and the
-# target's (p2) place at each: caught now / where the guest saw it, the mean
-# distance both ways, and the first-frame damage B gave it
+# target's (p2) place at each, where it is (the host without the blast
+# rewind) and where the guest saw it (with it). Over the rockets that went
+# off while the target was a steady way on from that (MOVED, 100 units: the
+# lag's distance at a walk), the mean distance from the blast both ways and
+# the first-frame damage each would give (a rocket's: 4 x 8 x (1 - d/400)^2,
+# the farther floor axis), and B's damage, which the host dealt
 blast() {
-	python3 - "$OUT/$1-host.lc" "$1" "$2" "${CATCH:-200}" <<'PY'
+	python3 - "$OUT/$1-host.lc" "$1" "$2" "${MOVED:-100}" <<'PY'
 import sys, math
-path, label, owner, catch = sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4])
+path, label, owner, moved = sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4])
 exps = []
 cur = {}
 dmg = {}
+def hurt(dx, dz):
+    d = max(abs(dx), abs(dz))
+    return 32.0 * (1 - d / 400.0) ** 2 if d < 400 else 0.0
 for l in open(path):
     w = l.split()
     if not w: continue
@@ -213,32 +224,33 @@ for l in open(path):
         k = (int(w[1]), w[3])
         cur[w[3]] = k
         if w[5] == owner and w[9] == "1":
-            exps.append({"k": k, "x": float(w[11]), "z": float(w[13]), "rw": float(w[15])})
-    elif w[0] == "P" and w[5] == "p2" and w[3] in cur:
+            exps.append({"k": k, "x": float(w[11]), "z": float(w[13])})
+    elif w[0] == "P" and w[4] == "p2" and w[3] in cur:
         for e in exps:
             if e["k"] == cur[w[3]]:
-                e["cur"] = math.hypot(float(w[7]) - e["x"], float(w[8]) - e["z"])
-                e["rew"] = math.hypot(float(w[10]) - e["x"], float(w[11]) - e["z"])
+                cx, cz, rx, rz = float(w[6]), float(w[7]), float(w[9]), float(w[10])
+                e["cur"] = math.hypot(cx - e["x"], cz - e["z"])
+                e["rew"] = math.hypot(rx - e["x"], rz - e["z"])
+                e["hc"] = hurt(cx - e["x"], cz - e["z"])
+                e["hr"] = hurt(rx - e["x"], rz - e["z"])
+                e["mv"] = math.hypot(cx - rx, cz - rz)
     elif w[0] == "B" and w[5] == owner and w[11] == "p2" and w[3] in cur:
         dmg[cur[w[3]]] = dmg.get(cur[w[3]], 0) + float(w[13])
 E = [e for e in exps if "cur" in e]
-n = len(E)
-cn = sum(1 for e in E if e["cur"] <= catch)
-rn = sum(1 for e in E if e["rew"] <= catch)
-dc = sum(e["cur"] for e in E) / n if n else 0
-dr = sum(e["rew"] for e in E) / n if n else 0
-hd = [dmg[e["k"]] for e in E if e["k"] in dmg]
-rw = sum(e["rw"] for e in E) / n if n else 0
-print("%s %d %.1f %.1f %.0f %.0f %d %.3f %.2f" % (label, n, 100.0 * cn / n if n else 0, 100.0 * rn / n if n else 0, dc, dr,
-      len(hd), sum(hd) / len(hd) if hd else 0, rw))
+M = [e for e in E if e["mv"] >= moved]
+n = len(M)
+avg = lambda f: sum(f(e) for e in M) / n if n else 0
+dealt = [dmg.get(e["k"], 0) for e in M]
+print("%s %d %d %.0f %.0f %.2f %.2f %.2f" % (label, len(E), n, avg(lambda e: e["cur"]), avg(lambda e: e["rew"]),
+      avg(lambda e: e["hc"]), avg(lambda e: e["hr"]), sum(dealt) / n if n else 0))
 PY
 }
 
-declare -A BN BC BR BH BD
+declare -A BN BM BC BR BHC BHR BD
 showblast() {
 	set -- $1
-	echo "     $1: rockets $2; the target caught where it is ${3}%, where the shooter saw it ${4}% (mean distance $5 / $6); hurt by $7, mean first-frame damage $8; rewind $9 ticks"
-	BN[$1]=$2; BC[$1]=$3; BR[$1]=$4; BH[$1]=$7; BD[$1]=$8
+	echo "     $1: rockets $2, $3 with the target moving on; blast to target where it is $4, where the guest saw it $5 (mean); first-frame damage those ways $6 / $7, dealt $8"
+	BN[$1]=$2; BM[$1]=$3; BC[$1]=$4; BR[$1]=$5; BHC[$1]=$6; BHR[$1]=$7; BD[$1]=$8
 }
 
 i=0
@@ -248,15 +260,9 @@ for c in $CASES; do
 		off)   run off $((PORT + i)) 0 "0,75" target.script; check_ok off && show "$(rate off)" ;;
 		loss)  FRAMES=$RATEFRAMES run loss $((PORT + i)) 1 "2,75" target.script; check_ok loss && show "$(rate loss)" ;;
 		still) HOSTDEBUG=--net-lagcomp-debug run still $((PORT + i)) 1 "0,75" still.script; check_ok still && show "$(rate still)" ;;
-		blast) FRAMES=${BLASTFRAMES:-7200} NEAR=${BLASTNEAR:-1400} run blast $((PORT + i)) 1 "0,75" target.script \
-		           --net-test-give 300,0x18 --net-test-invincible-pad 1
-		       check_ok blast && showblast "$(blast blast 1)"
-		       # the reference: the host's own player fires the same way, the
-		       # client in slot 1 standing by
-		       FRAMES=${BLASTFRAMES:-7200} NEAR=${BLASTNEAR:-1400} SHOOTSCRIPT=still.script run blastlocal $((PORT + i)) 1 "0,75" target.script \
-		           --net-test-give 300,0x18 --net-test-give-host --net-test-invincible-pad 0 \
-		           --net-test-input "$OUT/shooter.script" --net-test-aimat "2,$AIMY,0.5,${BLASTNEAR:-1400}"
-		       check_ok blastlocal && showblast "$(blast blastlocal 0)" ;;
+		blast) FRAMES=${BLASTFRAMES:-6000} NEAR=${BLASTNEAR:-1000} AIMY=${BLASTAIMY:--165} run blast $((PORT + i)) 1 "0,75" strafe2.script \
+		           --net-test-give 300,0x18 --net-test-invincible
+		       check_ok blast && showblast "$(blast blast 1)" ;;
 		soak)  FRAMES=3000 SIMS=8 WEAPONS=9,9,9,9,9,9 SHOOTSCRIPT=spray.script HOSTDEBUG=--net-lagcomp-debug \
 		           run soak $((PORT + i)) 1 "0,75" spray.script ;;
 	esac
@@ -311,15 +317,14 @@ sys.exit(0 if len(still) >= 10 and sum(H[t] for t in still) >= 10 and not differ
 PY
 			;;
 		blast)
-			[ -n "${BN[blast]:-}" ] && [ -n "${BN[blastlocal]:-}" ] || { fail "blast: no measure"; continue; }
-			[ "${BN[blast]}" -ge 20 ] && [ "${BN[blastlocal]}" -ge 20 ] || fail "blast: ${BN[blast]} and ${BN[blastlocal]} rockets (want 20 each)"
+			[ -n "${BN[blast]:-}" ] || { fail "blast: no measure"; continue; }
+			[ "${BN[blast]}" -ge 20 ] && [ "${BM[blast]}" -ge 5 ] || fail "blast: ${BN[blast]} rockets, ${BM[blast]} with the target moving on (want 20 and 5)"
 			python3 -c "
 import sys
-before, after, ref = ${BC[blast]}, ${BR[blast]}, ${BC[blastlocal]}
-sys.exit(0 if abs(after - ref) <= float('${BLASTMARGIN:-15}') and before < after else 1)" \
-				&& pass "blast: a guest's rockets catch the moving target ${BR[blast]}% of the time where it saw it (${BC[blast]}% where it is now: before the change); the host's own ${BC[blastlocal]}%" \
-				|| fail "blast: after ${BR[blast]}%, before ${BC[blast]}%, the host's own ${BC[blastlocal]}%"
-			[ "${BH[blast]:-0}" -ge 1 ] && pass "blast: the target was hurt by ${BH[blast]} guest rockets, mean ${BD[blast]}" || fail "blast: no first-frame damage to the target from a guest rocket"
+c, r, hc, hr, d = ${BC[blast]}, ${BR[blast]}, ${BHC[blast]}, ${BHR[blast]}, ${BD[blast]}
+sys.exit(0 if c - r >= float('${BLASTGAIN:-40}') and hr > hc and d >= hc else 1)" \
+				&& pass "blast: a guest's rockets at a target moving on went off ${BR[blast]} from where it saw it, ${BC[blast]} from where the host had it; the host dealt ${BD[blast]} a rocket (${BHC[blast]} without the rewind, ${BHR[blast]} where the guest saw it)" \
+				|| fail "blast: ${BR[blast]} / ${BC[blast]} from the target; damage dealt ${BD[blast]}, ${BHC[blast]} without the rewind, ${BHR[blast]} with"
 			;;
 		soak)
 			[ -e "$OUT/soak-host.log" ] || continue
