@@ -245,7 +245,7 @@ const u8 *netWorldHostBlock(void); // NULL outside a match
 s32 netWorldGlassCovered(struct defaultobj *obj); // the world block carries this glass (no GLASS event)
 void netWorldHostStorm(struct coord *pos);        // nbombCreateStorm on the host
 void netWorldHostGas(struct coord *pos);          // gasReleaseFromPos on the host
-void netWorldClientOnSnap(u32 hosttick, const u8 *world);
+void netWorldClientOnSnap(u32 hosttick, const u8 *world, const u16 *marks, s32 nmarks);
 void netWorldClientUpTo(f64 rt);  // every block the render clock has reached
 s32 netWorldObjDeformed(struct defaultobj *obj);  // drawn with objDeform's vertices
 s32 netWorldDoorGlassOut(struct doorobj *door);   // a windowed door's pane gone
@@ -255,8 +255,11 @@ void netWorldClientDoorGlass(struct doorobj *door, s32 fresh);       // a DOOR r
 void netWorldLog(const char *why);
 s32 netWorldLensOut(struct defaultobj *obj);  // a camera's lens shot out (OBJ NETOBJ_LENSGONE)
 void netWorldClientLens(struct defaultobj *obj, s32 out, s32 fresh);
-void netWorldHostSendMarks(s32 view);  // a joiner: the host's marks on the walls and floors (MARKS)
-void netWorldClientOnMarks(const u8 *data, s32 len);
+s32 netWorldHostMarks(const u16 **ser, const u8 **rec); // (protocol 30) the host's marks by pool slot: the slot count
+void netWorldClientMarkRecs(const u16 *marks, s32 nslots, const u16 *slots, const u8 (*recs)[74], s32 n);
+s32 netEventsApplying(void);
+void netSessionHostPings(u8 *out);       // (protocol 30) the world block's 32 bytes of pings
+void netSessionClientPings(const u8 *in);      // netevents.c: an event being applied
 
 // netpuppets.c
 void netPuppetsStageStart(void);  // the client's match stage began (after netEntsStageStart)

@@ -690,6 +690,7 @@ add_executable(pd-nettest EXCLUDE_FROM_ALL
   "${CMAKE_SOURCE_DIR}/tools/nettest/nettesthostile.c"
   "${CMAKE_SOURCE_DIR}/tools/nettest/nettestsnap.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/netsnap.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/netcmd.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/netdelta.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/nettransport.c"

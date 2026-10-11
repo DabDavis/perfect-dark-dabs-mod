@@ -361,7 +361,18 @@ void netLpUnpack(const u8 *in, struct netlpstate *out);
  * as the render clock reaches its tick, never held for an event (networld.c;
  * layout in netproto.h, SNAP)
  */
-#define NETWORLD_SIZE 320
+#define NETWORLD_SIZE 352 // protocol 30 (was 320): the players list's pings at 320
+
+/**
+ * The marks block (protocol 30): the host's marks on the walls and floors as
+ * state, one u16 per slot of its wall-hit pool (the serial of the bg mark in
+ * it, 0 none), delta'd against the baseline's like the other blocks, and the
+ * records of the marks the client lacks, at most NETMARK_PERSNAP a snapshot,
+ * oldest first (networld.c; layout in netproto.h, SNAP)
+ */
+#define NETMARK_MAXSLOTS 360 // wallhitreset.c's largest pool
+#define NETMARK_REC      74
+#define NETMARK_PERSNAP  3
 
 /**
  * The ack block in each CMD (client -> host): the newest snapshot decoded
@@ -428,6 +439,9 @@ struct netsnaphost {
 	u16 scenseq[NETBASELINE_SLOTS];
 	u8 world[NETBASELINE_SLOTS][NETWORLD_SIZE]; // (protocol 29)
 	u16 worldseq[NETBASELINE_SLOTS];
+	u16 marks[NETBASELINE_SLOTS][NETMARK_MAXSLOTS]; // (protocol 30) the slots as this snapshot left them
+	u16 marksseq[NETBASELINE_SLOTS];
+	u32 markrecs;   // mark records sent
 	s32 rate;
 	// the adaptive rate's window
 	u32 winsent;
@@ -466,11 +480,13 @@ void netSnapHostOnAck(struct netsnaphost *h, const struct netsnapack *a);
  * lp is this client's NETLP_SIZE block or NULL, scen the NETSCEN_SIZE
  * scenario block or NULL, evseq the EVENTS messages sent to this client
  * before it (sent with the block), world the NETWORLD_SIZE world block or
- * NULL. Returns the length, or -1 if nothing could be
+ * NULL; markser the host's mark serial per pool slot (nmarkslots of them,
+ * NULL none), markrec their NETMARK_REC-byte records. Returns the length, or -1 if nothing could be
  * built.
  */
 s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsnapent *ents, s32 n,
-		const u8 *lp, const u8 *scen, u32 evseq, const u8 *world, u8 *out, s32 cap);
+		const u8 *lp, const u8 *scen, u32 evseq, const u8 *world,
+		const u16 *markser, const u8 *markrec, s32 nmarkslots, u8 *out, s32 cap);
 
 /**
  * Client
@@ -485,6 +501,12 @@ struct netsnapinfo {
 	u8 hasscen;
 	u32 evseq;      // with the scenario block: EVENTS messages the host had sent before it
 	u8 hasworld;    // (protocol 29)
+	u8 hasmarks;    // (protocol 30)
+	u8 nmarkrecs;
+	u16 nmarkslots;
+	u16 marks[NETMARK_MAXSLOTS];
+	u16 markslot[NETMARK_PERSNAP];
+	u8 markrec[NETMARK_PERSNAP][NETMARK_REC];
 	u8 lp[NETLP_SIZE];
 	u8 scen[NETSCEN_SIZE];
 	u8 world[NETWORLD_SIZE];

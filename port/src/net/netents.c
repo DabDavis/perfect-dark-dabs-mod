@@ -1274,7 +1274,14 @@ static void netHostSendSnap(s32 slot)
 		netLpCapture(slot, pn, lp);
 	}
 
-	len = netSnapHostBuild(h, &hdr, s_Ents, n, pn >= 0 && g_Vars.players[pn]->prop ? lp : NULL, netScenHostBlock(), netEventsHostSeq(slot), netWorldHostBlock(), s_Pkt, sizeof(s_Pkt));
+	{
+		const u16 *markser = NULL;
+		const u8 *markrec = NULL;
+		const s32 nmarkslots = netWorldHostMarks(&markser, &markrec);
+
+		len = netSnapHostBuild(h, &hdr, s_Ents, n, pn >= 0 && g_Vars.players[pn]->prop ? lp : NULL, netScenHostBlock(), netEventsHostSeq(slot), netWorldHostBlock(),
+			markser, markrec, nmarkslots, s_Pkt, sizeof(s_Pkt));
+	}
 
 	if (len <= 0) {
 		return;
@@ -2266,8 +2273,12 @@ void netEntsClientOnSnap(const u8 *data, s32 len)
 			netScenClientOnSnap(hdr.hosttick, info->scen, info->evseq);
 		}
 
+		if (info && info->hasmarks) {
+			netWorldClientMarkRecs(info->marks, info->nmarkslots, info->markslot, info->markrec, info->nmarkrecs);
+		}
+
 		if (info && info->hasworld) {
-			netWorldClientOnSnap(hdr.hosttick, info->world);
+			netWorldClientOnSnap(hdr.hosttick, info->world, info->hasmarks ? info->marks : NULL, info->nmarkslots);
 		}
 	}
 

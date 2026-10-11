@@ -1400,6 +1400,7 @@ s32 snapTestLocalPlayer(void);
 s32 snapTestStreamClean(void);
 s32 snapTestStreamLossy(void);
 s32 snapTestHostile(void);
+s32 cmdTestCodec(void);
 
 static void testPlain(const char *name, s32 (*fn)(void))
 {
@@ -1473,6 +1474,7 @@ int main(int argc, char **argv)
 		testPlain("snapshot stream, no loss", snapTestStreamClean);
 		testPlain("snapshot stream, 10% loss each way", snapTestStreamLossy);
 		testPlain("snapshot hostile input", snapTestHostile);
+		testPlain("commands codec round trip (protocol 30)", cmdTestCodec);
 	}
 
 	if (!skipnet) {

@@ -1094,7 +1094,9 @@ static void netSnapWriteHdr(struct netbuf *b, const struct netsnaphdr *hdr)
  */
 static s32 netSnapHostWrite(struct netsnaphost *h, const struct netsnaphdr *hdr, const struct netsnapent *ents,
 		struct netcand *cands, s32 ncands, const struct netbaselineslot *base, const u8 *lp, const u8 *lpbase,
-		const u8 *scen, const u8 *scenbase, u32 evseq, const u8 *world, const u8 *worldbase, u8 *out, s32 cap, u8 msgtype)
+		const u8 *scen, const u8 *scenbase, u32 evseq, const u8 *world, const u8 *worldbase,
+		const u16 *marks, const u16 *marksbase, s32 nmarkslots, const s32 *markpick, s32 nmarkpick, const u8 *markrec,
+		u8 *out, s32 cap, u8 msgtype)
 {
 	struct netbuf b;
 	const s32 nbytes = (h->maxids + 7) / 8;
@@ -1203,14 +1205,38 @@ static s32 netSnapHostWrite(struct netsnaphost *h, const struct netsnaphdr *hdr,
 		netBufWriteU8(&b, 0);
 	}
 
+	// (protocol 30) the marks block: the slots, then the records sent
+	if (marks) {
+		s32 k;
+
+		netBufWriteU8(&b, marksbase ? 2 : 1);
+		netBufWriteU16(&b, (u16)nmarkslots);
+		netDeltaWrite(&b, (const u8 *)marks, (const u8 *)marksbase, nmarkslots * 2);
+		netBufWriteU8(&b, (u8)nmarkpick);
+
+		for (k = 0; k < nmarkpick; k++) {
+			netBufWriteU16(&b, (u16)markpick[k]);
+			netBufWriteBytes(&b, markrec + (size_t)markpick[k] * NETMARK_REC, NETMARK_REC);
+		}
+	} else {
+		netBufWriteU8(&b, 0);
+	}
+
 	return netBufOk(&b) ? netBufLen(&b) : -1;
 }
 
 #define NETSNAP_MSGTYPE 14 // NETMSG_SNAP (netproto.h)
 
 s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsnapent *ents, s32 n,
-		const u8 *lp, const u8 *scen, u32 evseq, const u8 *world, u8 *out, s32 cap)
+		const u8 *lp, const u8 *scen, u32 evseq, const u8 *world,
+		const u16 *markser, const u8 *markrec, s32 nmarkslots, u8 *out, s32 cap)
 {
+	static u16 s_MarksOut[NETMARK_MAXSLOTS];
+	static u16 s_MarksZero[NETMARK_MAXSLOTS];
+	const u16 *marksbase = NULL;
+	s32 markpick[NETMARK_PERSNAP];
+	s32 nmarkpick = 0;
+	s32 markslen = 0;
 	const struct netbaselineslot *base;
 	const u8 *lpbase = NULL;
 	const u8 *scenbase = NULL;
@@ -1284,6 +1310,10 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		if (h->worldseq[baseline % NETBASELINE_SLOTS] == baseline) {
 			worldbase = h->world[baseline % NETBASELINE_SLOTS];
 		}
+
+		if (h->marksseq[baseline % NETBASELINE_SLOTS] == baseline) {
+			marksbase = h->marks[baseline % NETBASELINE_SLOTS];
+		}
 	}
 
 	if (lp) {
@@ -1296,6 +1326,43 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 
 	if (world) {
 		worldlen = netDeltaEncode(world, worldbase, NETWORLD_SIZE, s_Tmp, sizeof(s_Tmp));
+	}
+
+	// (protocol 30) the marks: a slot the host emptied is emptied here too
+	// for nothing; one that holds a mark the client lacks gets its record,
+	// the oldest (lowest serial, wrapping) first, NETMARK_PERSNAP a snapshot;
+	// the rest keep what the client has until a later snapshot (a slot
+	// refilled before then sends only its newest: state, not a history)
+	if (markser && markrec && nmarkslots > 0 && nmarkslots <= NETMARK_MAXSLOTS) {
+		const u16 *base = marksbase ? marksbase : s_MarksZero;
+		s32 k;
+
+		for (k = 0; k < nmarkslots; k++) {
+			s_MarksOut[k] = markser[k] == 0 ? 0 : base[k];
+		}
+
+		while (nmarkpick < NETMARK_PERSNAP) {
+			s32 best = -1;
+
+			for (k = 0; k < nmarkslots; k++) {
+				if (markser[k] && markser[k] != s_MarksOut[k]
+						&& (best < 0 || (s16)(markser[k] - markser[best]) < 0)) {
+					best = k;
+				}
+			}
+
+			if (best < 0) {
+				break;
+			}
+
+			s_MarksOut[best] = markser[best];
+			markpick[nmarkpick++] = best;
+		}
+
+		markslen = netDeltaEncode((const u8 *)s_MarksOut, (const u8 *)marksbase, nmarkslots * 2, s_Tmp, sizeof(s_Tmp))
+				+ 1 + 2 + 1 + nmarkpick * (2 + NETMARK_REC);
+	} else {
+		markser = NULL;
 	}
 
 	// what each entity would cost, and how much it wants to go
@@ -1352,7 +1419,7 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 	// the most wanted first, as many as fit
 	qsort(s_Cands, ncands, sizeof(*s_Cands), netCandCmp);
 
-	fixed = NETSNAP_HDRSIZE + lplen + 1 + scenlen + 1 + worldlen + 1 + 8 + 4 + 4;
+	fixed = NETSNAP_HDRSIZE + lplen + 1 + scenlen + 1 + worldlen + 1 + markslen + 1 + 8 + 4 + 4;
 
 	// every present entity on another base snapshot is listed, taken or not
 	for (i = 0; i < ncands; i++) {
@@ -1382,7 +1449,8 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		}
 
 		qsort(s_Cands, ncands, sizeof(*s_Cands), netCandEntCmp);
-		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, scen, scenbase, evseq, world, worldbase, out, cap, NETSNAP_MSGTYPE);
+		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, scen, scenbase, evseq, world, worldbase,
+				markser ? s_MarksOut : NULL, marksbase, nmarkslots, markpick, nmarkpick, markrec, out, cap, NETSNAP_MSGTYPE);
 
 		if (len >= 0 || budget <= 0) {
 			break;
@@ -1400,7 +1468,8 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		}
 
 		qsort(s_Cands, ncands, sizeof(*s_Cands), netCandEntCmp);
-		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, scen, scenbase, evseq, world, worldbase, out, cap, NETSNAP_MSGTYPE);
+		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, scen, scenbase, evseq, world, worldbase,
+				markser ? s_MarksOut : NULL, marksbase, nmarkslots, markpick, nmarkpick, markrec, out, cap, NETSNAP_MSGTYPE);
 
 		if (len < 0) {
 			return -1;
@@ -1487,6 +1556,15 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		h->worldseq[seq % NETBASELINE_SLOTS] = seq;
 	} else {
 		h->worldseq[seq % NETBASELINE_SLOTS] = 0;
+	}
+
+	if (markser) {
+		memset(h->marks[seq % NETBASELINE_SLOTS], 0, sizeof(h->marks[0]));
+		memcpy(h->marks[seq % NETBASELINE_SLOTS], s_MarksOut, nmarkslots * 2);
+		h->marksseq[seq % NETBASELINE_SLOTS] = seq;
+		h->markrecs += nmarkpick;
+	} else {
+		h->marksseq[seq % NETBASELINE_SLOTS] = 0;
 	}
 
 	if (!h->firsttick) {
@@ -1659,6 +1737,12 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 	s32 haslp;
 	s32 hasscen;
 	s32 hasworld;
+	s32 hasmarks;
+	s32 nmarkslots = 0;
+	s32 nmarkrecs = 0;
+	static u16 marks[NETMARK_MAXSLOTS];
+	static u16 markslot[NETMARK_PERSNAP];
+	static u8 markrec[NETMARK_PERSNAP][NETMARK_REC];
 	u32 evseq;
 	u8 lp[NETLP_SIZE];
 	static u8 scen[NETSCEN_SIZE];
@@ -1948,6 +2032,46 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 		return netSnapClientFail(c);
 	}
 
+	// (protocol 30) the marks block
+	hasmarks = netBufReadU8(b);
+
+	if (hasmarks == 1 || hasmarks == 2) {
+		s32 k;
+
+		nmarkslots = netBufReadU16(b);
+
+		if (nmarkslots < 1 || nmarkslots > NETMARK_MAXSLOTS) {
+			return netSnapClientFail(c);
+		}
+
+		if (hasmarks == 2) {
+			if (!baseinfo || !baseinfo->hasmarks || baseinfo->nmarkslots != nmarkslots) {
+				return netSnapClientFail(c);
+			}
+
+			netDeltaRead(b, (const u8 *)baseinfo->marks, (u8 *)marks, nmarkslots * 2);
+		} else {
+			netDeltaRead(b, NULL, (u8 *)marks, nmarkslots * 2);
+		}
+
+		nmarkrecs = netBufReadU8(b);
+
+		if (nmarkrecs > NETMARK_PERSNAP) {
+			return netSnapClientFail(c);
+		}
+
+		for (k = 0; k < nmarkrecs; k++) {
+			markslot[k] = netBufReadU16(b);
+			netBufReadBytes(b, markrec[k], NETMARK_REC);
+
+			if (markslot[k] >= nmarkslots || marks[markslot[k]] == 0) {
+				return netSnapClientFail(c);
+			}
+		}
+	} else if (hasmarks != 0) {
+		return netSnapClientFail(c);
+	}
+
 	if (!netBufOk(b) || netBufRemaining(b) != 0) {
 		return netSnapClientFail(c);
 	}
@@ -1985,6 +2109,15 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 	}
 
 	info->hasworld = hasworld != 0;
+	info->hasmarks = hasmarks != 0;
+	info->nmarkslots = (u16)nmarkslots;
+	info->nmarkrecs = (u8)nmarkrecs;
+
+	if (hasmarks) {
+		memcpy(info->marks, marks, nmarkslots * 2);
+		memcpy(info->markslot, markslot, sizeof(markslot));
+		memcpy(info->markrec, markrec, sizeof(markrec));
+	}
 
 	if (hasworld) {
 		memcpy(info->world, world, NETWORLD_SIZE);
