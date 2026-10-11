@@ -4223,7 +4223,9 @@ static bool gfx_vk_post_process(int fb_src, bool smaa, bool fsr, float sharpness
  * sampled depth image of TAA's own, the pass drawn into history image `out`
  * over the rect alone, and the rect copied back into the framebuffer.
  */
-static VkImg vk_taa_hist[2], vk_taa_depth;
+// the depth: this frame's in [out], last frame's in the other (the pass reads
+// both; gfx_opengl.cpp's taa_depth_tex)
+static VkImg vk_taa_hist[2], vk_taa_depths[2];
 
 static bool gfx_vk_taa_resolve(int fb_id, const float *params, int out, int x, int y, int width, int height) {
     if (vk_failed || vk_post_failed || fb_id <= 0 || (size_t)fb_id >= vk_fbs.size()) {
@@ -4245,14 +4247,19 @@ static bool gfx_vk_taa_resolve(int fb_id, const float *params, int out, int x, i
     if (!vk_post_target(vk_taa_hist[0], fb.width, fb.height) || !vk_post_target(vk_taa_hist[1], fb.width, fb.height)) {
         return false;
     }
-    if (!vk_taa_depth.image || vk_taa_depth.width != fb.width || vk_taa_depth.height != fb.height) {
-        vk_image_destroy(vk_taa_depth);
-        if (!vk_image_create(vk_taa_depth, fb.width, fb.height, vk_depth_format,
-                             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT, 1,
-                             false)) {
-            return false;
+    for (int i = 0; i < 2; i++) {
+        VkImg &d = vk_taa_depths[i];
+        if (!d.image || d.width != fb.width || d.height != fb.height) {
+            vk_image_destroy(d);
+            if (!vk_image_create(d, fb.width, fb.height, vk_depth_format,
+                                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT, 1,
+                                 false)) {
+                return false;
+            }
         }
     }
+    VkImg &vk_taa_depth = vk_taa_depths[out];
+    VkImg &vk_taa_depth_prev = vk_taa_depths[1 - out];
 
     VkCommandBuffer cb = vk_cmd();
     const VkOffset3D at = { x, y, 0 };
@@ -4272,6 +4279,7 @@ static bool gfx_vk_taa_resolve(int fb_id, const float *params, int out, int x, i
     VkImg &dst = vk_taa_hist[out];
     VkImg &hist = vk_taa_hist[1 - out];
     vk_image_to(vk_taa_depth, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vk_image_to(vk_taa_depth_prev, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vk_image_to(color, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vk_image_to(hist, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
@@ -4285,6 +4293,9 @@ static bool gfx_vk_taa_resolve(int fb_id, const float *params, int out, int x, i
     push.t2 = vk_taa_depth.slot;
     push.smp = vk_get_sampler(vk_sampler_key(true, true, 0, VK_WRAP_CLAMP, VK_WRAP_CLAMP, 1));
     memcpy(push.taa, params, sizeof(push.taa));
+    memcpy(push.params, params + GFX_POST_TAA_PARAMS, sizeof(push.params));
+    // last frame's depth: its slot rides in uTaa[4].x (gfx_post.cpp's TEX3)
+    push.taa[16] = (float)vk_taa_depth_prev.slot;
 
     vk_begin_rendering_on(&dst, NULL, dst.width, dst.height);
     VkViewport v = { 0.f, 0.f, (float)dst.width, (float)dst.height, 0.f, 1.f };
