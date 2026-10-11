@@ -409,8 +409,19 @@ void playermgrAllocatePlayer(s32 index)
 	g_Vars.players[index]->slayerrocket = NULL;
 	g_Vars.players[index]->badrockettime = 0;
 
-#if VERSION >= VERSION_JPN_FINAL
+#if VERSION >= VERSION_JPN_FINAL || !defined(PLATFORM_N64)
+	// The stage pool is not cleared: before the JPN version this was whatever
+	// the last stage left there until the gun's first tick set it. Online a
+	// host draws a view before that tick (the stage barrier holds the clock),
+	// and a leftover 1 drew the view in x-ray, whose colour indices
+	// (epcol_*), as old, wrote past chrRender()'s colour[4] and broke
+	// propsRender()'s frame (crash 20261011-070303, GoldenEye Bunker co-op)
 	g_Vars.players[index]->visionmode = VISIONMODE_NORMAL;
+#endif
+#ifndef PLATFORM_N64
+	g_Vars.players[index]->epcol_0 = 0;
+	g_Vars.players[index]->epcol_1 = 1;
+	g_Vars.players[index]->epcol_2 = 2;
 #endif
 
 	g_Vars.players[index]->gunctrl.gunmemtype = 0;
