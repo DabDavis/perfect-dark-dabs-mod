@@ -7779,9 +7779,10 @@ static void gfx_taa_resolve(void) {
     const double aspect[16] = { k, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, k * o, 0, 0, 1 };
 
     const bool valid = h.valid && h.frame + 1 == num_dls && h.width == fw && h.height == fh;
-    float params[GFX_POST_TAA_PARAMS] = {};
+    // uTaa, then uParams: the depth test's two lines (gfx_post.cpp)
+    float params[GFX_POST_TAA_PARAMS + 4] = {};
 
-    double cur[16], prev[16], inv[16], r[16];
+    double cur[16], prev[16], inv[16], r[16], invprev[16];
     gfx_taa_mul(taa_mtx, aspect, cur);
     gfx_taa_mul(h.mtx, aspect, prev);
 
@@ -7807,6 +7808,27 @@ static void gfx_taa_resolve(void) {
             params[0 + i] = (float)((X * tvw * 0.5 + W * (tvx + tvw * 0.5)) / fw);
             params[4 + i] = (float)((Y * tvh * 0.5 + W * (tvy + tvh * 0.5)) / fh);
             params[8 + i] = (float)W;
+        }
+
+        // The depth test: (u, v, depth, 1) through in and a frame's inverse
+        // is the world point times h, and h is a line in depth alone (the
+        // projection is a perspective, the rest affine), h = a * depth + b;
+        // the point's clip w in that frame - its distance - is 1 / h. So
+        // this frame's line gives last frame's distance of the pixel's own
+        // point (uTaa's w / h), last frame's the distance of what last
+        // frame drew where the history is read (1 / h). A third person
+        // body turning with the camera, or the background it uncovers,
+        // had a history of the other surface, and the clip let it through
+        // where the textures are busy: a red smear off Joanna's lab coat
+        // under the HD packs (F3 20261011-020133)
+        if (gfx_taa_invert(prev, invprev)) {
+            double hc[16], hp[16];
+            gfx_taa_mul(in, inv, hc);
+            gfx_taa_mul(in, invprev, hp);
+            params[GFX_POST_TAA_PARAMS + 0] = (float)hc[11];
+            params[GFX_POST_TAA_PARAMS + 1] = (float)hc[15];
+            params[GFX_POST_TAA_PARAMS + 2] = (float)hp[11];
+            params[GFX_POST_TAA_PARAMS + 3] = (float)hp[15];
         }
     }
 

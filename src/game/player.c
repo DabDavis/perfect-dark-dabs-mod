@@ -655,13 +655,10 @@ void playerStartNewLife(void)
 	hudmsgsSetOn(0xffffffff);
 
 #ifndef PLATFORM_N64
-	if (modRespawnIsRespawning()) {
+	if (modRespawnIsRespawning() && modRespawnTakeSpot(&pos, rooms, &angle)) {
 		// Mission Respawn: where the player fell, facing the way they
-		// faced. The prop has not moved since, so its rooms are the spot's.
-		pos = g_Vars.currentplayer->posdie;
-		rooms[0] = g_Vars.currentplayer->prop->rooms[0];
-		rooms[1] = -1;
-		angle = g_Vars.currentplayer->thetadie * M_BADTAU / 360.0f;
+		// faced; or, with no floor there, where they last stood on one
+		// (modrespawn.c). With neither, the mission's spawn pad below.
 	} else if (modRunTakeSpawn(&pos, rooms, &angle)) {
 		// A Randomizer run: the room this hop landed in, which is the whole
 		// of what a hop is. See modrun.c.

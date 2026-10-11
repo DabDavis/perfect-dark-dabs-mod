@@ -474,8 +474,12 @@ The shapes, by kind:
   by the quarter and the distance step `speed*dt + (speed - prevspeed)*(1 - dt)/2`, which makes four quarter
   steps cover one 60th step exactly under constant acceleration (crouch: bwalkApplyCrouchSpeed240()).
 - **Pose read off a state's 60ths** (stateframes, count60 in the gun's arm dip and recoil curve): add the time
-  since that 60th, `lvupdate240rem * 0.25f` (bgunArmTicks()) - the state still steps in 60ths, the pose moves
-  every frame and lands on the 60 FPS values on the 60ths.
+  since that 60th, `(lvupdate240rem - 2) * 0.25f` on **every** frame (bgunArmTicks(), hudmsgDrawTimer()) - the
+  remainder holds at 2 at 60 and 30 FPS, so that is the stock value there. Not "rem / 4 off the 60 path only":
+  at a rate that is not a multiple of 60 (73 FPS: steps of 3 and 4 240ths) a frame of 4 240ths is "on the
+  path" and dropped the remainder, so the arm moved 0.25 then 1.5 ticks in two frames - the shotgun's recoil
+  and the sniper rifle's reload dip twitched (F3 20261011-201059/-201734). Same trap for any `(lvupdate240 & 3)`
+  gate (the escalator also takes the continuous path when `lvupdate240rem != 2`).
 - **Model animation in 60ths** (the gun: modelTickAnim(animframeinc = lvupdate60)): tick lvupdate240 with
   modelTickAnimQuarterSpeed() and read the count as quarter frames in the keyframe tests.
 - **Counters bumped per frame or per input sample** (usedowntime, hand->count, the gun-load step, the

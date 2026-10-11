@@ -133,7 +133,9 @@ struct GfxRenderingAPI {
     // TAA's resolve (gfx_post.h, GFX_POST_TAA) over the rect of fb, a
     // single-sampled target mid-frame: fb's depth copied out, the pass drawn
     // into history image `out` from fb's colour, history 1 - out and that
-    // depth, then the rect copied back into fb. params are uTaa's 20 floats.
+    // depth (kept as depth image `out`; image 1 - out, last frame's, is the
+    // pass's TEX3), then the rect copied back into fb. params are uTaa's 20
+    // floats and then uParams' 4 (the depth test's lines).
     // False when the backend could not, which leaves fb untouched.
     bool (*taa_resolve)(int fb, const float *params, int out, int x, int y, int width, int height);
     // Reads a rect of the window's back buffer into rgb as tightly packed RGB

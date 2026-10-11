@@ -71,7 +71,22 @@ Added 2026-09-24. **TAA** is the last entry of the Anti-aliasing dropdown
   only for the previous `num_dls` at the same size.
 - **Shader** (`GFX_POST_TAA`): nearest depth of the 3x3, five-tap
   Catmull-Rom history, variance clip (1.25 sigma) to this frame's 3x3, 10%
-  of this frame. Moving chrs/doors rely on the clip alone.
+  of this frame. Moving chrs/doors rely on the clip, and on a **depth test**
+  (2026-10-11, F3 20261011-020133): the clip lets another surface's history
+  through where the textures are busy, so a third person body turning with
+  the camera left a red smear off Joanna's lab coat under the HD packs, and
+  outlines round her head. Both renderers keep last frame's depth (two depth
+  images, TEX3; Vulkan's slot in `uTaa[4].x`). A frame's inverse taken
+  through the viewport map gives the world point times h, and h is a line in
+  depth alone, h = a * depth + b (perspective, the rest affine): 1 / h is
+  the point's distance in that frame. `gfx_taa_resolve()` puts this frame's
+  and last frame's (a, b) in `uParams`; the shader compares 1 / distance of
+  the pixel's own point in last frame (h / uTaa's w) with that of what last
+  frame drew where the history is read (nearest of its 3x3), and takes no
+  history over 20% apart. Checked with the rejected pixels painted magenta:
+  the bands a silhouette uncovers or covers, not static walls. A body's own
+  surface turning in place (same depth) still blurs inside its outline -
+  that wants motion vectors, which the baked poses do not give.
 - **Backends** (`taa_resolve`): the game framebuffer's depth is copied out
   first (GL: renderbuffer -> depth texture by `glBlitFramebuffer`; Vulkan:
   `vkCmdCopyImage` of the depth aspect into a sampled depth image with a

@@ -2186,6 +2186,7 @@ static GLuint gfx_opengl_post_program(GfxPostPass pass) {
     glUniform1i(glGetUniformLocation(prog, "uTex0"), 0);
     glUniform1i(glGetUniformLocation(prog, "uTex1"), 1);
     glUniform1i(glGetUniformLocation(prog, "uTex2"), 2);
+    glUniform1i(glGetUniformLocation(prog, "uTex3"), 3);
     post_loc_params[pass] = glGetUniformLocation(prog, "uParams");
     post_loc_taa[pass] = glGetUniformLocation(prog, "uTaa");
     post_prog[pass] = prog;
@@ -2347,18 +2348,22 @@ static bool gfx_opengl_post_process(int fb_src, bool smaa, bool fsr, float sharp
  * and the rect goes back into the framebuffer by a colour blit.
  */
 static PostTarget taa_hist[2];
-static GLuint taa_depth_tex, taa_depth_fbo;
-static int taa_depth_width, taa_depth_height;
+// the rect's depth, this frame's in [out] and last frame's in the other: the
+// pass compares last frame's depth where a pixel's history comes from with
+// where the pixel's own point was, and a history of another surface (a moving
+// body's, or the background a body has moved off) is not taken
+static GLuint taa_depth_tex[2], taa_depth_fbo[2];
+static int taa_depth_width[2], taa_depth_height[2];
 
-static bool gfx_opengl_taa_depth(int width, int height) {
-    if (taa_depth_tex && taa_depth_width == width && taa_depth_height == height) {
+static bool gfx_opengl_taa_depth(int i, int width, int height) {
+    if (taa_depth_tex[i] && taa_depth_width[i] == width && taa_depth_height[i] == height) {
         return true;
     }
-    if (!taa_depth_tex) {
-        glGenTextures(1, &taa_depth_tex);
-        glGenFramebuffers(1, &taa_depth_fbo);
+    if (!taa_depth_tex[i]) {
+        glGenTextures(1, &taa_depth_tex[i]);
+        glGenFramebuffers(1, &taa_depth_fbo[i]);
     }
-    glBindTexture(GL_TEXTURE_2D, taa_depth_tex);
+    glBindTexture(GL_TEXTURE_2D, taa_depth_tex[i]);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -2366,13 +2371,13 @@ static bool gfx_opengl_taa_depth(int width, int height) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width, height, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8,
                  NULL);
-    glBindFramebuffer(GL_FRAMEBUFFER, taa_depth_fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, taa_depth_tex, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, taa_depth_fbo[i]);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, taa_depth_tex[i], 0);
     glDrawBuffer(GL_NONE);
     glReadBuffer(GL_NONE);
     const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
-    taa_depth_width = complete ? width : 0;
-    taa_depth_height = complete ? height : 0;
+    taa_depth_width[i] = complete ? width : 0;
+    taa_depth_height[i] = complete ? height : 0;
     return complete;
 }
 
@@ -2393,7 +2398,7 @@ static bool gfx_opengl_taa_resolve(int fb_id, const float *params, int out, int 
         return false;
     }
 
-    GLint prev_prog = 0, prev_vao = 0, prev_active = GL_TEXTURE0, prev_tex[3] = { 0, 0, 0 };
+    GLint prev_prog = 0, prev_vao = 0, prev_active = GL_TEXTURE0, prev_tex[4] = { 0, 0, 0, 0 };
     GLint prev_viewport[4] = { 0, 0, 0, 0 }, prev_scissor[4] = { 0, 0, 0, 0 };
     const GLboolean was_blend = glIsEnabled(GL_BLEND);
     const GLboolean was_depth = glIsEnabled(GL_DEPTH_TEST);
@@ -2402,7 +2407,7 @@ static bool gfx_opengl_taa_resolve(int fb_id, const float *params, int out, int 
     glGetIntegerv(GL_CURRENT_PROGRAM, &prev_prog);
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vao);
     glGetIntegerv(GL_ACTIVE_TEXTURE, &prev_active);
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         glActiveTexture(GL_TEXTURE0 + i);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_tex[i]);
     }
@@ -2415,7 +2420,7 @@ static bool gfx_opengl_taa_resolve(int fb_id, const float *params, int out, int 
 
     const int fw = (int)fb.width, fh = (int)fb.height;
     bool ok = gfx_opengl_post_target(taa_hist[0], fw, fh) && gfx_opengl_post_target(taa_hist[1], fw, fh) &&
-              gfx_opengl_taa_depth(fw, fh);
+              gfx_opengl_taa_depth(0, fw, fh) && gfx_opengl_taa_depth(1, fw, fh);
 
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_BLEND);
@@ -2424,7 +2429,7 @@ static bool gfx_opengl_taa_resolve(int fb_id, const float *params, int out, int 
 
     if (ok) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, fb.fbo);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, taa_depth_fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, taa_depth_fbo[out]);
         glBlitFramebuffer(x, y, x + width, y + height, x, y, x + width, y + height, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
 
         glBindFramebuffer(GL_FRAMEBUFFER, taa_hist[out].fbo);
@@ -2438,8 +2443,10 @@ static bool gfx_opengl_taa_resolve(int fb_id, const float *params, int out, int 
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, taa_hist[1 - out].tex);
         glActiveTexture(GL_TEXTURE2);
-        glBindTexture(GL_TEXTURE_2D, taa_depth_tex);
-        glUniform4f(post_loc_params[GFX_POST_TAA], 0.f, 0.f, 0.f, 0.f);
+        glBindTexture(GL_TEXTURE_2D, taa_depth_tex[out]);
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, taa_depth_tex[1 - out]);
+        glUniform4fv(post_loc_params[GFX_POST_TAA], 1, params + GFX_POST_TAA_PARAMS);
         glUniform4fv(post_loc_taa[GFX_POST_TAA], GFX_POST_TAA_PARAMS / 4, params);
         glDrawArrays(GL_TRIANGLES, 0, 3);
         glDisable(GL_SCISSOR_TEST);
@@ -2455,7 +2462,7 @@ static bool gfx_opengl_taa_resolve(int fb_id, const float *params, int out, int 
     if (was_depth) glEnable(GL_DEPTH_TEST);
     if (was_scissor) glEnable(GL_SCISSOR_TEST);
     if (was_cull) glEnable(GL_CULL_FACE);
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         glActiveTexture(GL_TEXTURE0 + i);
         glBindTexture(GL_TEXTURE_2D, (GLuint)prev_tex[i]);
     }

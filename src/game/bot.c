@@ -1422,12 +1422,33 @@ f32 botGetStatScale(struct chrdata *chr, s32 stat)
 }
 
 /**
+ * A difficulty's aim value (an error or a delay, more is worse) with a
+ * slider's scale applied. Stock, the value is divided by the scale. But
+ * PerfectSim's and DarkSim's values are mostly 0 - no delay, no error - and
+ * a 0 divided is still 0, so their accuracy and reaction sliders did nothing
+ * below 100% (F3 20261010-232205). Turned down, a value under HardSim's
+ * grows from HardSim's instead: value + hard * (1 / scale - 1), so 50% of
+ * a DarkSim's reaction is HardSim's and 10% nine times it. A value at or
+ * over HardSim's (MeatSim to HardSim) and every scale from 100% up are
+ * as before.
+ */
+static f32 botStatWorse(f32 value, f32 hardvalue, f32 scale)
+{
+	if (scale < 1.0f && value < hardvalue) {
+		return value + hardvalue * (1.0f / scale - 1.0f);
+	}
+
+	return value / scale;
+}
+
+/**
  * How long the simulant must have its target in sight before it fires, which
  * its reaction slider shortens or lengthens.
  */
 s32 botGetShootDelay(struct chrdata *chr)
 {
-	return g_BotDifficulties[chr->aibot->config->difficulty].shootdelay / botGetStatScale(chr, BOTSTAT_REACTION);
+	return botStatWorse(g_BotDifficulties[chr->aibot->config->difficulty].shootdelay,
+			g_BotDifficulties[BOTDIFF_HARD].shootdelay, botGetStatScale(chr, BOTSTAT_REACTION));
 }
 #else
 #define botGetShootDelay(chr) (g_BotDifficulties[(chr)->aibot->config->difficulty].shootdelay)
@@ -1833,10 +1854,20 @@ void bot0f192a74(struct chrdata *chr)
 #ifndef PLATFORM_N64
 	// The reaction slider shortens the time the aim takes to settle on a
 	// target in sight, and the accuracy slider narrows the error it settles to
-	f32 settletime = g_BotDifficulties[diff].unk0c / botGetStatScale(chr, BOTSTAT_REACTION);
+	f32 settletime = botStatWorse(g_BotDifficulties[diff].unk0c,
+			g_BotDifficulties[BOTDIFF_HARD].unk0c, botGetStatScale(chr, BOTSTAT_REACTION));
 	f32 accuracy = botGetStatScale(chr, BOTSTAT_ACCURACY);
+	// PerfectSim and DarkSim turned down: their errors grow from HardSim's
+	// (botStatWorse()) rather than being divided, which leaves 0 at 0
+	bool liftaim = accuracy < 1.0f && diff > BOTDIFF_HARD;
+	f32 err04 = liftaim ? botStatWorse(g_BotDifficulties[diff].unk04, g_BotDifficulties[BOTDIFF_HARD].unk04, accuracy) : g_BotDifficulties[diff].unk04;
+	f32 err08 = liftaim ? botStatWorse(g_BotDifficulties[diff].unk08, g_BotDifficulties[BOTDIFF_HARD].unk08, accuracy) : g_BotDifficulties[diff].unk08;
+	f32 err18 = liftaim ? botStatWorse(g_BotDifficulties[diff].unk18, g_BotDifficulties[BOTDIFF_HARD].unk18, accuracy) : g_BotDifficulties[diff].unk18;
 #else
 	f32 settletime = g_BotDifficulties[diff].unk0c;
+	f32 err04 = g_BotDifficulties[diff].unk04;
+	f32 err08 = g_BotDifficulties[diff].unk08;
+	f32 err18 = g_BotDifficulties[diff].unk18;
 #endif
 
 	aibot->random3ttl60 -= g_Vars.lvupdate60;
@@ -1876,8 +1907,8 @@ void bot0f192a74(struct chrdata *chr)
 		fVar11 = 0;
 	} else {
 		tmp = (settletime - aibot->targetinsighttemperature) / settletime;
-		fVar12 = g_BotDifficulties[diff].unk04 * tmp;
-		fVar11 = g_BotDifficulties[diff].unk08 * tmp;
+		fVar12 = err04 * tmp;
+		fVar11 = err08 * tmp;
 	}
 
 	if (chr->target != -1) {
@@ -1890,14 +1921,16 @@ void bot0f192a74(struct chrdata *chr)
 		}
 	}
 
-	if (fVar11 < g_BotDifficulties[diff].unk18) {
-		fVar11 = g_BotDifficulties[diff].unk18;
+	if (fVar11 < err18) {
+		fVar11 = err18;
 	}
 
 	aibot->extraanglebase = (fVar11 - fVar12) * (aibot->random3 & 0xffff) * 0.000015259021893144f + fVar12;
 
 #ifndef PLATFORM_N64
-	aibot->extraanglebase /= accuracy;
+	if (!liftaim) {
+		aibot->extraanglebase /= accuracy;
+	}
 #endif
 
 	if (aibot->random3 & 0x10000) {

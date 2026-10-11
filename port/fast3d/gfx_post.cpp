@@ -50,6 +50,7 @@ static std::string gfx_post_prelude(const GfxPostLang &lang) {
              "#define TEX0 POST_TEX(t0)\n"
              "#define TEX1 POST_TEX(t1)\n"
              "#define TEX2 POST_TEX(t2)\n"
+             "#define TEX3 POST_TEX(int(uTaa[4].x))\n"
              "#define SMAA_ARG0 t0\n"
              "#define SMAA_ARG1 t1\n"
              "#define SMAA_ARG2 t2\n";
@@ -57,6 +58,7 @@ static std::string gfx_post_prelude(const GfxPostLang &lang) {
         s += "uniform sampler2D uTex0;\n"
              "uniform sampler2D uTex1;\n"
              "uniform sampler2D uTex2;\n"
+             "uniform sampler2D uTex3;\n"
              "uniform vec4 uParams;\n"
              "uniform vec4 uTaa[5];\n"
              "in vec2 vUV;\n"
@@ -64,6 +66,7 @@ static std::string gfx_post_prelude(const GfxPostLang &lang) {
              "#define TEX0 uTex0\n"
              "#define TEX1 uTex1\n"
              "#define TEX2 uTex2\n"
+             "#define TEX3 uTex3\n"
              "#define SMAA_ARG0 uTex0\n"
              "#define SMAA_ARG1 uTex1\n"
              "#define SMAA_ARG2 uTex2\n";
@@ -243,7 +246,27 @@ std::string gfx_post_fragment_shader(const GfxPostLang &lang, GfxPostPass pass) 
                  "    vec3 lo = min(mu - 1.25 * sigma, cur);\n"
                  "    vec3 hi = max(mu + 1.25 * sigma, cur);\n"
                  "    vec3 hist = taaHistory(puv);\n"
-                 "    if (uTaa[4].y > 0.5) hist = clamp(hist, lo, hi);\n"
+                 "    if (uTaa[4].y > 0.5) {\n"
+                 "        hist = clamp(hist, lo, hi);\n"
+                 // the depth test: last frame's distance of this pixel's
+                 // point against that of what last frame drew at the
+                 // history's place (the nearest of its 3x3, as d is), both
+                 // as 1 / distance; another surface there - a body moving
+                 // with the camera, or what it uncovered - is not history
+                 "        if (uParams.x != 0.0 || uParams.y != 0.0) {\n"
+                 "            ivec2 hs = textureSize(TEX3, 0);\n"
+                 "            ivec2 hp = ivec2(puv * vec2(hs));\n"
+                 "            float dh = 1.0;\n"
+                 "            for (int y = -1; y <= 1; y++) {\n"
+                 "                for (int x = -1; x <= 1; x++) {\n"
+                 "                    dh = min(dh, texelFetch(TEX3, clamp(hp + ivec2(x, y), ivec2(0), hs - 1), 0).r);\n"
+                 "                }\n"
+                 "            }\n"
+                 "            float rc = abs((uParams.x * d + uParams.y) / prev.z);\n"
+                 "            float rh = abs(uParams.z * dh + uParams.w);\n"
+                 "            if (abs(rc - rh) > 0.2 * max(rc, rh)) hist = cur;\n"
+                 "        }\n"
+                 "    }\n"
                  "    oCol = vec4(mix(hist, cur, uTaa[4].z), 1.0);\n"
                  "}\n";
             break;

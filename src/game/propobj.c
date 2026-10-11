@@ -9320,8 +9320,10 @@ void escastepTick(struct prop *prop)
 	// at 2 (lvupdate60 rounds to the nearest 60th): the step's continuous
 	// position is frame + (rem - 2) / 4 60ths. A frame of whole 60ths (every
 	// frame at 60 and 30 FPS, an online sim tick) keeps the integer position
-	// above, unchanged.
-	if ((g_Vars.lvupdate240 & 3) != 0) {
+	// above, unchanged. A frame of 4 240ths at a rate such as 73 FPS (steps
+	// of 3 and 4) carries a remainder too: it takes the same path, or the
+	// steps jump back by up to half a 60th on it.
+	if ((g_Vars.lvupdate240 & 3) != 0 || g_Vars.lvupdate240rem != 2) {
 		s32 rem = g_Vars.lvupdate240rem;
 		f32 t = step->frame + (rem - 2) * 0.25f;
 

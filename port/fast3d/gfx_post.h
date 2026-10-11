@@ -25,7 +25,11 @@
  *                 (u, v) times w, uTaa[3] the rect in uv, uTaa[4].y 1 to
  *                 clip the history to the neighbourhood (0 shows the raw
  *                 reprojection, for checking it), .z the
- *                 weight of this frame, .w whether the history is any good
+ *                 weight of this frame, .w whether the history is any good;
+ *                 TEX3 last frame's depth (Vulkan: its slot in uTaa[4].x),
+ *                 uParams the lines h = a * depth + b of this frame (.xy)
+ *                 and last frame (.zw) whose 1 / h is a point's distance:
+ *                 a history of another surface is not taken
  *
  * OpenGL binds TEX0-2 to units 0-2 as uTex0-2 and uParams and uTaa[5] as
  * uniforms; Vulkan's push constants are four ints (the three texture slots

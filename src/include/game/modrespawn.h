@@ -13,6 +13,8 @@
 void modRespawnReset(void);
 bool modRespawnCanRespawn(void);
 void modRespawnRecordDeath(void);
+void modRespawnNoteGround(void);
+bool modRespawnTakeSpot(struct coord *pos, RoomNum *rooms, f32 *angle);
 void modRespawnBegin(void);
 void modRespawnMark(void);
 bool modRespawnIsRespawning(void);
