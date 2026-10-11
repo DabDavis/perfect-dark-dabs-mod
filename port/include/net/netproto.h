@@ -177,7 +177,8 @@
 //    but its own shots' bullet holes; CMD names a base tick (the newest
 //    command the host acked) and its commands are packed to 32 bytes, the
 //    first XOR-delta'd against the base, each after it against the one
-//    before (port/src/net/netcmd.c); the world block grows to 352 bytes, the players
+//    before (port/src/net/netcmd.c); CMDACK is 9 bytes (the match's low
+//    byte, the ack as a distance from the host tick); the world block grows to 352 bytes, the players
 //    list's pings at 320, and PLAYERS goes only when the spectators change
 #define NET_PROTOCOL_VERSION 30
 
@@ -706,7 +707,9 @@
  * newest it has, with as depth how far that is ahead of the host's tick.
  *
  * CMDACK (host -> client, UNRELIABLE, once a host tick) - what the host has
- * of this client's commands, and the clock (spec-tick.md §3b)
+ * of this client's commands, and the clock (spec-tick.md §3b). (protocol
+ * 30) 9 bytes: u8 NETMSG_CMDACK, u8 matchid's low byte, u32 hosttick, s16
+ * ack - hosttick (-32768 none), u8 depth; before it, whole:
  *   u8      NETMSG_CMDACK
  *   u32     matchid
  *   u32     hosttick              the host's g_NetTick

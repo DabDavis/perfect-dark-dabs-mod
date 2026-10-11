@@ -1105,6 +1105,21 @@ void netPlayersHostSpecGone(s32 view)
  * packet's usercmds: a held stick or button, an unmoved mouse, the same view
  * delay cost nothing. The packet stands alone (no baseline to have acked)
  */
+#define NETACK_NONE ((s16)-32768)
+
+// (protocol 30) CMDACK's body: the match's low byte, the host tick, the ack
+// as a distance from it (a client runs 1-2 ticks ahead; one further off than
+// a s16 says none, and the client resends its window), the depth
+static void netCmdAckWrite(struct netbuf *b, u32 ack, s32 depth)
+{
+	const s32 rel = ack == 0xffffffff ? NETACK_NONE : (s32)(ack - g_NetTick);
+
+	netBufWriteU8(b, (u8)netSessionMatchId());
+	netBufWriteU32(b, g_NetTick);
+	netBufWriteS16(b, (s16)(rel <= -32768 || rel > 32767 ? NETACK_NONE : rel));
+	netBufWriteU8(b, (u8)(depth > 255 ? 255 : depth));
+}
+
 /**
  * (protocol 30) The host keeps every command it took, packed, by tick, per
  * view: the base a client's next CMD names for its first command (the newest
@@ -1543,10 +1558,7 @@ static void netPlayersHostSendAcks(void)
 
 		netBufInitWrite(&b, s_CmdBuf, sizeof(s_CmdBuf));
 		netBufWriteU8(&b, NETMSG_CMDACK);
-		netBufWriteU32(&b, netSessionMatchId());
-		netBufWriteU32(&b, g_NetTick);
-		netBufWriteU32(&b, q->haveack ? q->ack : 0xffffffff);
-		netBufWriteU8(&b, (u8)(depth > 255 ? 255 : depth));
+		netCmdAckWrite(&b, q->haveack ? q->ack : 0xffffffff, depth);
 		netSessionSendSlot(slot, NET_CHAN_UNRELIABLE, s_CmdBuf, netBufLen(&b), 0);
 	}
 
@@ -1564,10 +1576,7 @@ static void netPlayersHostSendAcks(void)
 
 		netBufInitWrite(&b, s_CmdBuf, sizeof(s_CmdBuf));
 		netBufWriteU8(&b, NETMSG_CMDACK);
-		netBufWriteU32(&b, netSessionMatchId());
-		netBufWriteU32(&b, g_NetTick);
-		netBufWriteU32(&b, sq->have ? sq->newest : 0xffffffff);
-		netBufWriteU8(&b, (u8)(ahead < 0 ? 0 : ahead > 255 ? 255 : ahead));
+		netCmdAckWrite(&b, sq->have ? sq->newest : 0xffffffff, ahead < 0 ? 0 : ahead);
 		netSessionSendSlot(MAX_PLAYERS + slot, NET_CHAN_UNRELIABLE, s_CmdBuf, netBufLen(&b), 0);
 	}
 }
@@ -1977,13 +1986,16 @@ static void netPlayersClientSend(void)
 
 void netPlayersClientOnAck(struct netbuf *b)
 {
-	u32 matchid = netBufReadU32(b);
-	u32 hosttick = netBufReadU32(b);
-	u32 ack = netBufReadU32(b);
+	// (protocol 30) u8 the match id's low byte, u32 hosttick, s16 ack less
+	// hosttick (NETACK_NONE none), u8 depth: 9 bytes for 14, every tick
+	const u8 matchtag = netBufReadU8(b);
+	const u32 hosttick = netBufReadU32(b);
+	const s16 ackrel = netBufReadS16(b);
+	u32 ack = ackrel == NETACK_NONE ? 0xffffffff : hosttick + (u32)(s32)ackrel;
 	s32 depth = netBufReadU8(b);
 	s32 err;
 
-	if (!netBufOk(b) || netBufRemaining(b) != 0 || matchid != netSessionMatchId() || !netInMatch()) {
+	if (!netBufOk(b) || netBufRemaining(b) != 0 || matchtag != (u8)netSessionMatchId() || !netInMatch()) {
 		return;
 	}
 
