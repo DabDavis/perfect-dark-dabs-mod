@@ -3142,6 +3142,15 @@ last two cards (the reference's Create Game), the list asked for every
 the rooms. The windows' own titles no longer repeat the header's
 ("Rooms", "Room Setup", "Room").
 
+**Text size (same day).** The owner: "letter glyphs are large". The windows'
+text is drawn at Net.LobbyTextScale percent of the fonts' own size (75 by
+default; text-rendering.md "Text smaller than its glyphs"), every row height
+in netlobbymenu.c is `lobbyRow()` of the font's, and the cards are as tall as
+their three smaller lines; the header and footer are drawn full size
+(`lobbyChrome()` sets `s_LobbyFullSize`). The header's emblem has "PD" over
+"Online" across its right half, and its right side cuts the room's name
+rather than its count when both do not fit.
+
 **The roster (the owner, same day: "instead of team 1, team 2 columns
 just make the player names the same color as the team they are on and only
 in team based modes", "and group the same color teams together").** One

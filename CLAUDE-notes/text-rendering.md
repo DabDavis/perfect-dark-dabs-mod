@@ -41,6 +41,26 @@ Security Question to create an account, or Sign In." is 57 and lost its last
 three words on screen while measuring fine in a header. Two shorter labels
 stacked is the fix; the account pages use that.
 
+## Text smaller than its glyphs (gDPSetRectScaleEXT, 2026-10-11)
+
+The menu is 320x220 units at every window size and a font is as many units
+tall as its glyphs are texels, so a line of HandelGothicSm is a 22nd of the
+screen at any resolution; there is no UI or text scale in the game. Smaller
+text needs no other kind of font: `gDPSetRectScaleEXT(gdl, scale, x, y)`
+(G_SETRECTSCALE_EXT) has the texture and fill rectangles after it drawn
+`scale` times their size about the point x, y, their texels spread over the
+smaller rectangle as over the whole one, until it is set again with 1
+(`gfx_draw_rectangle()`, before the aspect adjustment; `gfx_run()` clears it
+each frame). The layout is still the font's own, so `textMeasure()` widths
+and line heights are the caller's to scale. One trap: `text0f15568c()` drops
+a glyph whose *full-size* x is past `viGetWidth()`, so a line laid out near
+the right edge loses glyphs it would have drawn smaller; scale it about its
+end, laying it out leftwards from there (netlobbymenu.c `lobbyText()`). The
+online pages use it for their windows' text (Net.LobbyTextScale, Online Text
+Size on the Advanced page, 75% by default), and the XBLA release's glyphs
+(XBLA Font) keep their sharpness at the smaller size. A UI scale for the
+stock menus would need their item heights scaled too, and the mouse.
+
 ## The dark box behind outlined text is the font, not the renderer
 
 `textRender` (the outline pass) draws one glyph twice in a two-cycle
