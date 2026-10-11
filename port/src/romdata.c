@@ -305,6 +305,21 @@ static s32 romdataSegIsAudio(const char *name)
 		|| !strcmp(name, "seqtbl") || !strcmp(name, "sequences");
 }
 
+// the bank segments (sfxctl, seqctl) whose mod file was refused: their sample
+// tables (sfxtbl, seqtbl) come from the ROM too
+static u32 g_RomdataRefusedBanks;
+
+static void romdataRefuseBank(const char *name)
+{
+	g_RomdataRefusedBanks |= !strcmp(name, "sfxctl") ? 1 : !strcmp(name, "seqctl") ? 2 : 0;
+}
+
+static s32 romdataBankRefused(const char *name)
+{
+	return (!strcmp(name, "sfxtbl") && (g_RomdataRefusedBanks & 1))
+		|| (!strcmp(name, "seqtbl") && (g_RomdataRefusedBanks & 2));
+}
+
 static inline void romdataInitSegment(struct romfile *seg)
 {
 	if (!seg->data) {
@@ -328,20 +343,40 @@ static inline void romdataInitSegment(struct romfile *seg)
 	char tmp[FS_MAXPATH];
 	snprintf(tmp, sizeof(tmp), ROMDATA_SEGDIR "/%s", seg->name);
 	u8 *newData = NULL;
+	const uintptr_t romofs = (uintptr_t)seg->data;
+	const u32 romsize = seg->size;
 	// --mod-segs-boot-stock: the overlay mod's files and modconfig, the ROM's
 	// own segments but for the sound's, which modSegsEnter() then swaps in at
 	// the first stage (the live swap's test against a --moddir boot, modsegs.c)
 	const s32 extFileSize = (sysArgCheck("--mod-segs-boot-stock") && !romdataSegIsAudio(seg->name)) ? -1 : fsFileSize(tmp);
-	if (extFileSize > 0) {
+	if (extFileSize > 0 && romdataBankRefused(seg->name)) {
+		sysLogPrintf(LOG_WARNING, "loading segment %s from ROM: its bank file was refused, and the two go together", seg->name);
+	} else if (extFileSize > 0) {
 		// padded: the sound DMA reads a whole item from where a sample starts,
 		// past a sound or music table's last one (sfxtbl, seqtbl)
 		newData = fsFileLoadPadded(tmp, &seg->size, ADMA_ITEM_SIZE);
 	}
 
+	// A mod's own sound or music bank is checked before it is converted: one
+	// with an offset past its end (built for a patched ROM's code, or cut
+	// short) took the game down at startup in convertAudioWaveTable() (crash
+	// 20261010-210721, mod DamOverture). It falls back to the ROM's, and the
+	// mod's sample table with it - the ROM's bank's offsets mean nothing in
+	// the mod's table.
+	if (newData && seg->preprocess == preprocessALBankFile && !preprocessALBankFileCheck(newData, seg->size)) {
+		const char *moddir = fsGetModDir();
+		sysLogPrintf(LOG_WARNING, "segment %s from file %s%s%s does not read as a sound bank (%u bytes); the ROM's is used",
+				seg->name, moddir ? moddir : "", moddir ? "/" : "", tmp, seg->size);
+		sysMemFree(newData);
+		newData = NULL;
+		seg->size = romsize;
+		romdataRefuseBank(seg->name);
+	}
+
 	if (!newData) {
 		// no external data, just make it point to the rom
 		if (g_RomFile) {
-			newData = g_RomFile + (uintptr_t)seg->data;
+			newData = g_RomFile + romofs;
 			seg->source = SRC_ROM;
 			sysLogPrintf(LOG_NOTE, "loading segment %s from ROM (offset %08x pointer %p)", seg->name, (uintptr_t)seg->data, newData);
 		} else {
