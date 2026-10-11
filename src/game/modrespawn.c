@@ -8,6 +8,7 @@
 #include "game/coop.h"
 #include "game/music.h"
 #include "game/player.h"
+#include "lib/collision.h"
 #include "net/net.h"
 #include "bss.h"
 #include "data.h"
@@ -39,6 +40,25 @@ static bool g_ModRespawning[MAX_PLAYERS];
 static s32 g_ModRespawnWeapons[MAX_PLAYERS][2];
 
 /**
+ * Where each player last stood on a floor, for a death with none under it:
+ * a fall that ran out the four seconds' clock, or one out of the world
+ * (bondwalk.c holds a player with no floor at -30000 and kills them there).
+ * The new life used to stand up at the death's spot whatever was under it:
+ * with nothing, the player was put at the bottom of the world, died there
+ * at once and came back to the same spot, a red screen over the city for
+ * as long as the lives lasted (F3 20261010-225241, Defection).
+ */
+struct modrespawnground {
+	bool valid;
+	struct coord pos;
+	RoomNum room;
+	f32 theta;
+};
+
+static struct modrespawnground g_ModRespawnGround[MAX_PLAYERS];
+static bool g_ModRespawnFell[MAX_PLAYERS];
+
+/**
  * Stage start.
  */
 void modRespawnReset(void)
@@ -49,6 +69,8 @@ void modRespawnReset(void)
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		g_ModRespawning[i] = false;
+		g_ModRespawnGround[i].valid = false;
+		g_ModRespawnFell[i] = false;
 		g_ModRespawnWeapons[i][HAND_LEFT] = WEAPON_NONE;
 		g_ModRespawnWeapons[i][HAND_RIGHT] = WEAPON_NONE;
 	}
@@ -89,6 +111,85 @@ void modRespawnRecordDeath(void)
 
 	g_ModRespawnWeapons[playernum][HAND_RIGHT] = bgunGetWeaponNum(HAND_RIGHT);
 	g_ModRespawnWeapons[playernum][HAND_LEFT] = bgunGetWeaponNum(HAND_LEFT);
+	g_ModRespawnFell[playernum] = g_Vars.currentplayer->isfalling;
+}
+
+/**
+ * The walk's tick, the player on a floor and alive: remember the spot.
+ */
+void modRespawnNoteGround(void)
+{
+	s32 playernum = g_Vars.currentplayernum;
+	struct prop *prop = g_Vars.currentplayer->prop;
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS || !prop || prop->rooms[0] < 0
+			|| g_Vars.mplayerisrunning || !modIsMissionRespawnOn()) {
+		return;
+	}
+
+	g_ModRespawnGround[playernum].valid = true;
+	g_ModRespawnGround[playernum].pos = prop->pos;
+	g_ModRespawnGround[playernum].room = prop->rooms[0];
+	g_ModRespawnGround[playernum].theta = g_Vars.currentplayer->vv_theta;
+}
+
+/**
+ * Whether a floor is under pos in one of rooms (a list ending in -1).
+ */
+static bool modRespawnHasFloor(struct coord *pos, RoomNum *rooms)
+{
+	return cdFindGroundInfoAtCyl(pos, 30, rooms, NULL, NULL, NULL, NULL, NULL, NULL) > -29000.0f;
+}
+
+/**
+ * Where the new life starts: the death's spot if the player died standing on
+ * a floor, else where they last stood on one. False if neither has a floor,
+ * and the mission's spawn pad is used.
+ */
+bool modRespawnTakeSpot(struct coord *pos, RoomNum *rooms, f32 *angle)
+{
+	s32 playernum = g_Vars.currentplayernum;
+	struct player *player = g_Vars.currentplayer;
+	struct modrespawnground *ground;
+	RoomNum testrooms[9];
+	s32 i;
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS) {
+		return false;
+	}
+
+	ground = &g_ModRespawnGround[playernum];
+
+	// The prop has not moved since the death, so its rooms are the spot's
+	for (i = 0; i < 8 && player->prop->rooms[i] >= 0; i++) {
+		testrooms[i] = player->prop->rooms[i];
+	}
+
+	testrooms[i] = -1;
+
+	if (!g_ModRespawnFell[playernum] && testrooms[0] >= 0
+			&& modRespawnHasFloor(&player->posdie, testrooms)) {
+		*pos = player->posdie;
+		rooms[0] = testrooms[0];
+		rooms[1] = -1;
+		*angle = player->thetadie * M_BADTAU / 360.0f;
+		return true;
+	}
+
+	if (ground->valid) {
+		testrooms[0] = ground->room;
+		testrooms[1] = -1;
+
+		if (modRespawnHasFloor(&ground->pos, testrooms)) {
+			*pos = ground->pos;
+			rooms[0] = ground->room;
+			rooms[1] = -1;
+			*angle = ground->theta * M_BADTAU / 360.0f;
+			return true;
+		}
+	}
+
+	return false;
 }
 
 /**

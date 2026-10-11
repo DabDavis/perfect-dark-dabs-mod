@@ -28,6 +28,7 @@
 #include "data.h"
 #include "types.h"
 #include "game/modoptions.h"
+#include "game/modrespawn.h"
 #include "game/modrun.h"
 #include "game/modrules.h"
 #include "game/bg.h"
@@ -1931,6 +1932,14 @@ void bwalkUpdateVertical(void)
 
 		g_Vars.currentplayer->bdeltapos.y = 0;
 	}
+
+#ifndef PLATFORM_N64
+	// Mission Respawn's fallback spot for a death with no floor under it
+	if (!g_Vars.currentplayer->isfalling && !g_Vars.currentplayer->isdead
+			&& g_Vars.currentplayer->vv_ground > -29000.0f) {
+		modRespawnNoteGround();
+	}
+#endif
 
 	// Decrease crouchtime240 for this tick.
 	// If reached 0 and crouchfall is negative, start increasing
