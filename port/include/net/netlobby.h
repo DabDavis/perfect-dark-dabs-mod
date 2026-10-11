@@ -158,6 +158,13 @@ void netLobbyHandicapSet(const char *user, s32 handicap);
 void netLobbyHandicapsReset(void);
 u32 netLobbyHandicapsHash(void);
 void netLobbyChat(const char *text);
+
+// The main menu's chat (pdlobbyd API 4), on the Briefing Room: the page says
+// it is up every frame; lines oldest first
+void netLobbyMainChatWant(void);
+s32 netLobbyMainChatAvailable(void); // 1 yes, -1 the lobby has none, 0 not heard yet
+s32 netLobbyMainChatLines(struct netlobbychat *out, s32 max);
+void netLobbyMainChatSay(const char *text);
 void netLobbySendSettings(void);     // host: the Combat Simulator setup again
 void netLobbyPreviewRoom(struct netlobbyroom *out); // the room this machine's setup makes now (Create Room's preview)
 void netLobbyKick(const char *user);

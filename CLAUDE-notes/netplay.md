@@ -3165,8 +3165,8 @@ laid out as much bigger, never past the 320 units.
 **The header's logo (same day).** "PD / Online" over the port's icon gave
 way to the boot screen's own logo, the owner's choice, drawn from the ROM
 ("we can't ship assets"): `lobbyLogo()` draws title.c's two models (FILE_PNLOGO
-the emblem, FILE_PPDTWO the words) as menu models in memory and viewports of
-their own, as the Ghost Trials nameplate draws its head. What it took, each
+the emblem, FILE_PPDTWO the words), each loaded into memory of its own the
+way menuRenderModel() loads a file, and drawn by hand. What it took, each
 learned from a wrong picture:
 - The title's end is the morph's second toggle's shape drawn as it stands
   (part 0001 on, 0000 off; the first toggle's lists, Nintendo's cube, are
@@ -3176,24 +3176,44 @@ learned from a wrong picture:
   per model, and for the second toggle's lists at the end it is 256 less the
   cap - 16 for the emblem, 1 for the words. Left to the menu's, an open
   dropdown's colour made the emblem Nintendo's green and blue.
-- Lit (`G_LIGHTING`): the lists' colours are normals, and menuRenderModel()'s
-  setup clears lighting; the title's front light (ambient white) and the
+- Lit (`G_LIGHTING`): the lists' colours are normals, and the menu models'
+  setup list clears lighting; the title's front light (ambient white) and the
   words' light where the title's comes to rest, its LookAt (a camera on z).
 - Sized from the title's camera (46 degrees at 4000, emblem 0.35, words 1000
   nearer at 0.308 and grown 5%): the words' projected scale is 1.23 times the
-  emblem's, the emblem 4580 model units tall; the depth cleared between them.
+  emblem's, the emblem 4580 model units tall; the depth cleared between them
+  (`gDPClearDepthEXT`).
+- **Not through menuRenderModel().** It sets the view (g_ViBackData) to its
+  rectangle and makes its projection the camera's (`vi0000af00()`), and the
+  eye piece - drawn first the next frame, placed through the camera's screen
+  mapping - came up small in the logo's box, or not at all once the view was
+  put back exactly; building the player's projection again instead rewrote
+  the player's viewport, and in the XBLA look the eye piece's mesh came up as
+  a blue bar down the screen and the pointer was mapped through it (F3
+  20261011-203600). The logo sets its own viewport (`s_LogoViewport`, by
+  g_ViBackIndex) and projection in the display list, then the player's
+  viewport and the menus' 2D projection (`func0f0d479c()`) after, and writes
+  none of the view's, the camera's or the menus' state.
+- In the XBLA look the release has a mesh for the emblem's file (4J's cube,
+  drawn on the second toggle): `xblaMeshSetBypass()` round the load and the
+  draw, as the title keeps it off its own logo.
 - Drawn with the centre held (a model's vertices take a side's offset as a
   share of the viewport), its rectangle moved into the centre's frame by hand
   for the viewport; the scissor set with no side held, in the stretched
   frame (one set with the centre held is clamped at 0 and cut the logo's left
-  off in the 16:9 pillar).
-- The camera's projection put back after it (`vi0000af00()` with the player's
-  view): menuRenderModel() leaves the model's as the camera's, nothing over a
-  menu's background resets it, and the eye piece - drawn first the next frame,
-  through `camGetPerspectiveMtxL()` - came up small in the logo's box. A stock
-  dialog's model goes through the same path, and dialogRender() puts back
-  only the view's position and size after it (not checked whether the eye
-  piece behind a character preview shows it).
+  off in the 16:9 pillar). 28 units tall ("lets shrink the logo a bit").
+
+**Main Menu Chat (same day).** The owner: "the small bottom right window
+that says Lobby, let's make that a Main Menu Chat. You can make it a bit
+taller". pdlobbyd API 4 has one chat for everyone signed in (`GET /chat?since=`
+and `POST /chat`, README "Main menu chat"); the Briefing Room's right column
+is the room's details over it, about half each, the page's status the chat's
+last line (`lobbyChatLines()`, shared with the Game Lobby's room chat). The
+page says it is up every frame (`netLobbyMainChatWant()`), and the poll
+thread, idle outside a room, asks every 2 s while it is; Space or the chat
+key open the line (nethud.c CHAT_MAIN, `netHudMainChatFrame()`), Enter sends
+(`netLobbyMainChatSay()`, a queued job). A 404 (an older lobby) says so in
+the window; a 401 (the lobby restarted) signs in again once.
 
 **The roster (the owner, same day: "instead of team 1, team 2 columns
 just make the player names the same color as the team they are on and only

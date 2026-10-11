@@ -351,6 +351,7 @@ void netHudAimFrame(void);      // lv.c lvRender, the local player's pass: the p
 s32 netHudChatOpen(void);       // the line is open: the keyboard's keys are letters
 s32 netHudAteEscape(void);      // this frame's ESC was the line's (for what reads inputKeyPressedThisFrame)
 void netHudLobbyFrame(void);    // netlobbymenu.c: the Game Lobby is the dialog on screen this frame
+void netHudMainChatFrame(void); // netlobbymenu.c: the Briefing Room is, with the main menu's chat
 s32 netHudChatLine(char *out, s32 size, s32 maxchars); // the line as typed (its tail, a cursor); 0 shut
 void netHudSay(const char *text); // a line said from a menu (the pause menu's Players page)
 const char *netHudChatKeyName(void); // "T", or "T or Space"

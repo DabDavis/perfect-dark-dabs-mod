@@ -58,7 +58,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-API_VERSION = 3   # 2: host migration (README "Host migration"); 3: the same shape, hardened (README "Limits")
+API_VERSION = 4   # 2: host migration (README "Host migration"); 3: the same shape, hardened (README "Limits"); 4: the main menu's chat (README "Main menu chat")
 
 
 def env(name, default):
@@ -719,6 +719,11 @@ class Lobby:
         self.cfg = cfg or Config()
         self.rooms = {}
         self.tokens = {}         # member token -> Room
+        # The main menu's chat: everyone signed in, in a room or not (the
+        # game shows it on its Briefing Room). (version, user, text, time),
+        # the last chat_keep lines.
+        self.mainchat = collections.deque()
+        self.mainchat_version = 0
         self.user_room = {}      # lower(user) -> member token
         self.sessions = {}       # session token -> Session
         self.gone = {}           # member token -> (reason, until): why a token stopped working
@@ -876,6 +881,10 @@ class Lobby:
             return {"ok": True}
         if m == "POST" and parts == ["rooms"]:
             return self.create_room(req)
+        if m == "GET" and parts == ["chat"]:
+            return self.main_chat(req)
+        if m == "POST" and parts == ["chat"]:
+            return self.main_chat_say(req)
 
         if len(parts) == 3 and parts[0] == "rooms" and ROOM_RE.match(parts[1]):
             room_id, action = parts[1], parts[2]
@@ -970,6 +979,37 @@ class Lobby:
     def prune_sessions(self, wall):
         for k in [k for k, s in self.sessions.items() if s.expires < wall]:
             del self.sessions[k]
+
+    # ---------------------------------------------------------- main menu chat
+
+    def main_chat(self, req):
+        """The lines after `since` (all that are kept for 0), for a signed-in
+        player. A plain poll: the game asks every couple of seconds while its
+        Briefing Room is up, which the request rate already allows for."""
+        self.session_auth(req)
+        try:
+            since = int(req.query.get("since", "0"))
+        except ValueError:
+            raise HttpError(400, "bad since")
+        chat = [{"v": v, "user": u, "text": t, "t": at}
+                for (v, u, t, at) in self.mainchat if v > since]
+        return {"ok": True, "version": self.mainchat_version, "chat": chat}
+
+    def main_chat_say(self, req):
+        s = self.session_auth(req)
+        body = req.json()
+        text = clean_text(body.get("text", ""), CHAT_MAX)
+        if not text:
+            raise HttpError(400, "nothing to say")
+        # per account, as a room's is per seat: a second session is no faster
+        if not self.windows.allow(("mainchat", s.user.lower()), self.cfg.chat_window[0],
+                                  self.cfg.chat_window[1], time.monotonic()):
+            raise HttpError(429, "slow down")
+        self.mainchat_version += 1
+        self.mainchat.append((self.mainchat_version, s.user, text, int(time.time())))
+        while len(self.mainchat) > self.cfg.chat_keep:
+            self.mainchat.popleft()
+        return {"ok": True, "version": self.mainchat_version}
 
     # ---------------------------------------------------------- rooms
 

@@ -13,6 +13,12 @@
 #include "game/menu.h"
 #include "game/menugfx.h"
 #include "game/file.h"
+#include "game/tex.h"
+#include "lib/mtx.h"
+#include "game/modeldef.h"
+#include "game/texdecompress.h"
+#include "game/savebuffer.h"
+#include "game/camera.h"
 #include "game/gfxmemory.h"
 #include "lib/model.h"
 #include "game/game_006900.h"
@@ -29,6 +35,7 @@
 #include "fs.h"
 #include "video.h"
 #include "menuimage.h"
+#include "xblamesh.h"
 #include "config.h"
 #include "gexplusrom.h"
 #include "net/net.h"
@@ -170,6 +177,8 @@ void netLobbyMenuSetTextScale(s32 pct)
 }
 
 static const struct lobbypage *lobbyPageOf(struct menudialogdef *def);
+static Gfx *lobbyChatLines(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2,
+		const struct netlobbychat *chat, s32 nchat, const char *empty, const char *status);
 
 /**
  * The online pages' own dialogs draw their stock items - Create Room's
@@ -521,8 +530,16 @@ static Gfx *lobbyTitleLine(Gfx *gdl, const char *name, const char *tail, s32 tx,
 static Gfx *lobbySettingsBlock(Gfx *gdl, struct menudialog *dialog, const struct netlobbyroom *room, s32 tx, s32 y, s32 inner, s32 maxrows, s32 *rows);
 static Gfx *lobbyPairsBlock(Gfx *gdl, struct menudialog *dialog, const struct lobbysetting *settings, s32 nsettings,
 		s32 tx, s32 y, s32 inner, s32 maxrows, s32 *rows);
+static s32 lobbyPairsCols(const struct lobbysetting *settings, s32 nsettings, s32 inner, s32 maxrows);
 static Gfx *lobbyModsBlock(Gfx *gdl, struct menudialog *dialog, const struct netcontentrow *rows, s32 nrows,
 		s32 tx, s32 y, s32 inner, s32 fit, s32 empties);
+
+// The width to wrap at for a window's inner width: the font's own measure
+// (textWrapN()), the text drawn at the windows' size
+static s32 lobbyWrapWidth(s32 inner)
+{
+	return (inner - 8) * 100 / lobbyPct();
+}
 
 // the lines text takes wrapped to a window's width in the small font
 static s32 lobbyParagraphLines(const char *text, s32 inner)
@@ -533,7 +550,7 @@ static s32 lobbyParagraphLines(const char *text, s32 inner)
 	char *p;
 
 	snprintf(in, sizeof(in), "%s\n", text);
-	textWrapN(inner - 8, in, out, sizeof(out), g_CharsHandelGothicXs, g_FontHandelGothicXs);
+	textWrapN(lobbyWrapWidth(inner), in, out, sizeof(out), g_CharsHandelGothicXs, g_FontHandelGothicXs);
 
 	for (p = out; *p; p++) {
 		n += *p == '\n';
@@ -566,7 +583,7 @@ static Gfx *lobbyParagraph(Gfx *gdl, const char *text, s32 tx, s32 *y, s32 inner
 	s32 n = 0;
 
 	snprintf(in, sizeof(in), "%s\n", text);
-	textWrapN(inner - 8, in, out, sizeof(out), g_CharsHandelGothicXs, g_FontHandelGothicXs);
+	textWrapN(lobbyWrapWidth(inner), in, out, sizeof(out), g_CharsHandelGothicXs, g_FontHandelGothicXs);
 
 	while (*p && n < maxlines) {
 		char *end = strchr(p, '\n');
@@ -655,8 +672,10 @@ PD_CONSTRUCTOR static void lobbyConfigInit(void)
 #define LOBBY_LOGO_WORDS   1.232f  // the words' projected scale over the emblem's
 #define LOBBY_LOGO_TEXMEM  0x40000 // each model's textures, after its file
 
+extern u8 g_ViBackIndex; // vi.c
+
 static struct menumodel s_LogoModels[2];
-static Vp s_LogoViewports[2][2];
+static Vp s_LogoViewport[2]; // vi.c's double buffer: the frame's back index
 static LookAt s_LogoLookAt;
 static s32 s_LogoLookSet = 0;
 static const u16 s_LogoFiles[2] = { FILE_PNLOGO, FILE_PPDTWO };
@@ -752,11 +771,115 @@ static void lobbyLogoLight(struct menumodel *m, s32 words)
 	}
 }
 
+// The model in its own memory, loaded as menuRenderModel() loads a file
+static s32 lobbyLogoLoad(struct menumodel *m, u16 filenum)
+{
+	struct texpool texpool;
+	u32 filelen;
+
+	if (m->bodymodeldef != NULL) {
+		return 1;
+	}
+
+	filelen = ALIGN64(fileGetInflatedSize(filenum, LOADTYPE_MODEL)) + 0x4000;
+	videoFreeCachedTextures(m->allocstart, m->allocstart + m->alloclen);
+	texInitPool(&texpool, m->allocstart + filelen, m->alloclen - filelen);
+	m->bodymodeldef = modeldefLoad(filenum, m->allocstart, filelen, &texpool);
+
+	if (m->bodymodeldef == NULL) {
+		return 0;
+	}
+
+	modelAllocateRwData(m->bodymodeldef);
+	modelInit(&m->bodymodel, m->bodymodeldef, m->rwdata, true);
+	animInit(&m->bodyanim);
+	m->bodymodel.rwdatalen = ARRAYCOUNT(m->rwdata);
+	m->bodymodel.anim = &m->bodyanim;
+
+	return 1;
+}
+
+// One model, 100 units in front of the eye at `scale`, as menuRenderModel()
+// draws a menu's model through the projection the caller has set
+static Gfx *lobbyLogoDrawModel(Gfx *gdl, struct menumodel *m, s32 words, f32 scale)
+{
+	struct modelrenderdata renderdata = {NULL, true, 3};
+	struct coord pos = { 0.0f, 0.0f, -100.0f };
+	struct modelnode *node;
+	Mtxf *matrices;
+	s32 i;
+
+	// the morph's end: its second toggle's shape (see above)
+	if ((node = modelGetPart(m->bodymodeldef, MODELPART_LOGO_0000)) != NULL) {
+		((union modelrwdata *)modelGetNodeRwData(&m->bodymodel, node))->toggle.visible = false;
+	}
+
+	if ((node = modelGetPart(m->bodymodeldef, MODELPART_LOGO_0001)) != NULL) {
+		((union modelrwdata *)modelGetNodeRwData(&m->bodymodel, node))->toggle.visible = true;
+	}
+
+	lobbyLogoLight(m, words);
+
+	matrices = gfxAllocate(m->bodymodeldef->nummatrices * sizeof(Mtxf));
+
+	for (i = 0; i < m->bodymodeldef->nummatrices; i++) {
+		mtx4LoadIdentity(&matrices[i]);
+	}
+
+	m->bodymodel.matrices = matrices;
+	mtx4LoadTranslation(&pos, &m->mtx);
+	mtx00015f04(scale, &m->mtx);
+	mtx4Copy(&m->mtx, matrices);
+	renderdata.unk00 = &m->mtx;
+	renderdata.unk10 = m->bodymodel.matrices;
+	modelSetMatricesWithAnim(&renderdata, &m->bodymodel);
+
+	gSPDisplayList(gdl++, var80061380);
+	gSPDisplayList(gdl++, var800613a0);
+	gdl = menugfx0f0e2348(gdl);
+	gSPSetGeometryMode(gdl++, G_ZBUFFER);
+
+	renderdata.unk30 = 1;
+	renderdata.envcolour = 0xffffffff;
+	renderdata.fogcolour = 0xffffffff;
+	renderdata.gdl = gdl;
+	renderdata.zbufferenabled = true;
+	modelRender(&renderdata, &m->bodymodel);
+	gdl = renderdata.gdl;
+
+	// the matrices into the RSP's form where they lie
+	mtx00016760();
+
+	for (i = 0; i < m->bodymodeldef->nummatrices; i++) {
+		Mtxf tmp;
+
+		mtx4Copy((Mtxf *)((uintptr_t)m->bodymodel.matrices + i * sizeof(Mtxf)), &tmp);
+		mtxF2L(&tmp, &m->bodymodel.matrices[i]);
+	}
+
+	mtx00016784();
+
+	gSPClearGeometryMode(gdl++, G_ZBUFFER);
+
+	return gdl;
+}
+
 /**
- * The logo in x1-y2 of the left-held space. A model is drawn through a
- * viewport, which takes no side's offset, and its vertices take the side's
- * as a share of the viewport rather than of the screen: so it is drawn with
- * the centre held, the rectangle moved into the centre's frame by hand.
+ * The logo in x1-y2 of the left-held space: the two models drawn by hand,
+ * through a viewport and a projection of its own, a depth cleared for each
+ * and the menus' own 2D projection set again after. Nothing of the view's,
+ * the camera's or the menus' state is touched. menuRenderModel(), first used
+ * here, sets the view to its rectangle and its projection as the camera's;
+ * put back, the eye piece came up small in the logo's box or not at all,
+ * and building the player's projection again rewrote the player's viewport,
+ * which in the XBLA look drew the eye piece's mesh as a blue bar down the
+ * screen and mapped the pointer through it (F3 20261011-203600).
+ *
+ * The vertices take a side's offset as a share of the viewport rather than
+ * of the screen, so the models are drawn with the centre held and the
+ * rectangle moved into the centre's frame by hand; the scissor is set with
+ * no side held, in the stretched frame (one set with the centre held is
+ * clamped at 0, and the logo stands in the 16:9 pillar).
  */
 static Gfx *lobbyLogo(Gfx *gdl, const struct lobbylayout *l, s32 x1, s32 y1, s32 x2, s32 y2)
 {
@@ -764,8 +887,18 @@ static Gfx *lobbyLogo(Gfx *gdl, const struct lobbylayout *l, s32 x1, s32 y1, s32
 	const s32 sy1 = g_MenuScissorY1;
 	const s32 sx2 = g_MenuScissorX2;
 	const s32 sy2 = g_MenuScissorY2;
-	// the view's height at the models' depth (menuRenderModel(): 100 in front)
-	const f32 viewh = 2.0f * tanf(g_Vars.currentplayer->fovy * (M_PI / 360.0f)) * 100.0f;
+	const f32 fovy = g_Vars.currentplayer->fovy;
+	// the view's height at the models' depth, 100 in front
+	const f32 viewh = 2.0f * tanf(fovy * (M_PI / 360.0f)) * 100.0f;
+	// the rectangle in the centre's frame, squeezed into the stretched frame
+	// as menuRenderModel() squeezes a dialog's for its viewport
+	const f32 ratio = SCREEN_ASPECT / videoGetAspect();
+	const f32 cx1 = SCREEN_WIDTH_LO / 2 + (x1 - l->pillar - SCREEN_WIDTH_LO / 2) * ratio;
+	const f32 cx2 = SCREEN_WIDTH_LO / 2 + (x2 - l->pillar - SCREEN_WIDTH_LO / 2) * ratio;
+	Vp *vp = &s_LogoViewport[g_ViBackIndex];
+	Mtx *proj;
+	Mtxf projf;
+	u16 perspnorm;
 	s32 i;
 
 	if (!s_LogoLookSet) {
@@ -775,6 +908,33 @@ static Gfx *lobbyLogo(Gfx *gdl, const struct lobbylayout *l, s32 x1, s32 y1, s32
 		s_LogoLookSet = 1;
 	}
 
+	// the scissor, with no side held
+	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT);
+	g_MenuScissorX1 = (s32)floorf(cx1);
+	g_MenuScissorX2 = (s32)ceilf(cx2);
+	g_MenuScissorY1 = y1;
+	g_MenuScissorY2 = y2;
+	gdl = menuApplyScissor(gdl);
+
+	// the viewport and the projection, with the centre held
+	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
+
+	vp->vp.vscale[0] = (s16)((cx2 - cx1) * g_ScaleX * 2);
+	vp->vp.vtrans[0] = (s16)((cx2 - cx1) * g_ScaleX * 2 + cx1 * g_ScaleX * 4);
+	vp->vp.vscale[1] = (y2 - y1) * 2;
+	vp->vp.vtrans[1] = (y2 - y1) * 2 + y1 * 4;
+	vp->vp.vscale[2] = 511;
+	vp->vp.vtrans[2] = 511;
+	vp->vp.vscale[3] = 0;
+	vp->vp.vtrans[3] = 0;
+	gSPViewport(gdl++, OS_K0_TO_PHYSICAL(vp));
+
+	proj = gfxAllocateMatrix();
+	guPerspectiveF(projf.m, &perspnorm, fovy, (cx2 - cx1) / (f32)(y2 - y1), 10, 300, 1);
+	*(Mtxf *)proj = projf;
+	gSPMatrix(gdl++, OS_K0_TO_PHYSICAL(proj), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
+	gSPPerspNormalize(gdl++, perspnorm);
+
 	for (i = 0; i < 2; i++) {
 		struct menumodel *m = lobbyLogoModel(i);
 
@@ -782,76 +942,36 @@ static Gfx *lobbyLogo(Gfx *gdl, const struct lobbylayout *l, s32 x1, s32 y1, s32
 			continue;
 		}
 
-		m->newparams = MENUMODELPARAMS_SET_FILENUM(s_LogoFiles[i]);
-		m->newanimnum = 0;
-		m->partvisibility = s_LogoParts;
-		m->curposx = m->newposx = 0.0f;
-		m->curposy = m->newposy = 0.0f;
-		m->curposz = m->newposz = 0.0f;
-		m->currotx = m->newrotx = 0.0f;
-		m->curroty = m->newroty = 0.0f;
-		m->currotz = m->newrotz = 0.0f;
-		m->curscale = m->newscale = viewh / LOBBY_LOGO_EMBLEMH * (i == 1 ? LOBBY_LOGO_WORDS : 1.0f);
+		// The N64's models whatever the look: in the XBLA look the release
+		// has a mesh for the emblem's file, 4J's cube, drawn on the morph's
+		// second toggle - the one shown here. The title keeps the release's
+		// meshes off its logo the same way.
+		xblaMeshSetBypass(true);
 
-		if (m->bodymodeldef != NULL) {
-			lobbyLogoLight(m, i == 1);
+		if (lobbyLogoLoad(m, s_LogoFiles[i])) {
+			// a depth of its own: the words over the emblem
+			gDPClearDepthEXT(gdl++);
+			gdl = lobbyLogoDrawModel(gdl, m, i == 1, viewh / LOBBY_LOGO_EMBLEMH * (i == 1 ? LOBBY_LOGO_WORDS : 1.0f));
 		}
 
-		// a depth of its own: the words over the emblem. Cleared over the
-		// whole window, its pillars too, with no side held: a scissor set
-		// with the centre held is squeezed into the middle's frame and the
-		// logo stands in the left pillar. Done here, so that
-		// menuRenderModel() does not clear it again for the words.
-		gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT);
-		g_MenuScissorX1 = viGetViewLeft() / g_ScaleX;
-		g_MenuScissorY1 = viGetViewTop();
-		g_MenuScissorX2 = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX;
-		g_MenuScissorY2 = viGetViewTop() + viGetViewHeight();
-		gdl = menuApplyScissor(gdl);
-		gdl = viPrepareZbuf(gdl);
-		gdl = vi0000b1d0(gdl);
-		g_MenuData.usezbuf = false;
-
-		// The rectangle as the scissor, still with no side held: in the
-		// stretched frame's units, the centre's squeezed into it as
-		// menuRenderModel() squeezes them for the viewport. With the centre
-		// held a scissor stops at the middle's frame (it is clamped at 0),
-		// which cut the logo's left off in the pillar at 16:9.
-		{
-			const f32 ratio = SCREEN_ASPECT / videoGetAspect();
-
-			g_MenuScissorX1 = (s32)floorf(SCREEN_WIDTH_LO / 2 + (x1 - l->pillar - SCREEN_WIDTH_LO / 2) * ratio);
-			g_MenuScissorX2 = (s32)ceilf(SCREEN_WIDTH_LO / 2 + (x2 - l->pillar - SCREEN_WIDTH_LO / 2) * ratio);
-			g_MenuScissorY1 = y1;
-			g_MenuScissorY2 = y2;
-			gdl = menuApplyScissor(gdl);
-		}
-
-		// and the rectangle in the centre's frame, with the centre held, for
-		// the viewport: a viewport takes no side's offset and is not
-		// squeezed, and the model's vertices are squeezed with the centre held
-		gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
-		g_MenuScissorX1 = x1 - l->pillar;
-		g_MenuScissorX2 = x2 - l->pillar;
-		g_MenuScissorY1 = y1;
-		g_MenuScissorY2 = y2;
-
-		gSPSetGeometryMode(gdl++, G_ZBUFFER);
-		g_MenuModelViewport = s_LogoViewports[i];
-		gdl = menuRenderModel(gdl, m, MENUMODELTYPE_DEFAULT);
-		g_MenuModelViewport = NULL;
-		gSPClearGeometryMode(gdl++, G_ZBUFFER);
+		xblaMeshSetBypass(false);
 	}
 
-	viSetViewPosition(g_Vars.currentplayer->viewleft, g_Vars.currentplayer->viewtop);
-	viSetFovAspectAndSize(g_Vars.currentplayer->fovy, g_Vars.currentplayer->aspect,
-			g_Vars.currentplayer->viewwidth, g_Vars.currentplayer->viewheight);
+	// The player's viewport and the menus' 2D projection again, as after a
+	// dialog's model (menuRenderModel()), and the state it leaves
+	gSPViewport(gdl++, OS_K0_TO_PHYSICAL(viGetCurrentPlayerViewport()));
+	gdl = func0f0d479c(gdl);
 
-	// And the camera's projection the player's again. menuRenderModel()
-	// made the logo's the camera's (vi0000af00()), nothing over a menu's
-	// background puts it back, and the eye piece, drawn first next frame
-	// through camGetPerspectiveMtxL(), came up in the logo's box.
-	gdl = vi0000af00(gdl, viGetCurrentPlayerViewport());
+	gDPPipeSync(gdl++);
+	gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+	gDPSetAlphaCompare(gdl++, G_AC_NONE);
+	gDPSetCombineMode(gdl++, G_CC_MODULATEI, G_CC_MODULATEI);
+	gSPClearGeometryMode(gdl++, G_CULL_BOTH);
+	gDPSetTextureFilter(gdl++, G_TF_BILERP);
+	texSelect(&gdl, NULL, 2, 0, 2, 1, NULL);
+	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+	texSelect(&gdl, NULL, 2, 0, 2, 1, NULL);
+	gSPDisplayList(gdl++, var800613a0);
 
 	g_MenuScissorX1 = sx1;
 	g_MenuScissorY1 = sy1;
@@ -1645,6 +1765,11 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
 		netLobbyTick();
 
+		// the main menu's chat: asked for while the page is up, and its
+		// line opens with Space or the chat key (nethud.c)
+		netLobbyMainChatWant();
+		netHudMainChatFrame();
+
 		if (s_WaitingForRoom && netLobbyInRoom()) {
 			s_WaitingForRoom = 0;
 			menuPushDialog(&g_NetRoomMenuDialog);
@@ -1690,9 +1815,79 @@ struct menudialogdef g_NetBriefingMenuDialog = {
  * why this game cannot join it, its host, arena, mode and counts, and what
  * it plays with and where this machine stands with each
  */
-static Gfx *lobbyBriefingRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
+// The room the Briefing Room's Room window shows: the one under the cursor,
+// else the one Join would join, else the first in the list
+static const struct netlobbyroomsum *briefingShownRoom(void)
 {
 	const struct netlobbyroomsum *r = netLobbyRoomAt(s_SelectedRoom);
+
+	if (r == NULL) {
+		r = joinTarget();
+	}
+
+	if (r == NULL) {
+		r = netLobbyRoomAt(0);
+	}
+
+	return r;
+}
+
+// Its details, most important first (a narrow window shows the first)
+static s32 briefingPairs(const struct netlobbyroomsum *r, struct lobbysetting *pairs)
+{
+	s32 n = 0;
+
+#define PAIR(lbl, ...) do { pairs[n].label = lbl; snprintf(pairs[n].value, sizeof(pairs[n].value), __VA_ARGS__); n++; } while (0)
+	PAIR("Arena", "%s", r->stage[0] ? r->stage : "-");
+	PAIR("Mode", "%s", roomMode(r));
+	PAIR("Players", "%d/%d", r->humans, r->maxhumans);
+	PAIR("Host", "%s", r->host);
+	PAIR("Password", "%s", r->locked ? "Yes" : "No");
+	PAIR("Status", "%s", strcmp(r->state, "launched") == 0 ? "In a match" : strcmp(r->state, "countdown") == 0 ? "Starting" : "Open");
+	PAIR("Simulants", "%d", r->sims);
+	PAIR("Watching", "%d/%d", r->spectators, r->maxspectators);
+#undef PAIR
+
+	return n;
+}
+
+/**
+ * The Room window as tall as what it shows of the room (lobbyBriefingRoomWindow()
+ * line for line): the main menu's chat under it has the rest of the column.
+ * At 4:3 the details are a column of eight and the window takes most of it.
+ */
+static s32 briefingRoomHeight(const struct lobbylayout *l)
+{
+	const struct netlobbyroomsum *r = briefingShownRoom();
+	const s32 inner = l->rx2 - l->rx1 - 2 * LOBBY_INSET;
+	struct lobbysetting pairs[LOBBY_MAXSETTINGS];
+	struct netcontentrow rows[8];
+	s32 h = LINEHEIGHT + 3;
+	s32 n;
+	s32 nrows;
+
+	if (r == NULL) {
+		return h + 3 * LOBBY_XSROW + 6;
+	}
+
+	h += lobbyTextWidth(r->name, LOBBYFONT_MD) <= inner ? LOBBY_MDROW : LOBBY_SMROW + 2;
+
+	if (r->compat != NETLOBBY_COMPAT_OK) {
+		h += lobbyParagraphLines(netLobbyCompatText(r->compat), inner) * LOBBY_XSROW;
+	}
+
+	n = briefingPairs(r, pairs);
+	h += (lobbyPairsCols(pairs, n, inner, n) == 2 ? (n + 1) / 2 : n) * LOBBY_XSROW + 4;
+
+	nrows = netContentLobbyRows(r->mod, r->ge, NULL, rows, ARRAYCOUNT(rows));
+	h += LOBBY_SMROW + 1 + (nrows > 0 ? nrows : 1) * LOBBY_SMROW;
+
+	return h + 5;
+}
+
+static Gfx *lobbyBriefingRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
+{
+	const struct netlobbyroomsum *r = briefingShownRoom();
 	const u32 normal = MIXCOLOUR(dialog, item_unfocused);
 	const u32 alpha = (MIXCOLOUR(dialog, item_unfocused)) & 0xff;
 	const s32 inner = x2 - x1 - 2 * LOBBY_INSET;
@@ -1703,16 +1898,6 @@ static Gfx *lobbyBriefingRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1,
 	s32 nrows;
 	s32 n = 0;
 	s32 lines;
-
-	// the cursor on no room (the buttons): the one Join would join, else
-	// the first in the list
-	if (r == NULL) {
-		r = joinTarget();
-	}
-
-	if (r == NULL) {
-		r = netLobbyRoomAt(0);
-	}
 
 	if (r == NULL) {
 		gdl = lobbyParagraph(gdl, netLobbyBusy() ? "Asking the lobby..." : "No rooms open now. Create one: everyone sees it here.",
@@ -1726,17 +1911,7 @@ static Gfx *lobbyBriefingRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1,
 		gdl = lobbyParagraph(gdl, netLobbyCompatText(r->compat), tx, &y, inner, lobbyAlpha(0xffff6000, alpha), 3);
 	}
 
-#define PAIR(lbl, ...) do { pairs[n].label = lbl; snprintf(pairs[n].value, sizeof(pairs[n].value), __VA_ARGS__); n++; } while (0)
-	// what matters most first: a narrow window shows the first of them
-	PAIR("Arena", "%s", r->stage[0] ? r->stage : "-");
-	PAIR("Mode", "%s", roomMode(r));
-	PAIR("Players", "%d/%d", r->humans, r->maxhumans);
-	PAIR("Host", "%s", r->host);
-	PAIR("Password", "%s", r->locked ? "Yes" : "No");
-	PAIR("Status", "%s", strcmp(r->state, "launched") == 0 ? "In a match" : strcmp(r->state, "countdown") == 0 ? "Starting" : "Open");
-	PAIR("Simulants", "%d", r->sims);
-	PAIR("Watching", "%d/%d", r->spectators, r->maxspectators);
-#undef PAIR
+	n = briefingPairs(r, pairs);
 
 	// what it plays with: its mod, its conversion (its map's mod is in its
 	// rules, which the list does not carry); one column for the rest where
@@ -1763,27 +1938,27 @@ static Gfx *lobbyBriefingRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1,
 	return gdl;
 }
 
-// what the PING column measures (netLobbyRoomPing): no packet goes to a
-// host before joining, which keeps its address out of the public list
-#define BRIEFING_PINGNOTE "Ping: you to the lobby and the lobby to the host, in ms (~ measured by HTTP)."
-
-// Where the Briefing Room stands, and what PING measures
-static Gfx *lobbyBriefingStatusWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
+/**
+ * The main menu's chat (the owner, 2026-10-11: "the small bottom right
+ * window that says Lobby, let's make that a Main Menu Chat"): everyone
+ * signed in, from pdlobbyd's GET /chat, drawn as the Game Lobby draws its
+ * room's (lobbyChatLines()), the page's status as its last line. A lobby
+ * without it (before pdlobbyd API 4) says so there.
+ */
+static Gfx *lobbyBriefingChatWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
 {
-	const u32 white = MIXCOLOUR(dialog, item_focused_inner);
-	const u32 alpha = (MIXCOLOUR(dialog, item_unfocused)) & 0xff;
-	const s32 inner = x2 - x1 - 2 * LOBBY_INSET;
-	const s32 tx = x1 + LOBBY_INSET;
-	s32 y = y1 + LINEHEIGHT + 3;
-	char text[320];
+	static struct netlobbychat chat[NETLOBBY_MAXCHAT];
+	const s32 avail = netLobbyMainChatAvailable();
+	const s32 n = avail > 0 ? netLobbyMainChatLines(chat, NETLOBBY_MAXCHAT) : 0;
+	char status[320];
 
-	briefingStatusText(text, sizeof(text));
-	gdl = lobbyParagraph(gdl, text, tx, &y, inner, white, 8);
+	briefingStatusText(status, sizeof(status));
 
-	y += 2;
-	gdl = lobbyParagraph(gdl, BRIEFING_PINGNOTE, tx, &y, inner, dimColour(alpha), 8);
-
-	return gdl;
+	return lobbyChatLines(gdl, dialog, x1, y1, x2, y2, chat, n,
+			avail < 0 ? "This lobby server has no main menu chat."
+			: avail == 0 ? "Joining the chat..."
+			: "No one has said anything yet: press Space or T to talk.",
+			status);
 }
 
 // The list and its buttons: the whole of the left column
@@ -1797,15 +1972,21 @@ static void lobbyBriefingPlace(struct menudialog *dialog, const struct lobbylayo
 
 static Gfx *lobbyBriefingPanels(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l)
 {
-	char text[320];
-	s32 statusy1;
+	// the room's details as tall as they are, the chat the rest, the chat
+	// never less than a third of the column
+	const s32 column = l->bottom - l->top;
+	s32 roomh = briefingRoomHeight(l);
+	s32 chaty1;
 
-	briefingStatusText(text, sizeof(text));
-	statusy1 = l->bottom - lobbyStatusHeight(l, text, BRIEFING_PINGNOTE);
+	if (roomh > column * 2 / 3 - LOBBY_VGAP) {
+		roomh = column * 2 / 3 - LOBBY_VGAP;
+	}
+
+	chaty1 = l->top + roomh + LOBBY_VGAP;
 
 	gdl = lobbyAlign(gdl, G_ASPECT_RIGHT_EXT);
-	gdl = lobbyPanel(gdl, d, l->rx1, l->top, l->rx2, statusy1 - LOBBY_VGAP, "Room", lobbyBriefingRoomWindow);
-	gdl = lobbyPanel(gdl, d, l->rx1, statusy1, l->rx2, l->bottom, "Lobby", lobbyBriefingStatusWindow);
+	gdl = lobbyPanel(gdl, d, l->rx1, l->top, l->rx2, chaty1 - LOBBY_VGAP, "Room", lobbyBriefingRoomWindow);
+	gdl = lobbyPanel(gdl, d, l->rx1, chaty1, l->rx2, l->bottom, "Main Menu Chat", lobbyBriefingChatWindow);
 
 	return gdl;
 }
@@ -2886,28 +3067,20 @@ static Gfx *lobbyTitleLine(Gfx *gdl, const char *name, const char *tail, s32 tx,
  * where they fit, the first half (the long values) on the left. *rows is
  * the lines it took.
  */
-static Gfx *lobbyPairsBlock(Gfx *gdl, struct menudialog *dialog, const struct lobbysetting *settings, s32 nsettings,
-		s32 tx, s32 y, s32 inner, s32 maxrows, s32 *rows)
+/**
+ * The settings' columns: two (one on a window too narrow for them: at 4:3 a
+ * column of seven left a full room's roster no rows; the width at the
+ * windows' text size). The right column's values are short (the limits, the
+ * simulants): it is as wide as they are, the left one has the rest. One
+ * column, a line each (as the mock-up has them), where the window has the
+ * lines for it and two columns would cut a value.
+ */
+static s32 lobbyPairsCols(const struct lobbysetting *settings, s32 nsettings, s32 inner, s32 maxrows)
 {
-	const u32 normal = MIXCOLOUR(dialog, item_unfocused);
-	const u32 label = MIXCOLOUR(dialog, listgroup_headerfg);
 	char buf[128];
-	s32 nleft;
-	s32 cols;
-	s32 colw;
-	s32 colw2;
-	s32 col2x;
+	s32 cols = inner >= lobbyRow(140) ? 2 : 1;
 	s32 i;
 
-	// the settings, two columns (one on a window too narrow for them: at
-	// 4:3 a column of seven left a full room's roster no rows). The right
-	// column's values are short (the limits, the simulants): it is as wide
-	// as they are, the left one has the rest.
-	cols = inner >= 140 ? 2 : 1;
-
-	// one column, a line each (as the mock-up has them), where the window
-	// has the lines for it and two columns would cut a value: the left
-	// column has what the right one's widest line leaves
 	if (cols == 2 && nsettings <= maxrows) {
 		s32 right = 0;
 
@@ -2927,6 +3100,24 @@ static Gfx *lobbyPairsBlock(Gfx *gdl, struct menudialog *dialog, const struct lo
 			}
 		}
 	}
+
+	return cols;
+}
+
+static Gfx *lobbyPairsBlock(Gfx *gdl, struct menudialog *dialog, const struct lobbysetting *settings, s32 nsettings,
+		s32 tx, s32 y, s32 inner, s32 maxrows, s32 *rows)
+{
+	const u32 normal = MIXCOLOUR(dialog, item_unfocused);
+	const u32 label = MIXCOLOUR(dialog, listgroup_headerfg);
+	char buf[128];
+	s32 nleft;
+	s32 cols;
+	s32 colw;
+	s32 colw2;
+	s32 col2x;
+	s32 i;
+
+	cols = lobbyPairsCols(settings, nsettings, inner, maxrows);
 
 	// one column with fewer lines than the settings (a narrow window): the
 	// first ones, which the caller puts first because they matter most;
@@ -3386,6 +3577,19 @@ static s32 lobbyChatWrap(struct lobbychatline *lines, s32 n, const char *text, s
 static Gfx *lobbyChatWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
 {
 	const struct netlobbyroom *room = netLobbyGetRoom();
+
+	return lobbyChatLines(gdl, dialog, x1, y1, x2, y2, room->chat, room->nchat,
+			"No chat yet: press Space to talk.", netLobbyMenuStatusText());
+}
+
+/**
+ * A chat window's lines: who said what, wrapped, the newest at the foot;
+ * `empty` when nobody has, then the page's status, then the line being
+ * typed (nethud.c) - as many of the last as fit
+ */
+static Gfx *lobbyChatLines(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2,
+		const struct netlobbychat *chat, s32 nchat, const char *empty, const char *status)
+{
 	const u32 alpha = (MIXCOLOUR(dialog, item_unfocused)) & 0xff;
 	const u32 normal = MIXCOLOUR(dialog, item_unfocused);
 	const u32 label = MIXCOLOUR(dialog, listgroup_headerfg);
@@ -3400,16 +3604,18 @@ static Gfx *lobbyChatWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1,
 	s32 y;
 	s32 i;
 
-	for (i = 0; i < room->nchat; i++) {
-		snprintf(text, sizeof(text), "%s: %s", room->chat[i].user, room->chat[i].text);
-		nlines = lobbyChatWrap(lines, nlines, text, strlen(room->chat[i].user) + 2, normal, inner);
+	for (i = 0; i < nchat; i++) {
+		snprintf(text, sizeof(text), "%s: %s", chat[i].user, chat[i].text);
+		nlines = lobbyChatWrap(lines, nlines, text, strlen(chat[i].user) + 2, normal, inner);
 	}
 
-	if (room->nchat == 0) {
-		nlines = lobbyChatWrap(lines, nlines, "No chat yet: press Space to talk.", 0, dimColour(alpha), inner);
+	if (nchat == 0) {
+		nlines = lobbyChatWrap(lines, nlines, empty, 0, dimColour(alpha), inner);
 	}
 
-	nlines = lobbyChatWrap(lines, nlines, netLobbyMenuStatusText(), 0, white, inner);
+	if (status && status[0]) {
+		nlines = lobbyChatWrap(lines, nlines, status, 0, white, inner);
+	}
 
 	// the line as it is typed (its tail and a cursor), the newline off
 	if (netHudChatLine(text, sizeof(text), NETLOBBY_MAXCHATTEXT)) {
@@ -4258,7 +4464,7 @@ static void lobbyInfoRoom(char *out, s32 size)
 static const struct lobbypage s_LobbyPages[] = {
 	{ &g_NetOnlineMenuDialog, 0, lobbyNamePlace, lobbyNamePanels, "NAME ENTRY", NULL, LOBBY_HINTS_SELECT },
 	{ &g_NetBriefingMenuDialog, G_ASPECT_LEFT_EXT, lobbyBriefingPlace, lobbyBriefingPanels, "BRIEFING ROOM", lobbyInfoRooms,
-		"A / Enter: Join or Create     B / Esc: Back" },
+		"A / Enter: Join     Space or T: Chat     B / Esc: Back" },
 	{ &g_NetCreateMenuDialog, G_ASPECT_LEFT_EXT, lobbyPreviewPlace, lobbyPreviewPanels, "CREATE ROOM", lobbyInfoAccount, LOBBY_HINTS_SELECT },
 	{ &g_NetRoomSettingsMenuDialog, G_ASPECT_LEFT_EXT, lobbyPreviewPlace, lobbyPreviewPanels, "ROOM SETTINGS", lobbyInfoRoom, LOBBY_HINTS_SELECT },
 	{ &g_NetRoomMenuDialog, G_ASPECT_RIGHT_EXT, lobbyRoomPlace, lobbyRoomPanels, "GAME LOBBY", lobbyInfoRoom,
