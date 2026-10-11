@@ -123,6 +123,17 @@ An encoder that has actually exited is still given up on - the writers find it
 when a write fails - and the unplayable file it leaves behind is removed, since
 nothing without a moov atom will open in anything.
 
+## Where Windows gets ffmpeg (2026-10-11)
+
+BtbN deletes its daily autobuilds after about two weeks and keeps each
+month's last one for two years: the pinned daily (2026-09-02) 404'd five weeks
+later (F3 20261010-222200). `g_RecordFfmpegAssets` (record.c) is a month-end
+build of a release branch (9.0.1, autobuild-2026-08-31-13-27), then that
+branch's rolling build under `latest`, whose asset name does not change. Test
+end to end under wine: `wine pd.x86_64.exe --savedir ... --fetch-ffmpeg --log`
+(downloads, unpacks, prunes; 164MB on disk). When bumping the pin, choose a
+month-end tag.
+
 ## Testing on the real GPU without a window
 
 Xvfb is llvmpipe, and llvmpipe's limits are not the player's: it offers 4 MSAA

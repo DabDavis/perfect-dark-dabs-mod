@@ -303,6 +303,18 @@ tick asks for it, and it clears `dostartnewlife` on its way past. That flag
 going back down is the only honest signal that the landing happened — the
 spawn override answers nothing at all on a hop that found no pad.
 
+## An arena loaded solo starts no music (2026-10-11)
+
+A mission's music starts from its intro list (`aiPlayDefaultTracks`); lvReset()
+only sets the stage for a solo load (`musicSetStage()`), and starts the music
+itself for a Combat Simulator match or a GoldenEye level. An arena a run lands
+on is a solo load with no such list, so it was silent until a pause menu's
+close (`musicEndMenu()` -> `musicStartPrimary()`) started it (F3 20261011-004224
+Temple, 010817, 013404, 195426). `modRunStageStartsMusic()` says so for the
+stage the run asked for when it is not one of g_SoloStages, and lvReset() then
+starts it as a match does. Check headless: `--boot-stage 0x25 --random-run
+--run-stage 0x25` logs "music: sequence N starts as track type 1".
+
 ## A mod map's stage entry had no setup of its own, and that froze the game
 
 A Stage Loader map is registered by cloning the Skedar arena's stage table row
