@@ -1750,6 +1750,29 @@ class SecurityTests(Base):
                                           headers={"X-PD-Member": "ab" * 16})
         self.assertEqual(st, 410)
 
+    def test_seat_from_before_a_restart_is_told_the_notice(self):
+        host, (a,) = self.room_with("alpha")
+        a.act("leave")
+        self.srv.call(lambda: self.srv.lobby.gone.clear())
+        # this lobby's own seat, its reason forgotten: the plain words
+        st, r = a.state()
+        self.assertEqual((st, r["reason"]), (410, "gone"))
+        self.assertEqual(r["error"], "you are no longer in this room")
+        # a seat it never handed out (one from before a restart): the notice
+        st, r = Client(self.srv.port).req("GET", "/rooms/%s/state" % host.room,
+                                          headers={"X-PD-Member": "ab" * 16})
+        self.assertEqual((st, r["reason"]), (410, "gone"))
+        self.assertEqual(r["error"], self.srv.cfg.restart_notice)
+        st, r = Client(self.srv.port).req("POST", "/rooms/%s/heartbeat" % ("cd" * 4), {},
+                                          headers={"X-PD-Member": "cd" * 16})
+        self.assertEqual((st, r["error"]), (410, self.srv.cfg.restart_notice))
+        # once it has held its time, the plain words again
+        self.srv.call(lambda: setattr(self.srv.lobby, "started", time.monotonic() - 3600))
+        st, r = Client(self.srv.port).req("GET", "/rooms/%s/state" % host.room,
+                                          headers={"X-PD-Member": "ab" * 16})
+        self.assertEqual(r["error"], "you are no longer in this room")
+        self.assertFalse(self.srv.lobby.issued)
+
     def test_registration_wakes_polls(self):
         host, (a,) = self.room_with("alpha")
         v = a.state()[1]["version"]

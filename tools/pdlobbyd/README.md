@@ -61,8 +61,11 @@ code. Two credentials:
   with `"reason": "gone"`; for two minutes the `error` says why
   (`"the host removed you from the room"`, `"you timed out of the room"`,
   `"the host stopped responding"`, `"the host closed the room"`,
-  `"you joined another room"`), after that (or after a lobby restart)
-  `"you are no longer in this room"`. `403` is only ever a refusal of the
+  `"you joined another room"`), after that `"you are no longer in this
+  room"`. For 30 minutes after the lobby starts, a token it never handed
+  out (a seat from before a restart) is told the restart notice instead:
+  `PDLOBBYD_RESTART_NOTICE`, or a line saying the lobby restarted and its
+  rooms closed. The game shows a 410's `error` when it leaves the room. `403` is only ever a refusal of the
   action (`"reason": "host_only"` for host-only actions, `kicked`,
   `password`), never a dead token.
 

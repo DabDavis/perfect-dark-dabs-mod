@@ -113,6 +113,15 @@ class Config:
         self.min_humans = 2
         self.max_humans = 12
         self.chat_keep = 50
+        # A restart closes every room: for restart_notice_secs a seat from
+        # before it (a well-formed token this lobby never handed out) is told
+        # restart_notice in its 410, which the game shows when it leaves the
+        # room, not "you are no longer in this room". PDLOBBYD_RESTART_NOTICE
+        # gives an update its own words.
+        self.restart_notice = env("PDLOBBYD_RESTART_NOTICE",
+                                  "The lobby server restarted and its rooms closed: "
+                                  "make or join a room again. Apologies for the inconvenience!")
+        self.restart_notice_secs = 1800.0
         self.countdown = 5.0
         self.host_timeout = 15.0
         # Host migration: a host silent this long (no heartbeat, nothing on
@@ -727,6 +736,8 @@ class Lobby:
         self.user_room = {}      # lower(user) -> member token
         self.sessions = {}       # session token -> Session
         self.gone = {}           # member token -> (reason, until): why a token stopped working
+        self.started = time.monotonic()
+        self.issued = set()      # member tokens handed out while the restart notice holds
         self.udp_ids = {}        # member udp_id (8 bytes) -> member token
         self.waiters = 0
         self.ip_polls = {}       # address -> parked polls from it
@@ -970,8 +981,13 @@ class Lobby:
             # not (later, or after a restart): the client's answer is the same,
             # join or make the room again. 403 stays for "not allowed".
             gone = self.gone.get(tok)
-            raise HttpError(410, gone[0] if gone else "you are no longer in this room",
-                            reason="gone")
+            if gone:
+                why = gone[0]
+            elif self.restart_notice_holds() and tok not in self.issued:
+                why = self.cfg.restart_notice
+            else:
+                why = "you are no longer in this room"
+            raise HttpError(410, why, reason="gone")
         member = room.members[tok]
         member.seen = time.monotonic()
         return room, member
@@ -1219,9 +1235,17 @@ class Lobby:
         room.changed()
         return self.join_reply(room, m)
 
+    def restart_notice_holds(self):
+        if time.monotonic() - self.started < self.cfg.restart_notice_secs:
+            return True
+        self.issued.clear()
+        return False
+
     def add_member(self, room, m):
         room.members[m.token] = m
         self.tokens[m.token] = room
+        if self.restart_notice_holds():
+            self.issued.add(m.token)
         self.user_room[m.user.lower()] = m.token
         while m.udp_id in self.udp_ids:
             m.udp_id = os.urandom(8)
