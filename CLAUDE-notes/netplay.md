@@ -3228,6 +3228,16 @@ opens is checked with a key: on Xvfb (`SDL_VIDEODRIVER=x11`, xdotool
 keydown/keyup on the window, then `xdotool type` and Return), and the line
 read back from the lobby.
 
+**The chat is players' lines alone (the owner, same day: "only show actual
+player chat, not the Rooms: 0 etc.").** The page's message (a refused join,
+the lobby out of reach, a room closed under the player, the restart's 410)
+moved to the footer, in the hints' place in the notices' gold until the
+cursor moves (which clears it, as it cleared the status line), drawn at the
+windows' text size in pieces (`lobbyTextLong()`, text-rendering.md: a line
+longer than the 320 units at full size needs them). "Rooms: N. Pick one to
+join" went (the header counts the rooms; the cards say Can't join), and so
+did the empty chat's placeholders.
+
 **The server's notices (pdlobbyd API 5, same day).** The owner asked for an
 in-game "Server: Restarting Server for Update, apologies for the
 inconvenience!" at a restart; the lobby had no way to say anything, and a game
