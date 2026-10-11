@@ -668,19 +668,24 @@ void bgun0f098030(struct hand *hand, struct modeldef *modeldef)
 #define BGUN_OFF60() (g_Vars.lvupdate240 != g_Vars.lvupdate60 * 4)
 
 /**
- * The arm's dip on a switch or reload is set from the state's 60ths
- * (stateframes, count60), which above 60 FPS hold for three frames in four.
- * Off the 60 FPS path the dip reads them plus the time since that 60th
- * (lvupdate240rem, the 240ths carried past it), so it moves every frame.
- * At 60 FPS the remainder is 0 and the stock expression is used.
+ * The arm's dip on a switch or reload and the recoil's curve are set from
+ * the state's 60ths (stateframes, count60), which above 60 FPS hold for
+ * three frames in four. The dip reads them plus the time since that 60th:
+ * the 240ths carried past it (lvupdate240rem), which hold at 2 at 60 and
+ * 30 FPS (lvupdate60 rounds to the nearest 60th), so (rem - 2) / 4 leaves
+ * the stock value there and moves the arm every frame above 60.
+ * This used to add rem / 4 on a frame off the 60 FPS path only: at a rate
+ * that is not a multiple of 60 (73 FPS: steps of 3 and 4 240ths) a frame
+ * of 4 240ths took a whole 60th and dropped the remainder, so the arm
+ * moved 0.25 then 1.5 ticks in two frames and the shotgun's recoil and
+ * the sniper rifle's reload dip twitched (F3 20261011-201059, -201734).
  */
 static f32 bgunArmTicks(s32 ticks60)
 {
-	if (BGUN_OFF60()) {
-		return ticks60 + g_Vars.lvupdate240rem * 0.25f;
-	}
+	f32 ticks = ticks60 + (g_Vars.lvupdate240rem - 2) * 0.25f;
 
-	return ticks60;
+	// a state's first 60th held at 0, as at 60 FPS
+	return ticks < 0.0f && ticks60 >= 0 ? 0.0f : ticks;
 }
 #define BGUN_ARMTICKS(ticks60) bgunArmTicks(ticks60)
 

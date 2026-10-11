@@ -1656,19 +1656,20 @@ void hudmsgsRemoveForDeadPlayer(s32 playernum)
 /**
  * A message's slide, fade and flash are drawn from its state's timer, which
  * hudmsgsTick() advances by whole 60ths, so above 60 FPS they moved on one
- * frame in four. Off the 60 FPS path the draw reads the timer plus the time
- * since that 60th (lvupdate240rem, the 240ths carried past it), as the gun's
- * arm dip does (bgunArmTicks()); the state machine still counts 60ths. On a
- * frame of whole 60ths (60 and 30 FPS, an online sim tick or present pass)
+ * frame in four. The draw reads the timer plus the time since that 60th
+ * (lvupdate240rem, the 240ths carried past it), as the gun's arm dip does
+ * (bgunArmTicks()); the state machine still counts 60ths. At 60 and 30 FPS
  * it is the timer itself.
  */
 static f32 hudmsgDrawTimer(struct hudmessage *msg)
 {
-	if (g_Vars.lvupdate240 != g_Vars.lvupdate60 * 4) {
-		return msg->timer + g_Vars.lvupdate240rem * 0.25f;
-	}
+	// the remainder holds at 2 at 60 and 30 FPS, so (rem - 2) / 4 leaves the
+	// timer itself there; adding rem / 4 on frames off the 60 FPS path only
+	// dropped it on a frame of 4 240ths at rates such as 73 FPS, and the
+	// slide jumped (the gun's arm had the same fault, bgunArmTicks())
+	f32 timer = msg->timer + (g_Vars.lvupdate240rem - 2) * 0.25f;
 
-	return msg->timer;
+	return timer < 0.0f ? 0.0f : timer;
 }
 #define HUDMSG_DRAWTIMER(msg) hudmsgDrawTimer(msg)
 #else
