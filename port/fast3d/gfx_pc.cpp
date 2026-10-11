@@ -6940,7 +6940,13 @@ static void gfx_adjust_viewport_or_scissor(XYWidthHeight* area, bool preserve_as
         const float ratio = gfx_current_native_aspect / gfx_current_dimensions.aspect_ratio;
         const float midx = gfx_current_dimensions.width * 0.5f;
         area->x = midx + (area->x - midx) * ratio;
-        area->x += rsp.aspect_ofs * gfx_current_dimensions.width * 0.5f;
+        // The side alignment's offset as gfx_adjust_x_for_aspect_ratio()
+        // gives it to what is drawn: (ofs + x) * ratio, so ofs is scaled
+        // too. Unscaled, a scissor set under G_ASPECT_LEFT_EXT or RIGHT_EXT
+        // stood 1/12 of half the screen off what it was meant to hold at 16:9
+        // (18 menu units), cutting into the side a dialog held there started
+        // at (the Game Lobby's buttons, netlobbymenu.c).
+        area->x += rsp.aspect_ofs * ratio * gfx_current_dimensions.width * 0.5f;
         area->width *= ratio;
     }
 
