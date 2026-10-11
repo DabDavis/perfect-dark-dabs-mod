@@ -393,6 +393,8 @@ static s32 snapStream(const char *name, s32 losspct, s32 steps, s32 hostile, u32
 	u8 lp[NETLP_SIZE];
 	static u8 scen[NETSCEN_SIZE];
 	static u8 world[NETWORLD_SIZE];
+	static u16 markser[40];
+	static u8 markrec[40][NETMARK_REC];
 	struct netlpstate lps;
 
 	memset(s_World, 0, sizeof(s_World));
@@ -435,6 +437,9 @@ static s32 snapStream(const char *name, s32 losspct, s32 steps, s32 hostile, u32
 		scen[200 + step % 3] = (u8)(step / 7);
 		world[100 + step % 200 / 8] |= (u8)(1 << (step & 7)); // (protocol 29) panes breaking
 		world[20] = (u8)(step / 30);
+		// (protocol 30) marks made, and the pool's oldest going
+		markser[step % 40] = (u16)(step % 7 == 3 ? 0 : step + 1);
+		markrec[step % 40][0] = (u8)step;
 
 		if (srnd() % 10 == 0) {
 			scen[184 + srnd() % 400] = (u8)srnd();
@@ -445,7 +450,8 @@ static s32 snapStream(const char *name, s32 losspct, s32 steps, s32 hostile, u32
 		hdr.hosttick = step * 2;
 		hdr.lvupdate240 = 4;
 		hdr.lastcmd = step * 2 - 3;
-		len = netSnapHostBuild(&h, &hdr, ents, n, lp, step % 50 == 7 ? NULL : scen, (u32)step * 3 + 1, step % 40 == 11 ? NULL : world, pkt, 1100);
+		len = netSnapHostBuild(&h, &hdr, ents, n, lp, step % 50 == 7 ? NULL : scen, (u32)step * 3 + 1, step % 40 == 11 ? NULL : world,
+				step % 30 == 13 ? NULL : markser, &markrec[0][0], 40, pkt, 1100);
 		SCHECK(len > 0 && len <= 1100);
 
 		// what the host claims is SENT or SYNC is the world as it is
@@ -591,6 +597,8 @@ static s32 snapStream(const char *name, s32 losspct, s32 steps, s32 hostile, u32
 				SCHECK(!info->hasscen || info->evseq == info->hosttick / 2 * 3 + 1);
 				SCHECK(info->hasworld == (h.worldseq[got.seq % NETBASELINE_SLOTS] == got.seq));
 				SCHECK(!info->hasworld || memcmp(info->world, h.world[got.seq % NETBASELINE_SLOTS], NETWORLD_SIZE) == 0);
+				SCHECK(info->hasmarks == (h.marksseq[got.seq % NETBASELINE_SLOTS] == got.seq));
+				SCHECK(!info->hasmarks || memcmp(info->marks, h.marks[got.seq % NETBASELINE_SLOTS], 40 * 2) == 0);
 				decodedafter++;
 			}
 

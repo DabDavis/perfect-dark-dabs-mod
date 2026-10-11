@@ -53,7 +53,13 @@ struct wallhitnet {
 };
 
 s32 wallhitNetList(struct wallhitnet *out, s32 max);
-bool wallhitNetAdd(const struct wallhitnet *w);
+s32 wallhitNetAdd(const struct wallhitnet *w, u32 *frame); // its pool slot, -1 none
+bool wallhitNetGet(s32 i, u32 frame, struct wallhitnet *out);
+void wallhitNetRemove(s32 i, u32 frame, bool now);
+
+// networld.c
+void netWorldMarkMade(s32 slot, u32 frame);
+s32 netWorldClientOwnMark(struct chrdata *chr, s32 texnum);
 #endif
 
 #endif

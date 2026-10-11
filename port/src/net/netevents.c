@@ -1188,8 +1188,6 @@ void netEventsHostCatchUp(s32 view)
 		s_HostMsgs++;
 		s_HostRecorded[NETEV_SCORES]++;
 
-		// (protocol 29) and the marks on its walls and floors, once
-		netWorldHostSendMarks(view);
 
 		if (s_Log) {
 			fprintf(s_Log, "E %u scores target view%d exclude -1 len %d catch-up\n", g_NetTick, view, len);
@@ -2713,4 +2711,10 @@ void netEventsMatchStopped(void)
 	if (s_Log) {
 		fflush(s_Log);
 	}
+}
+
+// an event being applied here (wallhit.c's marks gate: not this machine's own shot)
+s32 netEventsApplying(void)
+{
+	return s_Applying;
 }

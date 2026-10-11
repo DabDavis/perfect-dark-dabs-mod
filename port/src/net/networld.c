@@ -56,6 +56,9 @@
  *     8  f32 gaspos[3]
  *    20  storms[4]          u8 serial (1-255, 0 none), u8 0[3], u32 tick, f32 pos[3]
  *   100  u8 glass[220]      a bit per setup glass: broken now
+ *   320  (protocol 30) the players list: u16 ping[12] (NETPING_NONE an
+ *        empty seat), u8 nspecs, 2 x { u8 view, u16 ping }, u8 0 - what
+ *        PLAYERS had sent whole every second; refreshed once a second
  */
 
 extern struct nbomb g_Nbombs[6];
@@ -89,7 +92,9 @@ static s32 s_NumCensus = 0;
 #define NW_STORMSIZE 20
 #define NW_NUMSTORMS 4
 #define NW_GLASS     100
-#define NETWORLD_MAXGLASS ((NETWORLD_SIZE - NW_GLASS) * 8)
+#define NW_GLASSBYTES 220
+#define NETWORLD_MAXGLASS (NW_GLASSBYTES * 8)
+#define NW_PINGS     320  // (protocol 30) the players list's pings (netSessionHostPings), 32 bytes
 #define NW_STORMLIFE 420  // ticks a storm is worth starting late (nbombTick's ~350, and some)
 #define NW_LATE      30   // ticks past its own after which a change is put in as it stands now
 #define NW_RING      16
@@ -105,7 +110,14 @@ static u8 s_StormSerial = 0;
 struct nwblock {
 	u32 tick;
 	u8 b[NETWORLD_SIZE];
+	u16 nmarks;                     // (protocol 30) the marks block's slots, 0 none
+	u16 marks[NETMARK_MAXSLOTS];
 };
+
+static void netWorldClientMarksApply(const u16 *marks, s32 nslots);
+static void netWorldHostMarksTick(void);
+static void netWorldMarksReset(void);
+static void netWorldMarksLog(const char *why);
 
 static struct nwblock *s_Ring = NULL; // [NW_RING], oldest first
 static s32 s_RingN = 0;
@@ -295,6 +307,7 @@ void netWorldStageStart(void)
 	s_ClGlassFresh = s_ClGlassQuiet = s_ClGlassBack = s_ClStorms = s_ClStormsLate = s_ClGas = s_ClBlocks = 0;
 	s_ClLagSum = s_ClLagMax = 0;
 	s_ClDoorGlass = s_ClDeforms = s_ClUndeforms = s_ClLenses = 0;
+	netWorldMarksReset();
 
 	if (g_NetMode == NETMODE_NONE || !cmd) {
 		return;
@@ -605,8 +618,14 @@ void netWorldHostTickEnd(void)
 		return;
 	}
 
+	netWorldHostMarksTick();
+
+	if (g_NetTick % 60 == 0 || !s_HostHave) {
+		netSessionHostPings(s_HostBlock + NW_PINGS);
+	}
+
 	put16(s_HostBlock + NW_NGLASS, (u32)n);
-	memset(s_HostBlock + NW_GLASS, 0, NETWORLD_SIZE - NW_GLASS);
+	memset(s_HostBlock + NW_GLASS, 0, NW_GLASSBYTES);
 
 	for (i = 0; i < n; i++) {
 		if (netWorldGlassGone(s_Glass[i])) {
@@ -626,7 +645,7 @@ const u8 *netWorldHostBlock(void)
  * Client
  */
 
-void netWorldClientOnSnap(u32 hosttick, const u8 *world)
+void netWorldClientOnSnap(u32 hosttick, const u8 *world, const u16 *marks, s32 nmarks)
 {
 	if (!s_Ring) {
 		s_Ring = calloc(NW_RING, sizeof(*s_Ring));
@@ -648,6 +667,12 @@ void netWorldClientOnSnap(u32 hosttick, const u8 *world)
 
 	s_Ring[s_RingN].tick = hosttick;
 	memcpy(s_Ring[s_RingN].b, world, NETWORLD_SIZE);
+	s_Ring[s_RingN].nmarks = (u16)(marks ? nmarks : 0);
+
+	if (marks) {
+		memcpy(s_Ring[s_RingN].marks, marks, nmarks * 2);
+	}
+
 	s_RingN++;
 }
 
@@ -829,6 +854,14 @@ void netWorldClientUpTo(f64 rt)
 		}
 	}
 
+	// (protocol 30) the players list's pings (fresh while blocks come)
+	netSessionClientPings(s_Ring[at].b + NW_PINGS);
+
+	// (protocol 30) the marks, as that block has them
+	if (s_Ring[at].nmarks) {
+		netWorldClientMarksApply(s_Ring[at].marks, s_Ring[at].nmarks);
+	}
+
 	memmove(s_Ring, s_Ring + at + 1, sizeof(*s_Ring) * (s_RingN - at - 1));
 	s_RingN -= at + 1;
 }
@@ -868,6 +901,7 @@ void netWorldLog(const char *why)
 	sysLogPrintf(LOG_NOTE, "net: world client %s (tick %u): blocks that changed something %u (lag mean %.1f max %.1f ticks), glass broken as it broke %u, as it stood %u, back %u, storms %u (part way %u), gas %u, door panes %u, camera lenses %u, deforms from records %u (made whole %u)",
 			why, g_NetTick, s_ClBlocks, s_ClBlocks ? s_ClLagSum / s_ClBlocks : 0.0, s_ClLagMax, s_ClGlassFresh, s_ClGlassQuiet, s_ClGlassBack,
 			s_ClStorms, s_ClStormsLate, s_ClGas, s_ClDoorGlass, s_ClLenses, s_ClDeforms, s_ClUndeforms);
+	netWorldMarksLog(why);
 }
 
 /*
@@ -920,21 +954,44 @@ void netWorldClientLens(struct defaultobj *obj, s32 out, s32 fresh)
 }
 
 /*
- * (protocol 29) The marks on the walls and floors - bullet holes, scorches,
- * splats on the bg - as the host has them, to a joiner once (MARKS on the
- * bulk channel, beside its first EVENTS): the settled ones, oldest first,
- * as many as the pool keeps. Live play goes on making its own as before;
- * marks on props and chrs, which move or go, are left out
+ * (protocol 30) The marks on the walls and floors - bullet holes, scorches -
+ * as state (the owner: "everything uses deltas to update"): one serial per
+ * slot of the host's wall-hit pool, the bg mark in it (0 none: free, on a
+ * prop or a chr, fading); SNAP's marks block carries the slots delta'd
+ * against what the client acked and the records of the marks it lacks,
+ * NETMARK_PERSNAP a snapshot, oldest first (netsnap.c). A slot the host's
+ * pool empties (its oldest fading out first) empties on every client; a
+ * joiner's keyframe is the whole pool, sent over its first snapshots (it
+ * replaced protocol 29's MARKS message). A client makes no bg mark of its
+ * own but its own player's bullet holes, drawn at once and swapped for the
+ * host's when that comes (the host's carries who made it)
  */
 #define NW_MARKMAX   1024
-#define NW_MARKBYTES 90
-#define NW_MARKMSG   16384
 
-static struct wallhitnet *s_Marks = NULL; // [NW_MARKMAX]
-static u32 s_MarksSent = 0;
-static u32 s_MarksBytes = 0;
-static u32 s_MarksGot = 0;
-static u32 s_MarksPut = 0;
+static struct wallhitnet *s_Marks = NULL; // [NW_MARKMAX], the census's list
+
+// host
+static u16 s_MkSer[NETMARK_MAXSLOTS];
+static u32 s_MkFrame[NETMARK_MAXSLOTS];
+static s8 s_MkOrigin[NETMARK_MAXSLOTS];
+static u8 s_MkHaveRec[NETMARK_MAXSLOTS];
+static u8 s_MkRec[NETMARK_MAXSLOTS][NETMARK_REC];
+static u16 s_MkSerial = 0;
+static s32 s_MkSlots = 0;
+static u32 s_MkMade = 0;
+
+// client
+static u16 s_PlSer[NETMARK_MAXSLOTS];   // the host mark placed for each host slot
+static s16 s_PlIdx[NETMARK_MAXSLOTS];   // ... in this machine's pool slot (-1 none)
+static u32 s_PlFrame[NETMARK_MAXSLOTS];
+static u16 s_CaSer[NETMARK_MAXSLOTS];   // the records come, by host slot
+static u8 s_CaRec[NETMARK_MAXSLOTS][NETMARK_REC];
+#define NW_OWNMAX 32
+static s16 s_OwnIdx[NW_OWNMAX];         // this machine's own shots' marks, oldest first
+static u32 s_OwnFrame[NW_OWNMAX];
+static s32 s_OwnN = 0;
+static s32 s_OwnNext = 0;               // netWorldClientOwnMark's yes, for netWorldMarkMade
+static u32 s_ClMarksPut = 0, s_ClMarksGone = 0, s_ClMarksFull = 0, s_ClOwnMade = 0, s_ClOwnSwapped = 0;
 
 static s32 netWorldMarksAlloc(void)
 {
@@ -945,157 +1002,213 @@ static s32 netWorldMarksAlloc(void)
 	return s_Marks != NULL;
 }
 
-static void netWorldMarkWrite(struct netbuf *b, const struct wallhitnet *w)
+static void netWorldMarksReset(void)
 {
-	s32 j;
-
-	netBufWriteU32(b, *(const u32 *)&w->relpos[0]);
-	netBufWriteU32(b, *(const u32 *)&w->relpos[1]);
-	netBufWriteU32(b, *(const u32 *)&w->relpos[2]);
-	netBufWriteS16(b, w->room);
-	netBufWriteU8(b, w->texnum);
-	netBufWriteU8(b, w->bits);
-	netBufWriteS8(b, w->mtxindex);
-
-	for (j = 0; j < 4; j++) {
-		netBufWriteS16(b, w->xyz[j][0]);
-		netBufWriteS16(b, w->xyz[j][1]);
-		netBufWriteS16(b, w->xyz[j][2]);
-		netBufWriteS16(b, w->st[j][0]);
-		netBufWriteS16(b, w->st[j][1]);
-		netBufWriteBytes(b, w->base[j], 4);
-		netBufWriteBytes(b, w->final[j], 4);
-	}
-
-	netBufWriteU8(b, 0); // to NW_MARKBYTES
+	memset(s_MkSer, 0, sizeof(s_MkSer));
+	memset(s_MkHaveRec, 0, sizeof(s_MkHaveRec));
+	s_MkSerial = 0;
+	s_MkMade = 0;
+	s_MkSlots = g_WallhitsMax < NETMARK_MAXSLOTS ? g_WallhitsMax : NETMARK_MAXSLOTS;
+	memset(s_PlSer, 0, sizeof(s_PlSer));
+	memset(s_CaSer, 0, sizeof(s_CaSer));
+	s_OwnN = 0;
+	s_OwnNext = 0;
+	s_ClMarksPut = s_ClMarksGone = s_ClMarksFull = s_ClOwnMade = s_ClOwnSwapped = 0;
 }
 
-static void netWorldMarkRead(struct netbuf *b, struct wallhitnet *w)
+// wallhit.c, before a client makes a bg mark: only its own player's bullet holes
+s32 netWorldClientOwnMark(struct chrdata *chr, s32 texnum)
 {
-	s32 j;
-	u32 v;
+	struct player *me = g_NetLocalSlot >= 0 && g_NetLocalSlot < PLAYERCOUNT() ? g_Vars.players[g_NetLocalSlot] : NULL;
 
-	for (j = 0; j < 3; j++) {
-		v = netBufReadU32(b);
-		memcpy(&w->relpos[j], &v, 4);
-	}
+	s_OwnNext = me && me->prop && chr && chr == me->prop->chr && texnum != WALLHITTEX_SCORCH && !netEventsApplying();
 
-	w->room = netBufReadS16(b);
-	w->texnum = netBufReadU8(b);
-	w->bits = netBufReadU8(b);
-	w->mtxindex = netBufReadS8(b);
-
-	for (j = 0; j < 4; j++) {
-		w->xyz[j][0] = netBufReadS16(b);
-		w->xyz[j][1] = netBufReadS16(b);
-		w->xyz[j][2] = netBufReadS16(b);
-		w->st[j][0] = netBufReadS16(b);
-		w->st[j][1] = netBufReadS16(b);
-		netBufReadBytes(b, w->base[j], 4);
-		netBufReadBytes(b, w->final[j], 4);
-	}
-
-	netBufReadU8(b);
-	w->frame = 0;
+	return s_OwnNext;
 }
 
-// Host: a joiner's view, its first EVENTS going (netEventsHostCatchUp)
-void netWorldHostSendMarks(s32 view)
+// wallhit.c: a bg mark made in this machine's pool slot
+void netWorldMarkMade(s32 slot, u32 frame)
 {
-	static u8 msg[NW_MARKMSG];
-	s32 n;
-	s32 i = 0;
-	s32 msgs = 0;
-	u32 bytes = 0;
-
-	if (g_NetMode != NETMODE_SERVER || !netWorldMarksAlloc()) {
-		return;
-	}
-
-	n = wallhitNetList(s_Marks, NW_MARKMAX);
-
-	while (i < n) {
-		struct netbuf b;
-		u8 *countp;
-		s32 count = 0;
-
-		netBufInitWrite(&b, msg, sizeof(msg));
-		netBufWriteU8(&b, NETMSG_MARKS);
-		netBufWriteU32(&b, netSessionMatchId());
-		countp = netBufReserve(&b, 2);
-
-		while (i < n && netBufLen(&b) + NW_MARKBYTES <= NW_MARKMSG) {
-			if (s_Marks[i].relpos[0] == s_Marks[i].relpos[0] && s_Marks[i].relpos[1] == s_Marks[i].relpos[1]
-					&& s_Marks[i].relpos[2] == s_Marks[i].relpos[2]) {
-				netWorldMarkWrite(&b, &s_Marks[i]);
-				count++;
-			}
-
-			i++;
-		}
-
-		if (!countp || !netBufOk(&b)) {
-			break;
-		}
-
-		countp[0] = (u8)count;
-		countp[1] = (u8)(count >> 8);
-		netSessionSendSlot(view, NET_CHAN_BULK, msg, netBufLen(&b), NET_SEND_RELIABLE);
-		msgs++;
-		bytes += netBufLen(&b);
-		s_MarksSent += count;
-	}
-
-	s_MarksBytes += bytes;
-	sysLogPrintf(LOG_NOTE, "net: world marks to view %d at tick %u: %d of the host's marks on the walls and floors, %d messages, %u bytes",
-			view, g_NetTick, n, msgs, bytes);
-}
-
-// Client: MARKS
-void netWorldClientOnMarks(const u8 *data, s32 len)
-{
-	struct netbuf b;
-	struct wallhitnet w;
-	s32 n;
-	s32 i;
-	s32 put = 0;
-
-	if (g_NetMode != NETMODE_CLIENT || !netSessionMatchLoading()) {
-		return;
-	}
-
-	netBufInitRead(&b, data + 1, len - 1);
-
-	if (netBufReadU32(&b) != netSessionMatchId()) {
-		return;
-	}
-
-	n = netBufReadU16(&b);
-
-	if (!netBufOk(&b) || netBufRemaining(&b) != n * NW_MARKBYTES) {
-		sysLogPrintf(LOG_WARNING, "net: a MARKS message that did not decode (%d bytes)", len);
-		return;
-	}
-
-	for (i = 0; i < n; i++) {
-		netWorldMarkRead(&b, &w);
-
-		if (!netBufOk(&b)) {
+	if (g_NetMode == NETMODE_SERVER) {
+		if (slot < 0 || slot >= NETMARK_MAXSLOTS || slot >= g_WallhitsMax) {
 			return;
 		}
 
-		// off the wire: a place inside the world (a NaN fails it too)
-		if (!(w.relpos[0] > -1048576.f && w.relpos[0] < 1048576.f && w.relpos[1] > -1048576.f && w.relpos[1] < 1048576.f
-					&& w.relpos[2] > -1048576.f && w.relpos[2] < 1048576.f)) {
+		s_MkSerial = s_MkSerial == 0xffff ? 1 : s_MkSerial + 1;
+		s_MkSer[slot] = s_MkSerial;
+		s_MkFrame[slot] = frame;
+		s_MkOrigin[slot] = (s8)(g_NetPassPlayer >= 0 && g_NetPassPlayer < MAX_PLAYERS ? g_NetPassPlayer : -1);
+		s_MkHaveRec[slot] = 0;
+		s_MkMade++;
+	} else if (g_NetMode == NETMODE_CLIENT && s_OwnNext) {
+		// its own shot's: kept until the host's of it comes
+		if (s_OwnN == NW_OWNMAX) {
+			memmove(s_OwnIdx, s_OwnIdx + 1, sizeof(s_OwnIdx[0]) * (NW_OWNMAX - 1));
+			memmove(s_OwnFrame, s_OwnFrame + 1, sizeof(s_OwnFrame[0]) * (NW_OWNMAX - 1));
+			s_OwnN--;
+		}
+
+		s_OwnIdx[s_OwnN] = (s16)slot;
+		s_OwnFrame[s_OwnN] = frame;
+		s_OwnN++;
+		s_ClOwnMade++;
+		s_OwnNext = 0;
+	}
+}
+
+static void netWorldMarkPack(const struct wallhitnet *w, s8 origin, u8 *p)
+{
+	struct netbuf b;
+	s32 j;
+
+	netBufInitWrite(&b, p, NETMARK_REC);
+	netBufWriteF32(&b, w->relpos[0]);
+	netBufWriteF32(&b, w->relpos[1]);
+	netBufWriteF32(&b, w->relpos[2]);
+	netBufWriteS16(&b, w->room);
+	netBufWriteU8(&b, w->texnum);
+	netBufWriteU8(&b, w->bits);
+	netBufWriteS8(&b, w->mtxindex);
+	netBufWriteS8(&b, origin);
+
+	for (j = 0; j < 4; j++) {
+		netBufWriteS16(&b, w->xyz[j][0]);
+		netBufWriteS16(&b, w->xyz[j][1]);
+		netBufWriteS16(&b, w->xyz[j][2]);
+		netBufWriteS16(&b, w->st[j][0]);
+		netBufWriteS16(&b, w->st[j][1]);
+		netBufWriteBytes(&b, w->base[j], 4);
+	}
+}
+
+static s32 netWorldMarkUnpack(const u8 *p, struct wallhitnet *w, s8 *origin)
+{
+	struct netbuf b;
+	s32 j;
+
+	netBufInitRead(&b, p, NETMARK_REC);
+	w->relpos[0] = netBufReadF32(&b);
+	w->relpos[1] = netBufReadF32(&b);
+	w->relpos[2] = netBufReadF32(&b);
+	w->room = netBufReadS16(&b);
+	w->texnum = netBufReadU8(&b);
+	w->bits = netBufReadU8(&b);
+	w->mtxindex = netBufReadS8(&b);
+	*origin = netBufReadS8(&b);
+
+	for (j = 0; j < 4; j++) {
+		w->xyz[j][0] = netBufReadS16(&b);
+		w->xyz[j][1] = netBufReadS16(&b);
+		w->xyz[j][2] = netBufReadS16(&b);
+		w->st[j][0] = netBufReadS16(&b);
+		w->st[j][1] = netBufReadS16(&b);
+		netBufReadBytes(&b, w->base[j], 4);
+	}
+
+	// off the wire: a place inside the world (a NaN fails it too)
+	for (j = 0; j < 3; j++) {
+		if (!(w->relpos[j] > -1048576.f && w->relpos[j] < 1048576.f)) {
+			return 0;
+		}
+	}
+
+	return netBufOk(&b);
+}
+
+// Host, netTickEnd: which slots still hold the bg mark made in them, and their records
+static void netWorldHostMarksTick(void)
+{
+	struct wallhitnet w;
+	s32 i;
+
+	s_MkSlots = g_WallhitsMax < NETMARK_MAXSLOTS ? g_WallhitsMax : NETMARK_MAXSLOTS;
+
+	for (i = 0; i < s_MkSlots; i++) {
+		if (!s_MkSer[i]) {
 			continue;
 		}
 
-		put += wallhitNetAdd(&w) ? 1 : 0;
+		if (!wallhitNetGet(i, s_MkFrame[i], &w)) {
+			s_MkSer[i] = 0;
+			continue;
+		}
+
+		if (!s_MkHaveRec[i]) {
+			netWorldMarkPack(&w, s_MkOrigin[i], s_MkRec[i]);
+			s_MkHaveRec[i] = 1;
+		}
+	}
+}
+
+s32 netWorldHostMarks(const u16 **ser, const u8 **rec)
+{
+	if (g_NetMode != NETMODE_SERVER || s_MkSlots <= 0) {
+		return 0;
 	}
 
-	s_MarksGot += n;
-	s_MarksPut += put;
-	sysLogPrintf(LOG_NOTE, "net: world marks from the host: %d in this message, %d put on the walls (%u of %u so far)", n, put, s_MarksPut, s_MarksGot);
+	*ser = s_MkSer;
+	*rec = &s_MkRec[0][0];
+
+	return s_MkSlots;
+}
+
+// Client, a snapshot decoded: the records it brought, by host slot
+void netWorldClientMarkRecs(const u16 *marks, s32 nslots, const u16 *slots, const u8 (*recs)[NETMARK_REC], s32 n)
+{
+	s32 k;
+
+	for (k = 0; k < n; k++) {
+		if (slots[k] < nslots && slots[k] < NETMARK_MAXSLOTS) {
+			s_CaSer[slots[k]] = marks[slots[k]];
+			memcpy(s_CaRec[slots[k]], recs[k], NETMARK_REC);
+		}
+	}
+}
+
+// Client: the slots as the block of the render clock's tick has them
+static void netWorldClientMarksApply(const u16 *marks, s32 nslots)
+{
+	struct wallhitnet w;
+	s32 i;
+
+	for (i = 0; i < nslots && i < NETMARK_MAXSLOTS; i++) {
+		s8 origin;
+
+		if (s_PlSer[i] == marks[i]) {
+			continue;
+		}
+
+		// what this machine had for the slot goes, as the host's went
+		if (s_PlSer[i] && s_PlIdx[i] >= 0) {
+			wallhitNetRemove(s_PlIdx[i], s_PlFrame[i], false);
+			s_ClMarksGone++;
+		}
+
+		s_PlSer[i] = 0;
+		s_PlIdx[i] = -1;
+
+		if (!marks[i] || s_CaSer[i] != marks[i] || !netWorldMarkUnpack(s_CaRec[i], &w, &origin)) {
+			continue; // its record not here yet: next frame
+		}
+
+		// one of this machine's own shots: its own mark of it gives way
+		if (origin >= 0 && origin == g_NetLocalSlot && s_OwnN > 0) {
+			wallhitNetRemove(s_OwnIdx[0], s_OwnFrame[0], true);
+			memmove(s_OwnIdx, s_OwnIdx + 1, sizeof(s_OwnIdx[0]) * (s_OwnN - 1));
+			memmove(s_OwnFrame, s_OwnFrame + 1, sizeof(s_OwnFrame[0]) * (s_OwnN - 1));
+			s_OwnN--;
+			s_ClOwnSwapped++;
+		}
+
+		s_PlSer[i] = marks[i];
+		s_PlIdx[i] = (s16)wallhitNetAdd(&w, &s_PlFrame[i]);
+
+		if (s_PlIdx[i] >= 0) {
+			s_ClMarksPut++;
+		} else {
+			s_ClMarksFull++;
+		}
+	}
 }
 
 // The census's marks: how many, and a sum of their places (a placement check)
@@ -1117,4 +1230,10 @@ static void netWorldMarkCensus(s32 *count, f64 *sum)
 	for (i = 0; i < n; i++) {
 		*sum += (s32)s_Marks[i].relpos[0] + (s32)s_Marks[i].relpos[1] + (s32)s_Marks[i].relpos[2];
 	}
+}
+
+static void netWorldMarksLog(const char *why)
+{
+	sysLogPrintf(LOG_NOTE, "net: world client %s (tick %u): the host's marks put %u, gone %u, no room %u; own shots' marks %u, swapped for the host's %u, held now %d",
+			why, g_NetTick, s_ClMarksPut, s_ClMarksGone, s_ClMarksFull, s_ClOwnMade, s_ClOwnSwapped, s_OwnN);
 }

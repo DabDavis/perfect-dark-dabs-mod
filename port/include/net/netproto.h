@@ -170,7 +170,15 @@
 //    record's byte 0 bit 0x80 is a camera's lens shot out
 //    (NETOBJ_LENSGONE); MARKS (27, bulk) gives a joiner the host's marks
 //    on the walls and floors
-#define NET_PROTOCOL_VERSION 29
+// 30 (everything by delta, 2026-10-11: CLAUDE-notes/netplay.md "State and
+//    events apart"): SNAP ends in a marks block (the host's wall-hit pool,
+//    a u16 serial per slot, delta'd, and up to 3 records of 74 bytes a
+//    snapshot), which replaces MARKS (27, gone); a client draws no bg mark
+//    but its own shots' bullet holes; CMD's commands are packed to 32 bytes
+//    and each XOR-delta'd against the one before it in the packet (the
+//    first against zeros); the world block grows to 352 bytes, the players
+//    list's pings at 320, and PLAYERS goes only when the spectators change
+#define NET_PROTOCOL_VERSION 30
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -202,7 +210,7 @@
 // protocol 29: the events split by class onto channels of their own (netevents.c)
 #define NETMSG_EVFX          25 // host -> client, NET_CHAN_EVFX, reliable: as EVENTS
 #define NETMSG_EVSHOT        26 // host -> client, NET_CHAN_EVSHOT, unreliable unsequenced: as EVENTS
-#define NETMSG_MARKS         27 // host -> joiner, NET_CHAN_BULK: the host's marks on the walls and floors (networld.c)
+// 27 was MARKS (protocol 29 only): the marks block in SNAP since 30
 
 /**
  * Refusal and leave reasons: REFUSE's and LEAVE's code byte, and the u32
@@ -567,7 +575,9 @@
  *
  * PLAYERS (host -> client, UNRELIABLE; protocol 18) - every 60 host ticks of
  * a match, to each client in it: what the HUD's player list shows besides
- * the ROSTER's seats
+ * the ROSTER's seats. (protocol 30) In a match only once a second for five
+ * seconds when the spectators change (and the match's first); the pings
+ * ride the world block, delta'd; at the barrier as before
  *   u8      NETMSG_PLAYERS
  *   u32     matchid
  *   u8      nseats                MAX_PLAYERS
@@ -635,7 +645,12 @@
  *                                 needs again (its local prop went stale)
  *   u32     first                 the first command's tick
  *   u8      count                 1..NET_MAXCMDSEND
- *   per command, ticks first, first+1, ...:
+ *   per command, ticks first, first+1, ...: (protocol 30) a netdelta of its
+ *     32 packed bytes against the command before it in this packet (the
+ *     first against zeros): u32 buttons, s8 x4, f32 mdx, mdy, u8 flags, u32
+ *     tick - viewtick (0xffffffff none), u8 viewfrac, viewdelay, u8
+ *     equip[2], u8 device[2], u16 body[2], u8 bodyflags (0 where the flag is
+ *     clear); before 30 each command's fields as follows, whole:
  *     u32 buttons                 OSContPad.button (protocol 11: START too;
  *                                 the host clears it unless the player is
  *                                 dead, where it respawns as offline)
@@ -832,7 +847,7 @@
  *
  *   u8      hasworld              (protocol 29) 0 none, 1 keyframe, 2 against
  *                                 the baseline's
- *   delta   world                 NETWORLD_SIZE (320) bytes, the world's
+ *   delta   world                 NETWORLD_SIZE (352 since protocol 30) bytes, the world's
  *                                 state no record carries, the same for every
  *                                 client (networld.c): u16 nglass, u8 gas, u8 0,
  *                                 u32 gastick, f32 gaspos[3]; at 20 four storms
@@ -841,7 +856,24 @@
  *                                 (GLASS/TINTEDGLASS commands in order, the
  *                                 first 1760): broken now. The client applies
  *                                 the newest block its render clock has
- *                                 reached, held for no event
+ *                                 reached, held for no event; (protocol
+ *                                 30) at 320 the players list's pings:
+ *                                 u16 ping[12], u8 nspecs, 2 x { u8 view,
+ *                                 u16 ping }, u8 0
+ *   u8      hasmarks              (protocol 30) 0 none, 1 keyframe, 2 against
+ *                                 the baseline's
+ *   u16     nslots                the host's wall-hit pool (<= 360)
+ *   delta   marks                 nslots x u16: the serial of the bg mark in
+ *                                 each slot (0 none), as this snapshot
+ *                                 leaves it: a slot the host emptied is 0, a
+ *                                 slot whose mark the client lacks holds it
+ *                                 only with its record below, else what the
+ *                                 baseline had (networld.c, netsnap.c)
+ *   u8      nrecs                 <= 3, the oldest marks the client lacks
+ *   per rec: u16 slot, 74 bytes { f32 relpos[3], s16 room, u8 texnum, u8
+ *            bits (1 xlu, 2 unk6f_01), s8 mtxindex, s8 origin (the player
+ *            whose shot made it, -1 none: that machine swaps its own mark
+ *            for it), 4 x { s16 x, y, z, s, t, u8 basecolour[4] } }
  *
  * Present and not updated: the client copies its base record (it is
  * unchanged, or - deferred - changed and left by the 1100-byte cap for a
@@ -880,14 +912,8 @@
  * DEFORM, NBOMB and GAS are no longer sent (records and the world block
  * carry them).
  *
- * MARKS (protocol 29; host -> joiner, NET_CHAN_BULK, beside its first
- * EVENTS) - the host's settled marks on the bg (bullet holes, scorches,
- * splats; none on a prop or a chr), oldest first, at most 1024, in
- * messages of <= 16 KB:
- *   u8 NETMSG_MARKS, u32 matchid, u16 n, n x 90 bytes { f32 relpos[3],
- *   s16 room, u8 texnum, u8 bits (1 xlu, 2 unk6f_01), s8 mtxindex, 4 x
- *   { s16 x, y, z, s, t, u8 basecolour[4], u8 finalcolour[4] }, u8 0 }
- *   (wallhit.c wallhitNetList/wallhitNetAdd)
+ * MARKS (protocol 29 only) gave a joiner the host's marks once; the marks
+ * block in SNAP carries them since protocol 30
  *   u8      NETMSG_EVENTS
  *   u32     matchid
  *   u32     hosttick              the host's g_NetTick they happened on

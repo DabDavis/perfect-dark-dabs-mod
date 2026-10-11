@@ -1908,6 +1908,80 @@ static void netHostOnChat(s32 peer, struct netbuf *b)
 }
 
 // A seat's ping as the host has it: 0 its own, -1 none
+static u32 s_PlayersSig = 0;
+static u32 s_PlayersSigMatch = 0xffffffff;
+static s32 s_PlayersRepeat = 0;
+static u64 s_ClPingsAt = 0; // (protocol 30) when the world block last brought the pings
+
+static s32 netHostSeatPing(s32 seat);
+
+/**
+ * (protocol 30) The players list's pings, as the world block carries them:
+ * u16 ping[12], u8 nspecs, 2 x { u8 view, u16 ping }, u8 0
+ */
+void netSessionHostPings(u8 *out)
+{
+	struct netpeerstats st;
+	s32 n = 0;
+	s32 i;
+
+	memset(out, 0, 32);
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		const s32 ping = netHostSeatPing(i);
+		const u16 v = ping < 0 ? NETPING_NONE : ping > 9999 ? 9999 : (u16)ping;
+
+		out[i * 2] = (u8)v;
+		out[i * 2 + 1] = (u8)(v >> 8);
+	}
+
+	for (i = 0; i < NET_MAXPEERS && n < NET_MAXSPECS; i++) {
+		const struct netclient *c = &s_Clients[i];
+		s32 ping = -1;
+		u16 v;
+
+		if (!c->spectator || c->state != NETCL_PLAYING) {
+			continue;
+		}
+
+		if (netHostPeerStats(g_NetHostSocket, i, &st) == 0 && st.connected) {
+			ping = (s32)st.rtt;
+		}
+
+		v = ping < 0 ? NETPING_NONE : ping > 9999 ? 9999 : (u16)ping;
+		out[25 + n * 3] = (u8)c->slot;
+		out[26 + n * 3] = (u8)v;
+		out[27 + n * 3] = (u8)(v >> 8);
+		n++;
+	}
+
+	out[24] = (u8)n;
+}
+
+void netSessionClientPings(const u8 *in)
+{
+	s32 i;
+	s32 k;
+
+	if (s_Role != NETROLE_CLIENT || !s_MatchActive || in[24] > NET_MAXSPECS) {
+		return;
+	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		s_ClPing[i] = (u16)(in[i * 2] | (in[i * 2 + 1] << 8));
+	}
+
+	for (k = 0; k < in[24]; k++) {
+		for (i = 0; i < s_ClNumSpecs; i++) {
+			if (s_ClSpecs[i].view == in[25 + k * 3]) {
+				s_ClSpecs[i].ping = (u16)(in[26 + k * 3] | (in[27 + k * 3] << 8));
+			}
+		}
+	}
+
+	s_ClPingsAt = netNowMs();
+}
+
 static s32 netHostSeatPing(s32 seat)
 {
 	s32 rtt;
@@ -2158,9 +2232,30 @@ static void netHostSeatsTick(void)
 		netHostLogSeats("after a hold ran out");
 	}
 
-	// protocol 18: the pings and spectators for every client's players list
+	// protocol 18: the pings and spectators for every client's players
+	// list. (protocol 30) The pings go in the world block, delta'd once a
+	// second; PLAYERS itself (the spectators' names) only when they change,
+	// once a second for five (unreliable), and the match's first
 	if (g_NetTick % 60 == 0) {
-		netHostSendPlayers(NETCL_PLAYING);
+		u32 sig = 0;
+		s32 i;
+
+		for (i = 0; i < NET_MAXPEERS; i++) {
+			if (s_Clients[i].spectator && s_Clients[i].state == NETCL_PLAYING) {
+				sig = sig * 31 + (u32)s_Clients[i].slot * 7 + (u32)strlen(s_Clients[i].name) + (u8)s_Clients[i].name[0];
+			}
+		}
+
+		if (sig != s_PlayersSig || s_PlayersSigMatch != s_MatchIdCur) {
+			s_PlayersSig = sig;
+			s_PlayersSigMatch = s_MatchIdCur;
+			s_PlayersRepeat = 5;
+		}
+
+		if (s_PlayersRepeat > 0) {
+			s_PlayersRepeat--;
+			netHostSendPlayers(NETCL_PLAYING);
+		}
 	}
 }
 
@@ -2820,6 +2915,7 @@ static s32 netClientBeginStage(struct netbuf *b)
 	// protocol 18: this match's seats come in its own ROSTER and PLAYERS
 	s_ClSeatValid = 0;
 	s_ClPlayersAt = 0;
+	s_ClPingsAt = 0;
 	s_ClNumSpecs = 0;
 	numplayers = netBufReadU8(b);
 	yourplayer = netBufReadU8(b);
@@ -3810,9 +3906,7 @@ static void netClientEvent(const struct netevent *ev)
 		case NETMSG_EVSHOT:
 			netEventsClientOnMsg(ev->data, ev->len);
 			break;
-		case NETMSG_MARKS:
-			netWorldClientOnMarks(ev->data, ev->len);
-			break;
+
 		default:
 			break;
 		}
@@ -5228,7 +5322,7 @@ s32 netSessionSeatInfo(s32 seat, struct netseatinfo *out)
 			return 0;
 		}
 
-		if (s_ClPlayersAt && netNowMs() - s_ClPlayersAt < 5000 && s_ClPing[seat] != NETPING_NONE) {
+		if ((s_ClPlayersAt || s_ClPingsAt) && netNowMs() - (s_ClPingsAt > s_ClPlayersAt ? s_ClPingsAt : s_ClPlayersAt) < 5000 && s_ClPing[seat] != NETPING_NONE) {
 			out->ping = s_ClPing[seat];
 		}
 
@@ -5277,7 +5371,7 @@ s32 netSessionSpecInfo(s32 k, char *name, s32 size, s32 *ping)
 		return 0;
 	}
 
-	if (s_Role == NETROLE_CLIENT && s_ClPlayersAt && netNowMs() - s_ClPlayersAt < 5000 && k >= 0 && k < s_ClNumSpecs) {
+	if (s_Role == NETROLE_CLIENT && (s_ClPlayersAt || s_ClPingsAt) && netNowMs() - (s_ClPingsAt > s_ClPlayersAt ? s_ClPingsAt : s_ClPlayersAt) < 5000 && k >= 0 && k < s_ClNumSpecs) {
 		snprintf(name, size, "%s", s_ClSpecs[k].name);
 		*ping = s_ClSpecs[k].ping == NETPING_NONE ? -1 : s_ClSpecs[k].ping;
 		return 1;

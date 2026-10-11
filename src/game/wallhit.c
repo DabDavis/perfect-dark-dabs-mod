@@ -25,6 +25,9 @@
 #include "modloader.h"
 #include "game/env.h"
 #include "gebeanstage.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 #endif
 
 #define WALLHITTYPE_SOFT   0
@@ -851,6 +854,15 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 	u32 range;
 	struct coord sp100;
 
+#ifndef PLATFORM_N64
+	// netplay (protocol 30): a client's marks on the bg are the host's
+	// (networld.c), but for the bullet holes of its own player's shots,
+	// which it draws at once and swaps for the host's when they come
+	if (NET_CLIENT && objprop == NULL && chrprop == NULL && !netWorldClientOwnMark(chr, texnum)) {
+		return;
+	}
+#endif
+
 	sp1b8.x = arg1->x;
 	sp1b8.y = arg1->y;
 	sp1b8.z = arg1->z;
@@ -1346,6 +1358,14 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 				wallhit->finalcolours[i].a = wallhit->timermax ? 0 : a;
 			}
 		}
+
+#ifndef PLATFORM_N64
+		// netplay (protocol 30): a mark on the bg made here, the host's for
+		// everyone (networld.c), or a client's own shot's for now
+		if (g_NetMode != NETMODE_NONE && objprop == NULL && chrprop == NULL) {
+			netWorldMarkMade(wallhit - g_Wallhits, wallhit->createdframe);
+		}
+#endif
 	}
 }
 
@@ -1951,18 +1971,88 @@ s32 wallhitNetList(struct wallhitnet *out, s32 max)
 }
 
 /**
+ * Netplay (protocol 30): pool slot i's mark if it is still the bg mark made
+ * on lvframe frame, settled and not fading
+ */
+bool wallhitNetGet(s32 i, u32 frame, struct wallhitnet *o)
+{
+	struct wallhit *w;
+	s32 j;
+
+	if (!g_Wallhits || i < 0 || i >= g_WallhitsMax) {
+		return false;
+	}
+
+	w = &g_Wallhits[i];
+
+	if (!w->inuse || w->fading || w->objprop || w->chrprop || w->createdframe != (frame & 0x0fffffff)) {
+		return false;
+	}
+
+	if (o) {
+		o->relpos[0] = w->relpos.x;
+		o->relpos[1] = w->relpos.y;
+		o->relpos[2] = w->relpos.z;
+		o->room = w->roomnum;
+		o->texnum = w->texturenum;
+		o->bits = (w->xlu ? 1 : 0) | (w->unk6f_01 ? 2 : 0);
+		o->mtxindex = (s8)w->mtxindex;
+
+		for (j = 0; j < 4; j++) {
+			o->xyz[j][0] = w->vertices[j].x;
+			o->xyz[j][1] = w->vertices[j].y;
+			o->xyz[j][2] = w->vertices[j].z;
+			o->st[j][0] = w->vertices[j].s;
+			o->st[j][1] = w->vertices[j].t;
+			memcpy(o->base[j], &w->basecolours[j], 4);
+			memcpy(o->final[j], &w->finalcolours[j], 4);
+		}
+
+		o->frame = w->createdframe;
+	}
+
+	return true;
+}
+
+/**
+ * Netplay: slot i's mark (made on frame) goes, as the pool lets its oldest
+ * go (a fade), or at once when a client's own shot's is swapped for the host's
+ */
+void wallhitNetRemove(s32 i, u32 frame, bool now)
+{
+	if (!wallhitNetGet(i, frame, NULL)) {
+		return;
+	}
+
+	if (now) {
+		wallhitFade(&g_Wallhits[i], 0);
+		wallhitFree(&g_Wallhits[i]);
+	} else {
+		wallhitFade(&g_Wallhits[i], TICKS(30));
+	}
+}
+
+/**
  * Netplay: a mark the host had, put on this machine's bg as the host made it
  * (wallhitCreateWith20Args' list and counter steps, its data as it is)
  */
-bool wallhitNetAdd(const struct wallhitnet *w)
+s32 wallhitNetAdd(const struct wallhitnet *w, u32 *frame)
 {
 	struct wallhit *wallhit;
+	f32 brightnessfrac;
 	s32 j;
 
 	if (!g_FreeWallhits || w->room <= 0 || w->room >= g_Vars.roomcount
 			|| g_WallhitCountsPerRoom[w->room] >= wallhitMaxBgPerRoom()
 			|| (w->texnum > WALLHITTEX_METAL && !geImpactIsGe(w->texnum))) {
-		return false;
+		return -1;
+	}
+
+	// lit by this machine's player's view of the room, as wallhitCreateWith20Args lights it
+	brightnessfrac = roomGetFinalBrightnessForPlayer(w->room) * (1.0f / 255.0f);
+
+	if (modloaderStageIsRemake(g_Vars.stagenum) && !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)) {
+		brightnessfrac = roomRemakeLightFrac(w->room);
 	}
 
 	g_WallhitCountsPerRoom[w->room]++;
@@ -2017,9 +2107,16 @@ bool wallhitNetAdd(const struct wallhitnet *w)
 		wallhit->vertices[j].t = w->st[j][1];
 		wallhit->vertices[j].colour = j * 4;
 		memcpy(&wallhit->basecolours[j], w->base[j], 4);
-		memcpy(&wallhit->finalcolours[j], w->final[j], 4);
+		wallhit->finalcolours[j].r = w->base[j][0] * brightnessfrac;
+		wallhit->finalcolours[j].g = w->base[j][1] * brightnessfrac;
+		wallhit->finalcolours[j].b = w->base[j][2] * brightnessfrac;
+		wallhit->finalcolours[j].a = w->base[j][3];
 	}
 
-	return true;
+	if (frame) {
+		*frame = wallhit->createdframe;
+	}
+
+	return wallhit - g_Wallhits;
 }
 #endif
