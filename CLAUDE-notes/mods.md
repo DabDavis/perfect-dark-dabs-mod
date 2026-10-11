@@ -1847,6 +1847,21 @@ scan found none; and a map is skipped unless the mod ships **at least one** of
 its four files (`modloaderMapIsOwn()`), or every mod's block would put all of
 Perfect Dark's own arenas in the list a second time.
 
+**The scan's tiles and the bundle's names (2026-10-11, F3 20261011-122836).**
+The scan path had neither rule above for tiles: a map whose mod ships no
+`bg_NAME_tilesZ` kept the template row's, Skedar's floor under another map's
+rooms, so the player started 30000 units down with no floor and the match
+opened on "Press START" (the All in One Mod's `mod_allinone` ships no tiles for
+ame, azt, cave, dam, depo, ear, lee, lue, pete - Defection, Crash Site, Air
+Base ... all of those; this was the "Press START" `cave` above). The scan now
+takes the stock slot of the same name (`modloaderFileSlot()`). The bundle's
+five packs carry no `maps` block either - they are made for Jonaeru's port,
+whose `g_MpArenas` (setup.c) and stage table pair each pack's `bg_NAME` with
+NAME's pads and setup exactly as the scan does - so their arena labels come
+from `g_ModPackArenaNames` (modloader.c; names from the bundle's own LmpmenuE,
+e.g. mod_gex `stat` = Paradox, `mp13` = Rogue). Only the label: the slot name
+stays in `g_ModStageMapNames`, which is what netplay matches a map by.
+
 With all of this tree's mod dirs mounted the arena list is 189 maps of 223
 found - the 189 usable stage ids are now the wall, and the status line says
 so. GE-X's 22 register under Temple, Complex, Caves, Library, Basement, Stack,

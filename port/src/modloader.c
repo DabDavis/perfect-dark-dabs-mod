@@ -479,8 +479,102 @@ static s32 modloaderReclaimStageId(s32 modIndex)
 	return 0;
 }
 
+/**
+ * The arena names of the All in One Mod's map packs, which carry no `maps`
+ * block: they are in the format of the port the bundle was made for, whose
+ * Combat Simulator list (its setup.c g_MpArenas, names from the bundle's own
+ * LmpmenuE) and stage table pair each pack's bg_NAME.seg with NAME's pads and
+ * setup - the pairing the scan makes. Without this the arenas were listed by
+ * Perfect Dark's file slot ("ame (allinone)" for dataDyne Central: F3
+ * 20261011-122836). Only the label: the slot name stays the map's identity
+ * (g_ModStageMapNames, what netplay matches on). A slot the port does not
+ * list keeps its file name.
+ */
+struct modloaderpackname {
+	const char *dir;
+	const char *slot;
+	const char *name;
+};
+
+static const struct modloaderpackname g_ModPackArenaNames[] = {
+	// mod_allinone: Perfect Dark's own stages as arenas (All Solos in Multi,
+	// PD Plus, Suburb, Training Day)
+	{ "mod_allinone", "ame", "dataDyne Central" },
+	{ "mod_allinone", "ear", "dataDyne Research" },
+	{ "mod_allinone", "eld", "Carrington Villa" },
+	{ "mod_allinone", "pete", "Chicago" },
+	{ "mod_allinone", "depo", "G5 Building" },
+	{ "mod_allinone", "lue", "Area 51" },
+	{ "mod_allinone", "cave", "Air Base" },
+	{ "mod_allinone", "rit", "Air Force One" },
+	{ "mod_allinone", "azt", "Crash Site" },
+	{ "mod_allinone", "dam", "Pelagic II" },
+	{ "mod_allinone", "pam", "Deep Sea" },
+	{ "mod_allinone", "lee", "Attack Ship" },
+	{ "mod_allinone", "sho", "Skedar Ruins" },
+	{ "mod_allinone", "mp6", "Caves" },
+	{ "mod_allinone", "mp2", "Stack" },
+	{ "mod_allinone", "arch", "Suburb" },
+	{ "mod_allinone", "dest", "Training Day" },
+	{ "mod_allinone", "lam", "Grand Library" },
+	// mod_gex: GoldenEye X's arenas
+	{ "mod_gex", "arec", "Frigate" },
+	{ "mod_gex", "ref", "Complex" },
+	{ "mod_gex", "jun", "Archives" },
+	{ "mod_gex", "crad", "Aztec" },
+	{ "mod_gex", "oat", "Temple" },
+	{ "mod_gex", "mp2", "Icicle Pyramid" },
+	{ "mod_gex", "mp3", "Caves" },
+	{ "mod_gex", "mp4", "Library" },
+	{ "mod_gex", "mp5", "Facility" },
+	{ "mod_gex", "mp8", "Cliff Base" },
+	{ "mod_gex", "mp9", "Caverns" },
+	{ "mod_gex", "mp10", "Basement" },
+	{ "mod_gex", "mp11", "Egyptian" },
+	{ "mod_gex", "mp12", "Stack" },
+	{ "mod_gex", "mp13", "Rogue" },
+	{ "mod_gex", "mp14", "Streets" },
+	{ "mod_gex", "mp16", "Archives BZ" },
+	{ "mod_gex", "mp18", "Cradle" },
+	{ "mod_gex", "mp19", "Labyrinth" },
+	{ "mod_gex", "mp20", "Citadel" },
+	{ "mod_gex", "ark", "Runway" },
+	{ "mod_gex", "lee", "Control" },
+	{ "mod_gex", "stat", "Paradox" },
+	{ "mod_kakariko", "ref", "Tawfret Ruins" },
+	{ "mod_kakariko", "arec", "Targitzan's Temple" },
+	{ "mod_kakariko", "mp13", "War Colors" },
+	{ "mod_kakariko", "mp20", "Kakariko Village" },
+	{ "mod_dark_noon", "mp7", "Valley" },
+	{ "mod_goldfinger_64", "mp11", "Junkyard" },
+	{ "mod_goldfinger_64", "ref", "Steel Mill" },
+	{ "mod_goldfinger_64", "crad", "Mall" },
+	{ "mod_goldfinger_64", "arec", "Tunnels" },
+};
+
+static const char *modloaderPackArenaName(s32 modIndex, const char *slot)
+{
+	const char *dir = fsGetModDirAt(modIndex);
+	const char *base;
+
+	if (!dir) {
+		return NULL;
+	}
+
+	base = strrchr(dir, '/');
+	base = base ? base + 1 : dir;
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_ModPackArenaNames); i++) {
+		if (!strcasecmp(base, g_ModPackArenaNames[i].dir) && !strcmp(slot, g_ModPackArenaNames[i].slot)) {
+			return g_ModPackArenaNames[i].name;
+		}
+	}
+
+	return NULL;
+}
+
 static bool modloaderAddStage(s32 modIndex, const char *mapName, const char *modLabel,
-		s32 bg, s32 tiles, s32 pads, s32 setup, s32 mission)
+		s32 bg, s32 tiles, s32 pads, s32 setup, s32 mission, const char *shown)
 {
 	s32 reclaimed = 0;
 
@@ -543,11 +637,12 @@ static bool modloaderAddStage(s32 modIndex, const char *mapName, const char *mod
 	// the map first, since that is what tells one arena from the next, and
 	// the mod after it, cut to what is left of the arena row's 30 characters
 	char label[32];
-	const s32 room = 30 - (s32)strlen(mapName) - 3;
+	const char *labelName = shown ? shown : mapName;
+	const s32 room = 30 - (s32)strlen(labelName) - 3;
 	if (room >= 4) {
-		snprintf(label, sizeof(label), "%s (%.*s)", mapName, room, modLabel);
+		snprintf(label, sizeof(label), "%s (%.*s)", labelName, room, modLabel);
 	} else {
-		snprintf(label, sizeof(label), "%.30s", mapName);
+		snprintf(label, sizeof(label), "%.30s", labelName);
 	}
 
 	// A mission is not an arena. It gets a stage of its own and nothing else:
@@ -577,19 +672,26 @@ static bool modloaderAddStage(s32 modIndex, const char *mapName, const char *mod
 	return true;
 }
 
+static s32 modloaderFileSlot(s32 modIndex, const char *rel);
+
 static bool modloaderAddMap(s32 modIndex, const char *mapName, const char *modLabel)
 {
 	const s32 bg = modloaderRegister(modIndex, "bgdata/bg_%s.seg", mapName);
 	const s32 pads = modloaderRegister(modIndex, "bgdata/bg_%s_padsZ", mapName);
 	const s32 setup = modloaderRegister(modIndex, "Ump_setup%sZ", mapName);
 
-	// tiles are optional; some maps reuse another stage's
-	s32 tiles = 0;
-	if (modloaderModHasFile(modIndex, "bgdata/bg_%s_tilesZ", mapName)) {
-		tiles = modloaderRegister(modIndex, "bgdata/bg_%s_tilesZ", mapName);
-	}
+	// Tiles are optional: a mod that changed a stage's look but not its floor
+	// ships none, and the floor is the stock slot's of the same name. Left at
+	// 0 the row kept the template's - Skedar's floor under another map's rooms
+	// - and the player started the match with no floor, 30000 units down, and
+	// died (the All in One Mod's Defection, Air Base, Investigation and six
+	// more: F3 20261011-122836).
+	char tilesName[64];
+	snprintf(tilesName, sizeof(tilesName), "bgdata/bg_%s_tilesZ", mapName);
+	const s32 tiles = modloaderFileSlot(modIndex, tilesName);
 
-	return modloaderAddStage(modIndex, mapName, modLabel, bg, tiles, pads, setup, -1);
+	return modloaderAddStage(modIndex, mapName, modLabel, bg, tiles, pads, setup, -1,
+			modloaderPackArenaName(modIndex, mapName));
 }
 
 /**
@@ -871,7 +973,7 @@ static bool modloaderAddConfigMap(s32 modIndex, const char *modLabel, const char
 		return false;
 	}
 
-	return modloaderAddStage(modIndex, name, modLabel, bgid, tilesid, padsid, setupid, -1);
+	return modloaderAddStage(modIndex, name, modLabel, bgid, tilesid, padsid, setupid, -1, NULL);
 }
 
 /**
@@ -1154,7 +1256,7 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 				continue;
 			}
 
-			if (modloaderAddStage(modIndex, name, modLabel, bgid, tilesid, padsid, setupid, mission)) {
+			if (modloaderAddStage(modIndex, name, modLabel, bgid, tilesid, padsid, setupid, mission, NULL)) {
 				const s32 stageId = g_Stages[g_ModStageNextSlot - 1].id;
 
 				if (fog[0]) {
