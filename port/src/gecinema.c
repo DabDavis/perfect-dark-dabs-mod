@@ -1533,6 +1533,21 @@ s32 gecinemaSwirlTick(void)
 		return 1;
 	}
 
+	// Bond holds what the mission starts him with (playerTickChrBody()). A
+	// body built before the opening - online every body is, on the level's
+	// first frame, for the other players to see - had its hands' gun taken
+	// out of its hand by gecinemaEnter()'s put-away and came into the swirl
+	// empty handed (F3 20261011-065958, Surface online). Offline the body is
+	// built in the swirl holding it and this finds nothing to do.
+	if (pl->haschrbody && pl->prop->chr && pl->prop->chr->weapons_held[HAND_RIGHT] == NULL
+			&& g_DefaultWeapons[HAND_RIGHT] > WEAPON_UNARMED && pl->gunctrl.switchtoweaponnum == -1) {
+		const s32 modelnum = playermgrGetModelOfWeapon(g_DefaultWeapons[HAND_RIGHT]);
+
+		if (modelnum >= 0) {
+			weaponCreateForChr(pl->prop->chr, modelnum, g_DefaultWeapons[HAND_RIGHT], 0, NULL, NULL);
+		}
+	}
+
 	if (!g_GeIntroPosed && pl->haschrbody && pl->model00d4 && pl->prop->chr) {
 		// what Bond is doing when the camera finds him: the setup's own choice
 		// out of stage_intro_anim_table[], played on his body the way
