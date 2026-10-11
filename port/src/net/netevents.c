@@ -1328,8 +1328,14 @@ static void netEvSendSlot(s32 slot, s32 pn)
 					continue;
 				}
 
-				netEvSureHeader(pre, u, g_NetTick - u->tick);
-				netEvAppend(slot, cls, &m, pre, 4, u->bytes, u->len);
+				// a hit sent once needs no serial: as itself, at its own tick
+				if (u->once) {
+					netEvAppend(slot, cls, &m, NULL, 0, u->bytes, u->len);
+				} else {
+					netEvSureHeader(pre, u, g_NetTick - u->tick);
+					netEvAppend(slot, cls, &m, pre, 4, u->bytes, u->len);
+				}
+
 				s_SureCopies++;
 			}
 		}

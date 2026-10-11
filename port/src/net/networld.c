@@ -687,8 +687,10 @@ static s32 netWorldApply(const u8 *b, u32 tick, f64 rt)
 		dead = (obj->hidden2 & OBJH2FLAG_DESTROYED) || (obj->hidden & OBJHFLAG_DELETING);
 
 		if ((b[NW_GLASS + (i >> 3)] & bit) == 0) {
-			if (was && dead) {
-				obj->hidden &= ~OBJHFLAG_DELETING;
+			// (and the record's NETOBJ_GONE, which a pane out of this
+			// machine's scope keeps until it comes back into it)
+			if (was && (dead || (obj->hidden & OBJHFLAG_GONE))) {
+				obj->hidden &= ~(OBJHFLAG_DELETING | OBJHFLAG_GONE);
 				obj->hidden2 &= ~OBJH2FLAG_DESTROYED;
 				obj->damage = 0;
 				s_ClGlassBack++;

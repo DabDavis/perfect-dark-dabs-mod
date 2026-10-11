@@ -871,7 +871,8 @@
  *  15 SURE       u16 serial (the host's, rising), u8 back (ticks before the
  *                message's hosttick it happened), then an EXPLOSION or
  *                CHRDAMAGE event whole; sent in the EVSHOT messages of
- *                ticks +0, +2, +5 (an explosion) or +0, +3 (a hit); the
+ *                ticks +0, +2, +5 (an explosion) or +0, +3 (a hit on a
+ *                player; a sim's or a guard's goes once, as itself); the
  *                client keeps the first copy of a serial. A joiner's first
  *                EVENTS (the SCORES catch-up) adds a SURE copy of each
  *                explosion still burning; one applied more than 6 ticks

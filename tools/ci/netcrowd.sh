@@ -50,14 +50,20 @@ game h 150 "${GEINI}[Net]\nMaxPlayers=12\nJoinInProgress=1\n" --dedicated --host
 	--net-test-map "${GEMAP:-Facility}" --net-test-ge 1 --net-test-sims $SIMS --net-test-timelimit 2 --rng-seed 7 --net-sim $SIM $TEST &
 CMOD=""
 elif [ "${MODE:-mp}" = coop ]; then
-game h 150 "[Mod]\nMissionRespawn=1\n[Net]\nMaxPlayers=12\nJoinInProgress=1\n" --host $PORT --net-test-host 2 --rng-seed 7 --net-test-coop 0 --skip-cutscenes --net-sim $SIM $TEST &
+# COOP= the mission index (0), COOPGAME=ge GoldenEye's (4 Bunker: cameras)
+if [ "${COOPGAME:-}" = ge ]; then
+game h 150 "[Mod]\nMapMods=GoldenEye Arenas\nMissionRespawn=1\n[Net]\nMaxPlayers=12\nJoinInProgress=1\n" --host $PORT --net-test-host 2 --rng-seed 7 \
+	--net-test-coop ${COOP:-4} --net-test-coop-game ge --skip-cutscenes --net-sim $SIM $TEST &
+else
+game h 150 "[Mod]\nMissionRespawn=1\n[Net]\nMaxPlayers=12\nJoinInProgress=1\n" --host $PORT --net-test-host 2 --rng-seed 7 --net-test-coop ${COOP:-0} --skip-cutscenes --net-sim $SIM $TEST &
+fi
 else
 game h 150 "[Mod]\nStartArmed=1\n[Net]\nMaxPlayers=12\nJoinInProgress=1\n" --moddir mod_allinone --dedicated --host $PORT \
 	--net-test-host 2 --net-test-stage $STAGE --net-test-sims $SIMS --net-test-timelimit 2 --net-test-scorelimit 100 --net-test-teamscorelimit 400 --rng-seed 7 \
 	--mp-weapons ${MPWEAPONS:-9,9,9,9,9,9} --net-sim $SIM $TEST &
 fi
 H=$!
-CINI="[Mod]\nStartArmed=1\n"; [ "${MODE:-mp}" = ge ] && CINI=$GEINI
+CINI="[Mod]\nStartArmed=1\n"; [ "${MODE:-mp}" = ge ] && CINI=$GEINI; [ "${COOPGAME:-}" = ge ] && CINI="[Mod]\nMapMods=\n"
 waitfor "$OUT/h.log" "net: hosting on UDP port" 60 || { echo "host did not start"; kill -TERM $H; exit 2; }
 P=""
 for k in 1 2; do
