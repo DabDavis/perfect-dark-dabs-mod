@@ -164,7 +164,12 @@
 //    channels of their own: EVENTS (deaths, scores, hudmsgs, pickup sounds;
 //    the only ones evseq counts), EVFX on NET_CHAN_EVFX (explosions, hits),
 //    EVSHOT unreliable on NET_CHAN_EVSHOT (shots, sparks, grunts); five
-//    ENet channels
+//    ENet channels; EXPLOSION and CHRDAMAGE go in EVSHOT several times each
+//    inside a SURE event (15: u16 serial, u8 ticks back, the event), and a
+//    joiner's first EVENTS carries the explosions still burning; an OBJ
+//    record's byte 0 bit 0x80 is a camera's lens shot out
+//    (NETOBJ_LENSGONE); MARKS (27, bulk) gives a joiner the host's marks
+//    on the walls and floors
 #define NET_PROTOCOL_VERSION 29
 
 #define NETMSG_CONNECT    1
@@ -749,6 +754,8 @@
  *     changes, by any amount; a toggled bit would lose two in one gap)
  *     (protocol 24: OBJ byte 0 bit 0x20 / DOOR byte 4 bit 2: a setup object
  *     out of the world, in no prop list on the host - taken out here too)
+ *     (protocol 29: OBJ byte 0 bit 0x80, NETOBJ_LENSGONE: a camera's lens
+ *     shot out)
  *     (protocol 29: OBJ byte 23 / DOOR byte 5, the crumpling: objDeform
  *     calls since the object was last whole in the low nibble, saturating at
  *     15, the last call's level in the high one; DOOR byte 4 bit 4,
@@ -857,10 +864,29 @@
  * (protocol 29) Three classes, each a message type on a channel of its own,
  * the same body: EVENTS on NET_CHAN_RELIABLE carries DEATH, HUDMSG,
  * PICKUPSFX and SCORES (and is all evseq counts); EVFX (25) on
- * NET_CHAN_EVFX, reliable, EXPLOSION, CHRDAMAGE and GLASS; EVSHOT (26) on
- * NET_CHAN_EVSHOT, unreliable and unsequenced, at most NET_MAXUNRELIABLE
- * bytes, FIRESLOT, PLAYERSHOT, SPARKS and CHOKE. DEFORM, NBOMB and GAS are
- * no longer sent (records and the world block carry them).
+ * NET_CHAN_EVFX, reliable, GLASS past the world block's panes; EVSHOT (26)
+ * on NET_CHAN_EVSHOT, unreliable and unsequenced, at most
+ * NET_MAXUNRELIABLE bytes, FIRESLOT, PLAYERSHOT, SPARKS and CHOKE, and
+ * EXPLOSION and CHRDAMAGE as SURE copies:
+ *  15 SURE       u16 serial (the host's, rising), u8 back (ticks before the
+ *                message's hosttick it happened), then an EXPLOSION or
+ *                CHRDAMAGE event whole; sent in the EVSHOT messages of
+ *                ticks +0, +2, +5 (an explosion) or +0, +3 (a hit); the
+ *                client keeps the first copy of a serial. A joiner's first
+ *                EVENTS (the SCORES catch-up) adds a SURE copy of each
+ *                explosion still burning; one applied more than 6 ticks
+ *                late is put in at that age (no bang)
+ * DEFORM, NBOMB and GAS are no longer sent (records and the world block
+ * carry them).
+ *
+ * MARKS (protocol 29; host -> joiner, NET_CHAN_BULK, beside its first
+ * EVENTS) - the host's settled marks on the bg (bullet holes, scorches,
+ * splats; none on a prop or a chr), oldest first, at most 1024, in
+ * messages of <= 16 KB:
+ *   u8 NETMSG_MARKS, u32 matchid, u16 n, n x 90 bytes { f32 relpos[3],
+ *   s16 room, u8 texnum, u8 bits (1 xlu, 2 unk6f_01), s8 mtxindex, 4 x
+ *   { s16 x, y, z, s, t, u8 basecolour[4], u8 finalcolour[4] }, u8 0 }
+ *   (wallhit.c wallhitNetList/wallhitNetAdd)
  *   u8      NETMSG_EVENTS
  *   u32     matchid
  *   u32     hosttick              the host's g_NetTick they happened on
