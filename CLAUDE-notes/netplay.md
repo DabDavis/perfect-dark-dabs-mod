@@ -2859,8 +2859,11 @@ in their own sections' notes.
   (1) turns it off alone. --net-lagcomp-log adds E (each explosion, place,
   L), P (each other player where it is and where the guest saw it) and B
   (first-frame damage) lines; netlagcomptest `blast` measures it (rockets at a target
-  strafing two seconds each way, 150 ms: blasts ~56 units nearer where the
-  guest saw it, first-frame damage ~4.4 a rocket instead of ~1.0). Not
+  strafing two seconds each way, 150 ms: over the rockets that went off
+  with it moving on, the blast 320 from where the guest saw it and 375 from
+  where the host had it, first-frame damage dealt 5.98 a rocket against 3.49
+  without the rewind and 6.38 where the guest saw it; every blast pushes the
+  invincible target, so the numbers drift run to run, the gate is relative). Not
   covered: the round's flight. Its collision with a chr is the host's
   (projectileFindCollidingProp tests the chr's model in the host's world),
   so a rocket that on the guest's screen flew into the target's body but
