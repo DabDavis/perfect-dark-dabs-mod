@@ -2955,7 +2955,25 @@ about the same (-1% to +3%, inside run-to-run noise).
   the marks of what it sees, so two machines' marks drift apart later
   anyway (a client from the start had 31 where the host had 65).
 
-**Left.** An object out of a client's scope gets its crumpling only when it
+Measured (same netcrowd runs, plus Grid with rockets and grenades,
+MPWEAPONS=23,22,9,9,23,22, and GoldenEye's Bunker in co-op for its
+cameras and windowed doors): explosion max lag 13.9 -> 1.0 ticks (rockets),
+hits 25.9 -> 2.7, deaths ~5 (their own reliable channel, a resend now and
+then still ~24); a joiner sees the gas barrel set off 40 ticks before it
+came still burning (put in part way, every run); Bunker's lenses 0/4 ->
+4/4 and windowed panes 0/14 -> 14/14 on every client; MARKS: the joiner
+gets every bg mark the host has (19-65, 1.7-5.9 KB once; G5's census 150
+ticks later identical, count and summed places). Bytes: about even, +7-10%
+in the rocket match (its player hits twice; 97 000 hits).
+
+The netpuppettest "alarm" check read the last "net: local block" line,
+which the item log of the local block (protocol 28) now ends with: it reads
+the line with the deaths.
+
+**Left.** Clients never draw other players' and sims' bullet holes in live
+play (they make marks only for what their own machine fires and for
+explosions' scorches): a client from the start had 22 marks where the host
+had 51. MARKS fixes a joiner's start only. An object out of a client's scope gets its crumpling only when it
 comes into scope (invisible meanwhile);
 explosions' scorches and bullet holes are not sent to a joiner; a CCTV
 lens shot out is not replicated at all (as the windowed door pane was not);

@@ -426,13 +426,13 @@ check_run() {
 			fail "$label: $c exit '$x'"
 		fi
 		grep "net: puppets " "$C" | tail -1 | sed "s/^.*net: /     $label $c: /"
-		grep "net: local block " "$C" | tail -1 | sed "s/^.*net: /     $label $c: /"
+		grep "net: local block .*; deaths" "$C" | tail -1 | sed "s/^.*net: /     $label $c: /"
 		# this machine's own player: every respawn the host counted was made
 		# here too (the last may still be in flight at the end)
 		local hr lr ld
 		hr=$(grep "net: snap client " "$C" | tail -1 | sed -n 's/.*; respawns \([0-9]*\), teleports.*/\1/p')
-		ld=$(grep "net: local block " "$C" | tail -1 | sed -n 's/.*; deaths \([0-9]*\),.*/\1/p')
-		lr=$(grep "net: local block " "$C" | tail -1 | sed -n 's/.*, respawns \([0-9]*\), inventory.*/\1/p')
+		ld=$(grep "net: local block .*; deaths" "$C" | tail -1 | sed -n 's/.*; deaths \([0-9]*\),.*/\1/p')
+		lr=$(grep "net: local block .*; deaths" "$C" | tail -1 | sed -n 's/.*, respawns \([0-9]*\), inventory.*/\1/p')
 		if [ -n "$hr" ] && [ -n "$lr" ] && [ "$lr" -ge $((hr > 0 ? hr - 1 : 0)) ] && [ "$lr" -le "$hr" ]; then
 			pass "$label: $c's own player: $ld death(s) from the host's block, $lr of the host's $hr respawn(s) made here"
 		else
