@@ -3018,3 +3018,51 @@ comes into scope (invisible meanwhile);
 explosions' scorches and bullet holes are not sent to a joiner; a CCTV
 lens shot out is not replicated at all (as the windowed door pane was not);
 CHAT and SLOTCFG share NET_CHAN_RELIABLE with the GAME events.
+
+## Everything by delta (protocol 30, 2026-10-11)
+
+The owner, after protocol 29: "everything uses deltas to update". Three
+things still went as full copies over and over:
+
+- **The marks on the walls and floors.** Clients never drew other players'
+  or sims' bullet holes (only their own and explosions' scorches; 29's MARKS
+  gave a joiner the host's set once). Now they are state: the marks block at
+  the end of SNAP holds one u16 serial per slot of the host's wall-hit pool
+  (the bg mark in it, 0 none), delta'd against the client's acked snapshot
+  like the other blocks, and up to `NETMARK_PERSNAP` (3) records of 74
+  bytes a snapshot for marks the client lacks, oldest first
+  (`netsnap.c`, `networld.c`). A slot the host empties (its pool letting the
+  oldest go, a fade) empties on the client for nothing; a slot refilled
+  before its record went sends only the newest mark, so a burst of shots
+  costs at most the pool, never the history, and never more than ~230
+  bytes a snapshot. A joiner's keyframe is the whole pool, caught up over its
+  first ~2 seconds of snapshots, which replaced MARKS (27). A client makes
+  no bg mark itself (`wallhitCreateWith20Args`' gate,
+  `netWorldClientOwnMark`) except its own player's bullet holes, drawn at
+  once and kept in a FIFO; the host's record carries who made it (the pass
+  player), and when one of the client's own comes, its oldest own mark gives
+  way. Final colours are this machine's lighting of the host's base colours,
+  as wallhitCreate lights them. Blood on the bg (splats carry their chr) is
+  left out.
+- **CMD.** Every unacked command (25 bytes) went whole each tick, up to 16:
+  at 192 ms ~13 copies, 14-20 KB/s upstream per client on the online night
+  (ElmoBear's F3 20261010-040255), 2-2.5x what the host sent. Now each
+  command is packed to 32 bytes (`netcmd.c`; viewtick as the command's tick
+  less it, steady while the render delay is) and XOR-delta'd with zero-run
+  RLE: the first against the newest command the host acked (the CMD names it;
+  the host keeps every command it took by tick per view, and drops a CMD
+  whose base it has not got; the client keyframes if its base has not moved
+  for 30 ticks), each after it against the one before. Every unacked command
+  is still in every packet. Quake 3's field masks were measured beside it
+  (the client logs both: "commands codec").
+- **CMDACK** is 9 bytes for 14 (the match's low byte, the ack as a distance
+  from the host tick); **PLAYERS** no longer goes whole every second: the
+  pings ride the world block (352 bytes now, at 320), PLAYERS goes only when
+  the spectators change (once a second for five, unreliable) and at a match's
+  start and at the barrier.
+
+Left as they are, rare or one-shot: CONNECT/ACCEPT/REFUSE, RULES and
+STAGE_LOAD (once a match), LOADED, GO, MATCH_END, LEAVE, LOBBY, SLOTCFG (on
+a change), ROSTER (on GO and a seat changing hands), RESUME, CHAT,
+CONTENT_* (a served download), the events (one-shots), the SCORES table (a
+joiner's catch-up and a cleared seat).
