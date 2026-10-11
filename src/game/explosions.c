@@ -399,6 +399,9 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 			exp->age = 0;
 			exp->makescorch = makescorch;
 			exp->owner = playernum;
+#ifndef PLATFORM_N64
+			if (g_NetMode == NETMODE_SERVER) netLagCompBlastNote(exp - g_Explosions, type, playernum, exppos); // netplay: a guest's blast, where it saw the chrs
+#endif
 
 			if (type != EXPLOSIONTYPE_BULLETHOLE && type != EXPLOSIONTYPE_PHOENIX) {
 				propSetDangerous(expprop);
@@ -921,6 +924,9 @@ void explosionInflictDamage(struct prop *expprop)
 
 	// Damage props
 	roomGetProps(expprop->rooms, propnums, MAX_ROOMPROPS);
+#ifndef PLATFORM_N64
+	if (g_NetMode == NETMODE_SERVER) netLagCompBlastProps(exp - g_Explosions, propnums, MAX_ROOMPROPS, damageradius, expprop); // netplay
+#endif
 
 	propnumptr = propnums;
 
@@ -1077,9 +1083,18 @@ void explosionInflictDamage(struct prop *expprop)
 					}
 				}
 			} else if (prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER) {
-				f32 xdist = prop->pos.f[0] - expprop->pos.f[0];
-				f32 ydist = prop->pos.f[1] - expprop->pos.f[1];
-				f32 zdist = prop->pos.f[2] - expprop->pos.f[2];
+#ifndef PLATFORM_N64
+				// netplay: a guest's blast hurts the chr where that guest saw it
+				// (netlagcomp.c); its place, never moved, everywhere else
+				struct coord rewpos;
+				const bool rewound = g_NetMode == NETMODE_SERVER && netLagCompBlastPos(exp - g_Explosions, prop, expprop, &rewpos);
+				const struct coord *ppos = rewound ? &rewpos : &prop->pos;
+#else
+				const struct coord *ppos = &prop->pos;
+#endif
+				f32 xdist = ppos->f[0] - expprop->pos.f[0];
+				f32 ydist = ppos->f[1] - expprop->pos.f[1];
+				f32 zdist = ppos->f[2] - expprop->pos.f[2];
 				f32 radius;
 				f32 ymax;
 				f32 ymin;
@@ -1101,13 +1116,20 @@ void explosionInflictDamage(struct prop *expprop)
 						radius = 0.0f;
 					}
 
-					spcc.f[0] = prop->pos.f[0] - radius;
+					spcc.f[0] = ppos->f[0] - radius;
 					spcc.f[1] = ymin;
-					spcc.f[2] = prop->pos.f[2] - radius;
+					spcc.f[2] = ppos->f[2] - radius;
 
-					spc0.f[0] = prop->pos.f[0] + radius;
+					spc0.f[0] = ppos->f[0] + radius;
 					spc0.f[1] = ymax;
-					spc0.f[2] = prop->pos.f[2] + radius;
+					spc0.f[2] = ppos->f[2] + radius;
+
+#ifndef PLATFORM_N64
+					if (rewound) {
+						spcc.f[1] += ppos->f[1] - prop->pos.f[1];
+						spc0.f[1] += ppos->f[1] - prop->pos.f[1];
+					}
+#endif
 
 					if (explosionOverlapsProp(exp, prop, &spcc, &spc0)) {
 						candamage = true;
@@ -1183,6 +1205,9 @@ void explosionInflictDamage(struct prop *expprop)
 						ownerprop = g_Vars.anti->prop;
 					}
 
+#ifndef PLATFORM_N64
+					if (g_NetMode == NETMODE_SERVER) netLagCompBlastHit(exp - g_Explosions, prop, minfrac, isfirstframe); // netplay: the harness's record
+#endif
 					chrDamageByExplosion(chr, minfrac, &spa0, ownerprop, &expprop->pos);
 
 					if (prop->type == PROPTYPE_CHR && !isfirstframe) {

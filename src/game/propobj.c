@@ -4902,6 +4902,12 @@ bool propExplode(struct prop *prop, s32 exptype)
 	s32 playernum = OBJ_OWNER(obj);
 	bool result;
 
+#ifndef PLATFORM_N64
+	// netplay: a weapon's blast (a projectile, a mine): a guest's is worked
+	// out where it saw the chrs (netlagcomp.c)
+	if (g_NetMode == NETMODE_SERVER) netLagCompBlastFromWeapon(prop->type == PROPTYPE_WEAPON);
+#endif
+
 	if (prop->parent) {
 		struct prop *parent = prop->parent;
 		struct coord pos;
@@ -4947,6 +4953,10 @@ bool propExplode(struct prop *prop, s32 exptype)
 	} else {
 		result = explosionCreateComplex(NULL, &prop->pos, prop->rooms, exptype, playernum);
 	}
+
+#ifndef PLATFORM_N64
+	if (g_NetMode == NETMODE_SERVER) netLagCompBlastFromWeapon(0);
+#endif
 
 	return result;
 }

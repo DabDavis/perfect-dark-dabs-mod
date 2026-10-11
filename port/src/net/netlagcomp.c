@@ -151,11 +151,13 @@ void chrHandleJointPositioned(s32 joint, Mtxf *mtx);
 
 s32 g_NetLagComp = 1;
 static s32 s_MaxMs = 200;
+static s32 s_LagCompBlasts = 1;  // Net.LagCompBlasts: a guest's blasts where it saw the chrs
 
 PD_CONSTRUCTOR static void netLagCompConfigInit(void)
 {
 	configRegisterInt("Net.LagComp", &g_NetLagComp, 0, 1);
 	configRegisterInt("Net.LagCompMaxMs", &s_MaxMs, 0, 1000);
+	configRegisterInt("Net.LagCompBlasts", &s_LagCompBlasts, 0, 1);
 }
 
 static struct netlcpose *s_Hist = NULL; // [s_HistSlots][NETLC_RING]
@@ -178,6 +180,18 @@ static s32 s_ShotCapped = 0;
 static s32 s_ShotCands = 0;
 static s32 s_ShotSwept = 0;
 static u8 s_RwSave[NETLC_MAXRW];
+
+// A guest's blasts (netLagCompBlast*): per explosion slot, how far back the
+// chrs it can hurt are taken - the owner's view lag when it went off, kept
+// for the explosion's life (its later frames hurt too, and the guest sees
+// those with the same delay)
+#define NETLC_MAXBLAST 128
+static struct { f32 rewind; s8 owner; s8 raw; u8 weapon; } s_Blast[NETLC_MAXBLAST]; // raw: the owner whether rewound or not
+static s32 s_BlastWeapon = 0;    // propExplode of a weapon prop is making the explosion
+static u32 s_Blasts = 0;         // guest blasts rewound
+static u32 s_BlastMoved = 0;     // chrs taken back for one
+static u32 s_BlastAdded = 0;     // ... found only where they were (out of the blast's rooms now)
+static f64 s_BlastRewindSum = 0;
 
 // the history and the rewind table go together (a rewind being undone is
 // never in progress when they do: the pass and the shot undo theirs)
@@ -1602,9 +1616,10 @@ void netLagCompLog(const char *why)
 
 	sysLogPrintf(LOG_NOTE, "net: lagcomp %s: on %d, cap %d ms, remote shots %u, rewound %u (mean %.2f ticks, most %.2f, capped %u), "
 			"autoaim passes rewound %u, chrs on screen %u, rebuilt %u (%u not on screen now), no history %u (another life then %u), claims past the host's bound %u, no gfx space %u, debug lines %u; "
-			"vtx pool peak %u / %u bytes (first half), %u (second half, tick %u)",
+			"vtx pool peak %u / %u bytes (first half), %u (second half, tick %u); guest blasts rewound %u (mean %.2f ticks, blasts %d), chrs taken back %u (%u out of the blast's rooms now)",
 			why, g_NetLagComp, s_MaxMs, s_Shots, s_ShotsRewound, s_ShotsRewound ? s_RewindSum / s_ShotsRewound : 0.0, s_RewindMax, s_Capped,
-			s_Passes, s_Cands, s_Rebuilt, s_Offscreen, s_NoPose, s_OtherLife, s_Claims, s_NoSpace, s_DebugLines, s_GfxPeak[0], s_GfxPool, s_GfxPeak[1], s_PeakTick);
+			s_Passes, s_Cands, s_Rebuilt, s_Offscreen, s_NoPose, s_OtherLife, s_Claims, s_NoSpace, s_DebugLines, s_GfxPeak[0], s_GfxPool, s_GfxPeak[1], s_PeakTick,
+			s_Blasts, s_Blasts ? s_BlastRewindSum / s_Blasts : 0.0, s_LagCompBlasts, s_BlastMoved, s_BlastAdded);
 }
 
 static void netLagCompAtExit(void)
@@ -1731,4 +1746,233 @@ void netLagCompAimTrace(void)
 			p->crosspos[0], p->crosspos[1], p->hands[0].crosspos[0], p->hands[0].crosspos[1],
 			p->crosspossum[0], p->crosspossum[1], p->guncrossdamp, p->swivelpos[0], p->swivelpos[1],
 			g_Vars.numonscreenprops, p->vv_theta, p->vv_verta, tg, tpos[0], tpos[1], tpos[2]);
+}
+
+/*
+ * A guest's blasts (F3 20261010-030750, owner's decision 2026-10-11)
+ *
+ * A client's rockets, grenades and mines are the host's projectiles, made
+ * from its commands, and fly through the host's world: a moving target was
+ * hurt where the host had it, D + one way's latency ahead of where the guest
+ * saw it and aimed (D its interpolation delay). Its Phoenix round's blast
+ * lands where lag compensation put the hit, and hurt chrs where they were
+ * at the host's tick. When an explosion owned by a remote player is made by
+ * a weapon prop (propExplode: rockets, grenades, the Devastator's, mines,
+ * GoldenEye's and the hacks' launcher rounds, the Slayer's) or is a Phoenix
+ * round's, its splash is worked out against every other chr's place at the
+ * guest's view: the same bound as a shot (netLcViewFor: the round trip and
+ * queue capped at Net.LagCompMaxMs, the interpolation on top), taken when it
+ * goes off and kept for its life. Only positions are read: the chrs are
+ * never moved, so the death, the drop and the knockback land on the chr as
+ * it is (the knockback's direction is the rewound one's). The guest's own
+ * player stands where it is (it sees itself there). World, doors and props
+ * are as they are. Net.LagCompBlasts=0 turns it off; Net.LagComp=0 too.
+ *
+ * Favours the shooter: a target that moved on can be hurt by a blast that
+ * on its own screen went off behind it - the same trade as a lag-compensated
+ * shot, for the same latency.
+ */
+void netLagCompBlastFromWeapon(s32 on)
+{
+	s_BlastWeapon = on;
+}
+
+void netLagCompBlastNote(s32 expindex, s32 type, s32 owner, struct coord *pos)
+{
+	f64 view;
+	f64 sv;
+	f64 sr;
+	f32 sd;
+	s32 sc;
+	f32 would = 0;
+	s32 i;
+
+	if (expindex < 0 || expindex >= NETLC_MAXBLAST) {
+		return;
+	}
+
+	s_Blast[expindex].rewind = 0;
+	s_Blast[expindex].owner = -1;
+	s_Blast[expindex].raw = (s8)(owner >= -1 && owner < 127 ? owner : -1);
+	s_Blast[expindex].weapon = s_BlastWeapon || type == EXPLOSIONTYPE_PHOENIX;
+
+	if (g_NetLagComp && netSessionMatchActive() && s_Blast[expindex].weapon
+			&& owner >= 0 && owner < PLAYERCOUNT() && !netIsLocalSlot(owner)) {
+		// netLcViewFor's own record is the shot's (its log line): kept
+		sv = s_ShotView;
+		sr = s_ShotRewind;
+		sd = s_ShotDelay;
+		sc = s_ShotCapped;
+
+		if (netLcViewFor(owner, &view)) {
+			would = (f32)s_ShotRewind;
+		}
+
+		s_ShotView = sv;
+		s_ShotRewind = sr;
+		s_ShotDelay = sd;
+		s_ShotCapped = sc;
+
+		if (would > 0 && s_LagCompBlasts) {
+			s_Blast[expindex].rewind = would;
+			s_Blast[expindex].owner = (s8)owner;
+			s_Blasts++;
+			s_BlastRewindSum += would;
+		}
+	}
+
+	if (!s_Log || type == EXPLOSIONTYPE_BULLETHOLE) {
+		return;
+	}
+
+	// E tick exp owner type weapon at x y z rewind: every explosion the host
+	// makes (the harness counts a guest's that hurt nobody too); then P,
+	// every other player where it is and where the guest saw it (the
+	// rewind's place whether the rewind is on or not)
+	fprintf(s_Log, "E %u exp %d owner %d type %d weapon %d at %.1f %.1f %.1f rewind %.2f\n", g_NetTick, expindex, owner, type,
+			s_Blast[expindex].weapon, pos->x, pos->y, pos->z, would);
+
+	for (i = 0; i < PLAYERCOUNT(); i++) {
+		struct prop *prop = g_Vars.players[i] ? g_Vars.players[i]->prop : NULL;
+		struct netlcpose pose;
+		f32 rx;
+		f32 rz;
+		s32 slot;
+
+		if (i == owner || !prop || !prop->chr || g_Vars.players[i]->isdead) {
+			continue;
+		}
+
+		rx = prop->pos.x;
+		rz = prop->pos.z;
+		slot = netLcSlotOf(prop->chr);
+
+		if (would > 0 && slot >= 0 && s_Hist && netLcPoseAt(prop->chr, slot, (f64)g_NetTick - would, &pose)) {
+			rx = pose.pos[0];
+			rz = pose.pos[2];
+		}
+
+		fprintf(s_Log, "P %u exp %d p%d cur %.1f %.1f rew %.1f %.1f\n", g_NetTick, expindex, i, prop->pos.x, prop->pos.z, rx, rz);
+	}
+}
+
+static s32 netLcBlastOn(s32 expindex)
+{
+	return g_NetMode == NETMODE_SERVER && expindex >= 0 && expindex < NETLC_MAXBLAST && s_Blast[expindex].owner >= 0
+		&& s_Blast[expindex].rewind > 0 && s_Hist;
+}
+
+/** A chr's distance from a blast as its damage reads it: the farthest axis */
+static f32 netLcBlastAxis(const struct coord *a, const struct coord *b)
+{
+	const f32 dx = fabsf(a->x - b->x);
+	const f32 dy = fabsf(a->y - b->y);
+	const f32 dz = fabsf(a->z - b->z);
+
+	return dx > dy ? (dx > dz ? dx : dz) : (dy > dz ? dy : dz);
+}
+
+s32 netLagCompBlastPos(s32 expindex, struct prop *prop, struct prop *expprop, struct coord *out)
+{
+	struct netlcpose pose;
+	struct chrdata *chr;
+	s32 slot;
+	f64 view;
+
+	if (!netLcBlastOn(expindex) || !prop || !prop->chr) {
+		return 0;
+	}
+
+	chr = prop->chr;
+
+	// the guest's own player, where it is
+	if (prop->type == PROPTYPE_PLAYER && playermgrGetPlayerNumByProp(prop) == s_Blast[expindex].owner) {
+		return 0;
+	}
+
+	slot = netLcSlotOf(chr);
+	view = (f64)g_NetTick - s_Blast[expindex].rewind;
+
+	if (slot < 0 || view < 1 || !netLcPoseAt(chr, slot, view, &pose)) {
+		return 0;
+	}
+
+	out->x = pose.pos[0];
+	out->y = pose.pos[1];
+	out->z = pose.pos[2];
+
+	// whichever is nearer the blast, where the guest saw the chr or where it
+	// is: a round that met the chr itself on the host (a direct hit) is not
+	// taken away from it by the rewind; one that went off where the chr was
+	// on the guest's screen still hurts it
+	if (expprop && netLcBlastAxis(out, &expprop->pos) >= netLcBlastAxis(&prop->pos, &expprop->pos)) {
+		return 0;
+	}
+
+	return 1;
+}
+
+void netLagCompBlastProps(s32 expindex, s16 *propnums, s32 max, f32 radius, struct prop *expprop)
+{
+	s32 n = 0;
+	s32 i;
+
+	if (!netLcBlastOn(expindex) || !g_ChrSlots) {
+		return;
+	}
+
+	while (n < max - 1 && propnums[n] >= 0) {
+		n++;
+	}
+
+	// a chr in reach where the guest saw it but out of the blast's rooms
+	// now (it has walked through a portal since) is looked at too
+	for (i = 0; i < s_HistSlots && i < g_NumChrSlots && n < max - 1; i++) {
+		struct chrdata *chr = &g_ChrSlots[i];
+		struct prop *prop = chr->prop;
+		struct coord pos;
+		s32 k;
+
+		if (chr->chrnum < 0 || !prop || prop->chr != chr || !netLagCompBlastPos(expindex, prop, expprop, &pos)) {
+			continue;
+		}
+
+		s_BlastMoved++;
+
+		if (fabsf(pos.x - expprop->pos.x) > radius || fabsf(pos.y - expprop->pos.y) > radius || fabsf(pos.z - expprop->pos.z) > radius) {
+			continue;
+		}
+
+		for (k = 0; k < n; k++) {
+			if (&g_Vars.props[propnums[k]] == prop) {
+				break;
+			}
+		}
+
+		if (k == n) {
+			propnums[n++] = (s16)(prop - g_Vars.props);
+			propnums[n] = -1;
+			s_BlastAdded++;
+		}
+	}
+}
+
+void netLagCompBlastHit(s32 expindex, struct prop *prop, f32 damage, s32 firstframe)
+{
+	struct coord pos;
+	s32 rewound;
+	s32 pn;
+
+	if (!s_Log || !firstframe || expindex < 0 || expindex >= NETLC_MAXBLAST || !prop) {
+		return;
+	}
+
+	rewound = netLagCompBlastPos(expindex, prop, NULL, &pos);
+	pn = prop->type == PROPTYPE_PLAYER ? playermgrGetPlayerNumByProp(prop) : -1;
+
+	// B tick exp owner rewind victim damage moved: a blast's first frame on a chr
+	fprintf(s_Log, "B %u exp %d owner %d weapon %d rewind %.2f victim %s%d damage %.3f moved %.1f\n", g_NetTick, expindex,
+			s_Blast[expindex].raw, s_Blast[expindex].weapon, s_Blast[expindex].owner >= 0 ? s_Blast[expindex].rewind : 0.0,
+			pn >= 0 ? "p" : "c", pn >= 0 ? pn : (prop->chr ? prop->chr->chrnum : -1), damage,
+			rewound ? sqrtf((pos.x - prop->pos.x) * (pos.x - prop->pos.x) + (pos.z - prop->pos.z) * (pos.z - prop->pos.z)) : 0.0f);
 }
