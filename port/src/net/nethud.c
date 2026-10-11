@@ -514,8 +514,9 @@ void netHudFrame(void)
 
 	s_Frame++;
 
-	// offline: nothing to read, and the last session's lines went with it
-	if (g_NetMode == NETMODE_NONE && !g_NetLobbyRoom) {
+	// offline: nothing to read, and the last session's lines went with it.
+	// The Briefing Room's chat is read with no room and no match.
+	if (g_NetMode == NETMODE_NONE && !g_NetLobbyRoom && !mainchat) {
 		s_FeedLen = 0;
 		s_LiveWas = 0;
 		s_PanelHeld = 0;
