@@ -138,3 +138,43 @@ Measured in the game (disk driver, the gdb tones above): ahead L/R
 correlation +0.99, front left 6.8 dB louder left, rear right 6.9 dB louder
 right, and the treble share of a tone behind 0.5% against 4.8% ahead.
 
+## Shots, their hits on the level, and the cap of twelve (2026-10-11)
+
+psCreate() refuses a new prop sound (a guard's or simulant's shot among them)
+while more than twelve sounds play (`g_SndNumPlaying`, every sndp state).
+The sounds of shots hitting the level - ricochets SFX_0013-002A and the
+surface's own - come from `g_BgunAudioHandles`, a pool the decomp sized
+MAX_PLAYERS: four on the cartridge, twelve since the online rooms
+(b2aeae7c6). Twelve ricochets fill the cap on their own, and every automatic
+around went quiet while they rang (F3 20261010-235314, 20261011-020937; the
+refusals logged with the sounds playing were nearly all 0x13-0x2a). The pool
+is `NUM_BGUN_HIT_SOUNDS` (4) again, and a shot the cap would still refuse
+stops one of those hit sounds for its place (`bgunStopOneHitSound()`). A
+`MAX_PLAYERS` array that is not about players is worth a look whenever
+something "got worse since the online rooms". The player's own shot is
+`sndStart()` direct (two handles a hand), not capped by psCreate().
+
+## A sequence's reads stay inside it (2026-10-11)
+
+The compact-MIDI reader (`n_csq.c`) follows whatever the data says: a loop's
+32-bit jump back, a backup copy's offset, the header's track offsets. On the
+N64 a bad one reads other RAM; here it read 0xffffffffffffffff (crash
+20261010-224719, GoldenEye's MP death tune, sequence 513 = the second
+appended one). `seqPlay()` starts a sequence with `n_alCSeqNewBounded()`: a
+header past the inflated length is refused, and a read outside it (16 bytes of
+slack: the stock reader takes one delta past the last track's end - every PD
+sequence does it) ends the sequence with a log line. All 119 PD and 63
+GoldenEye sequences play 2M events inside their bounds; the crash's cause in
+the data was not found (GoldenEye's sequence 58 is clean) and did not
+reproduce.
+
+## A mod's sound bank is walked before it is converted (2026-10-11)
+
+`preprocessALBankFileCheck()` walks an ALBankFile as `convertAudioBankFile()`
+takes it, reading nothing past its size, and adds up the converted size;
+`preprocessALBankFile()` returns NULL for one that fails. romdata checks a
+`segs/sfxctl` / `segs/seqctl` from a mod first and falls back to the ROM's bank
+and the ROM's sample table with it, logging the file (crash 20261010-210721,
+mod DamOverture: an offset past the end of its sfxctl). Every bank we have
+passes with output unchanged.
+

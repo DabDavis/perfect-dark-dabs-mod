@@ -419,8 +419,9 @@ void lvReset(s32 stagenum)
 #ifndef PLATFORM_N64
 		// a mission of Perfect Dark's starts its music from its intro's list
 		// (aiPlayDefaultTracks); GoldenEye starts a level's as the level
-		// starts, and its missions' lists have no such command
-		if (g_Vars.normmplayerisrunning || geMusicIsStage(stagenum)) {
+		// starts, and its missions' lists have no such command; nor has an
+		// arena a Randomizer run lands on (modRunStageStartsMusic())
+		if (g_Vars.normmplayerisrunning || geMusicIsStage(stagenum) || modRunStageStartsMusic(stagenum)) {
 #else
 		if (g_Vars.normmplayerisrunning) {
 #endif
