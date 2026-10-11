@@ -3594,6 +3594,8 @@ static Gfx *lobbyChatLines(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, 
 	const u32 normal = MIXCOLOUR(dialog, item_unfocused);
 	const u32 label = MIXCOLOUR(dialog, listgroup_headerfg);
 	const u32 white = MIXCOLOUR(dialog, item_focused_inner);
+	// the lobby's own lines (pdlobbyd's notices): the match's chat's notice colour
+	const u32 notice = 0xffd25a00 | alpha;
 	const s32 inner = x2 - x1 - 2 * LOBBY_INSET;
 	const s32 tx = x1 + LOBBY_INSET;
 	static struct lobbychatline lines[LOBBY_MAXCHATLINES];
@@ -3606,7 +3608,13 @@ static Gfx *lobbyChatLines(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, 
 
 	for (i = 0; i < nchat; i++) {
 		snprintf(text, sizeof(text), "%s: %s", chat[i].user, chat[i].text);
-		nlines = lobbyChatWrap(lines, nlines, text, strlen(chat[i].user) + 2, normal, inner);
+
+		if (chat[i].system) {
+			// the server's: all of it in the one colour
+			nlines = lobbyChatWrap(lines, nlines, text, 0, notice, inner);
+		} else {
+			nlines = lobbyChatWrap(lines, nlines, text, strlen(chat[i].user) + 2, normal, inner);
+		}
 	}
 
 	if (nchat == 0) {

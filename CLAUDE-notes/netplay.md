@@ -132,7 +132,10 @@
   4:3), fast3d's scissor under a side alignment was off, a placed dialog
   taller than its rows scrolled them to its foot, the Mods window
   (`netContentLobbyRows`), and the roster: one list, grouped and coloured
-  by team in a team match (the room's `teams` rule).
+  by team in a team match (the room's `teams` rule). The Main Menu Chat
+  (pdlobbyd API 4), whose keys release 57 never read (`netHudFrame()`'s
+  offline return), and the server's notices (API 5: "Server: ..." in the
+  match's chat, said on a loopback port and before every restart).
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -3214,6 +3217,34 @@ thread, idle outside a room, asks every 2 s while it is; Space or the chat
 key open the line (nethud.c CHAT_MAIN, `netHudMainChatFrame()`), Enter sends
 (`netLobbyMainChatSay()`, a queued job). A 404 (an older lobby) says so in
 the window; a 401 (the lobby restarted) signs in again once.
+
+**The keys never opened it in release 57** (the owner: "T doesn't type in the
+main menu chat"). `netHudFrame()` returns at its top when there is no match
+and no lobby room ("offline: nothing to read"), and the Briefing Room is
+exactly that, so the keys were never read there; the window's lines and a
+test that said a line through `netLobbyMainChatSay()` from gdb all looked
+right. The early return now leaves the main menu's chat alone. A chat a key
+opens is checked with a key: on Xvfb (`SDL_VIDEODRIVER=x11`, xdotool
+keydown/keyup on the window, then `xdotool type` and Return), and the line
+read back from the lobby.
+
+**The server's notices (pdlobbyd API 5, same day).** The owner asked for an
+in-game "Server: Restarting Server for Update, apologies for the
+inconvenience!" at a restart; the lobby had no way to say anything, and a game
+in a match shows only the match's own chat (a room's lobby chat goes to the
+log, nethud.c "the room's chat as it comes, for the log"). Now `POST /notice`
+on the lobby's loopback-only notice port (README "Server notices") puts a line
+in every room's chat and the main menu's with `"system": true`, and a SIGTERM
+says `shutdown_notice` to the rooms and waits 2 s before they close. The game
+queues a room's system lines from the poll thread (only those after the first
+reply: the first carries history) and the main thread hands them to
+`netHudServerNotice()` (`netLobbyTick()` runs in a match too, from
+`netPump()`): "Server: ..." in COL_NOTICE, twice a line's life, the feed's
+expired lines skipped rather than ending the walk (a server line outlives the
+players' lines after it). `lobbyChatLines()` draws system lines whole in the
+same gold. netlobbytest.sh says one mid-match and checks both games logged
+`net: server notice:` once. Old games see a room's notice as a chat line from
+"Server" in the Game Lobby only.
 
 **The roster (the owner, same day: "instead of team 1, team 2 columns
 just make the player names the same color as the team they are on and only

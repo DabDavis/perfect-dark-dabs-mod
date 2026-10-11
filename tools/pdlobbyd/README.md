@@ -78,7 +78,7 @@ empty body is `{}`.
 | `POST /login` | anyone | `username`, `pin` | `session`, `user`, `expires` (unix) |
 | `POST /logout` | session | | |
 | `GET /rooms?proto=&build=` | anyone | `proto` filters to that protocol; `build` adds `same_build` to each | `rooms: [summary]`, newest first |
-| `GET /chat?since=N` | session | | `version`, `chat: [{v, user, text, t}]` after `N` (every kept line for 0); see **Main menu chat** |
+| `GET /chat?since=N` | session | | `version`, `chat: [{v, user, text, t, system?}]` after `N` (every kept line for 0); see **Main menu chat** |
 | `POST /chat` | session | `text` | `version` |
 | `POST /rooms` | session | see **Create** | `room`, `token` (host's member token), `secret` (64 hex), `udp_id` (16 hex), `udp_key` (64 hex), `version`, `time` |
 | `POST /rooms/<id>/join` | session | `proto`, `build`, `content`, `password`?, `spectator`?, `can_host`? | `room`, `token`, `udp_id`, `udp_key`, `version`, `time`; plus `ticket`, `ticket_expires` when the room is counting down or launched (a re-join of your own seat) |
@@ -185,7 +185,8 @@ the room over learns the key it checks tickets with. `launch` is null
 while the room is `migrating`.
 
 `chat` holds only lines posted after version `N` (the last 50 are kept), so a
-client passes back the `version` it last saw. `countdown` is null unless
+client passes back the `version` it last saw. The server's own lines carry
+`"system": true` (**Server notices**). `countdown` is null unless
 counting down; `launch` null unless launched (`public` is where the host's UDP
 socket was seen by the rendezvous, null if it never registered; a change of
 it, or of any member's `udp`, moves the version and wakes the polls).
@@ -219,6 +220,37 @@ restart empties it, as it empties the rooms. Reading is a plain poll on the
 version (`since`), no parked waits: the game asks every two seconds while the
 page is up, well inside the request rate. A server before API 4 answers 404,
 and the game says so in the window.
+
+## Server notices
+
+API 5. A line from the server itself, said to everyone at once: it goes in
+every room's chat and in the main menu's, as `"user": "Server"` with
+`"system": true`, which only the server ever sets (a player named Server is a
+player). Every parked poll wakes with it. The game shows a room's notice in
+the match's chat as well, in the notices' colour, for twice a line's time
+(nethud.c `netHudServerNotice`); in the Game Lobby's chat and the Briefing
+Room's it is drawn in that colour too. A game from before API 5 shows it as a
+chat line from "Server" in its Game Lobby, and not in a match.
+
+It is said on the notice port, `admin_port` (`PDLOBBYD_ADMIN_PORT`,
+`--admin-port`; 8092, -1 for none), which is bound to 127.0.0.1 whatever
+`host` is, never proxied, and serves nothing but this. Whoever can open a
+socket on the box can say a notice; there is no other check. A port already
+taken leaves the lobby running without notices (logged).
+
+```sh
+ssh sdg@10.8.0.1 'curl -s -X POST -d "{\"text\": \"Restarting Server for Update in 1 minute, apologies for the inconvenience!\"}" http://127.0.0.1:8092/notice'
+```
+
+`{"ok": true, "rooms": N}`; `400` for nothing to say (cleaned and cut as a
+chat line). Stopping the lobby (systemd's stop and restart are a SIGTERM)
+says `shutdown_notice` (`PDLOBBYD_SHUTDOWN_NOTICE`, "Restarting Server for
+Update, apologies for the inconvenience!", the owner's words) to every room
+there is and waits `shutdown_grace` (2 s) for the polls to carry it before
+the rooms close. A restart is then told to the seats from before it by the
+410 (`restart_notice`, "HTTP API" above): the game shows that when it leaves
+the room. For a warning a while ahead, say a notice first, wait, then
+restart.
 
 ## Host migration
 
@@ -591,7 +623,8 @@ worker there: about 500 parked polls before it refuses everyone, pdghostd
 included; raise it before a real crowd. A redeploy is `scp` the script over,
 `python3 -c "import ast; ast.parse(open('/home/sdg/pdlobbyd.py').read())"` on
 the box, `sudo -n systemctl restart pdlobbyd` (rooms are in memory: a restart
-empties them). `journalctl -u pdlobbyd -f` for the log.
+empties them; from API 5 the rooms are told first, "Server notices" above).
+`journalctl -u pdlobbyd -f` for the log.
 
 The unit binds the UDP side to the box's public address (104.156.237.19),
 not 0.0.0.0. A socket on every address answers from whichever address the

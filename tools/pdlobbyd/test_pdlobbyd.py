@@ -39,7 +39,7 @@ class LobbyThread:
 
     def __init__(self, **over):
         cfg = dict(port=0, udp_port=0, udp_host="127.0.0.1", auth="open",
-                   reap_interval=0.05, countdown=0.3, relay_ports="")
+                   reap_interval=0.05, countdown=0.3, relay_ports="", admin_port=0)
         cfg.update(over)
         self.cfg = L.Config(**cfg)
         self.loop = asyncio.new_event_loop()
@@ -59,6 +59,7 @@ class LobbyThread:
             raise RuntimeError("lobby did not start")
         self.port = self.lobby.bound_port
         self.udp_port = self.lobby.bound_udp_port
+        self.admin_port = self.lobby.bound_admin_port
 
     def stop(self):
         fut = asyncio.run_coroutine_threadsafe(self.lobby.stop(), self.loop)
@@ -370,13 +371,69 @@ class RoomTests(Base):
         # the last chat_keep lines are kept
         # (filled past the cap by hand, then one said: the oldest go)
         lobby = self.srv.lobby
-        self.srv.call(lambda: [lobby.mainchat.append((1000 + i, "x", "line %d" % i, 0))
+        self.srv.call(lambda: [lobby.mainchat.append((1000 + i, "x", "line %d" % i, 0, False))
                                for i in range(80)])
         b = self.client("bravo")
         self.assertEqual(b.req("POST", "/chat", {"text": "last"})[0], 200)
         st, r = a.req("GET", "/chat")
         self.assertEqual(len(r["chat"]), self.srv.cfg.chat_keep)
         self.assertEqual(r["chat"][-1]["text"], "last")
+
+    def test_notice_in_every_chat_and_wakes_polls(self):
+        host, (a,) = self.room_with("alpha")
+        other = self.client("other")
+        self.assertEqual(other.create()[0], 200)
+        a.act("chat", {"text": "hi"})
+        v = a.state()[1]["version"]
+        out = {}
+        th = threading.Thread(target=lambda: out.setdefault("r", a.state(since=v, wait=10)))
+        th.start()
+        time.sleep(0.2)
+        t0 = time.monotonic()
+        admin = Client(self.srv.admin_port)
+        st, r = admin.req("POST", "/notice", {"text": "  Restarting\tin a minute  "})
+        self.assertEqual((st, r["rooms"]), (200, 2), r)
+        th.join(5)
+        # the parked poll answered at once, with the line marked as the server's
+        self.assertLess(time.monotonic() - t0, 3)
+        st, s = out["r"]
+        self.assertEqual(s["chat"], [{"v": s["version"], "user": "Server", "text": "Restarting in a minute",
+                                      "t": s["chat"][0]["t"], "system": True}])
+        # a player's line is not
+        st, s = host.state()
+        self.assertEqual([("system" in c, c["user"]) for c in s["chat"]], [(False, "alpha"), (True, "Server")])
+        st, s = other.state()
+        self.assertEqual(s["chat"][-1]["text"], "Restarting in a minute")
+        # the main menu's chat has it as well
+        st, r = self.client("bravo").req("GET", "/chat")
+        self.assertEqual((r["chat"][-1]["user"], r["chat"][-1].get("system")), ("Server", True))
+        # only on the admin port: never the public one, which serves nothing
+        # else on it either
+        self.assertEqual(Client(self.srv.port).req("POST", "/notice", {"text": "x"})[0], 404)
+        self.assertEqual(admin.req("GET", "/rooms")[0], 404)
+        self.assertEqual(admin.req("POST", "/notice", {"text": " \x1b "})[0], 400)
+        self.assertEqual(Client(self.srv.port).req("GET", "/ping")[1]["api"], 5)
+
+    def test_notice_port_taken_is_not_fatal(self):
+        # a second lobby on the same notice port: it runs, without notices
+        second = LobbyThread(admin_port=self.srv.admin_port)
+        try:
+            self.assertIsNone(second.admin_port)
+            self.assertEqual(Client(second.port).req("GET", "/ping")[0], 200)
+        finally:
+            second.stop()
+
+    def test_shutdown_tells_the_rooms(self):
+        lobby = self.srv.lobby
+        self.srv.cfg.shutdown_grace = 0.05
+        # no rooms: nothing said, no wait
+        asyncio.run_coroutine_threadsafe(lobby.announce_shutdown(), self.srv.loop).result(5)
+        self.assertEqual(self.srv.call(lambda: len(lobby.mainchat)), 0)
+        host, (a,) = self.room_with("alpha")
+        asyncio.run_coroutine_threadsafe(lobby.announce_shutdown(), self.srv.loop).result(5)
+        st, s = a.state()
+        self.assertEqual((s["chat"][-1]["user"], s["chat"][-1]["text"], s["chat"][-1]["system"]),
+                         ("Server", self.srv.cfg.shutdown_notice, True))
 
     def test_settings_host_only_and_unready(self):
         host, (a,) = self.room_with("alpha")

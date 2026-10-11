@@ -397,6 +397,7 @@ const char *netSessionHostTitle(void);      // whose match: the host's name ("" 
 void netHudArgs(void);                       // --net-test-chat and friends
 void netHudTick(void);                       // net.c netTickEnd: the harness's menu pages, in a tick
 void netHudFeed(s32 kind, s32 from, const char *name, const char *text); // a line for the feed (NETCHAT_*)
+void netHudServerNotice(const char *text); // netlobby.c: the lobby's notice, for the feed as the server's
 s32 netChatClean(char *text);                // printable ASCII only, trimmed; its length
 void netSessionLogTraffic(const char *why);
 void netSessionSampleLinks(void);

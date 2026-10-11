@@ -73,10 +73,11 @@
 #define FEED_MAX        32
 #define FEED_SHOW       6     // lines shown while the line is shut ...
 #define FEED_SHOW_OPEN  10    // ... and open
-#define FEED_LIFE_MS    10000 // a line's time on screen
+#define FEED_LIFE_MS    10000 // a line's time on screen (the server's: twice it)
 #define FEED_FADE_MS    1000  // the last of it, fading
 
 #define HUDKIND_HINT    3     // a line of this machine's own (the keys)
+#define HUDKIND_SERVER  4     // the lobby's notice (pdlobbyd's, netHudServerNotice): "Server: ..."
 
 #define CHAT_SHUT       0
 #define CHAT_MATCH      1     // the match's chat (netSessionChatSend)
@@ -291,6 +292,22 @@ void netHudFeed(s32 kind, s32 from, const char *name, const char *text)
 	if (s_TestEcho && kind == NETCHAT_PLAYER && from != g_NetLocalSlot && strncmp(name, "netbot", 6) != 0) {
 		snprintf(s_EchoPending, sizeof(s_EchoPending), "%s said: %s", name, text);
 	}
+}
+
+/**
+ * The lobby's notice (pdlobbyd's POST /notice, and its word before a
+ * restart), from the room's chat: in the feed as the server's, in the
+ * notices' colour and on screen twice as long as a line
+ */
+void netHudServerNotice(const char *text)
+{
+	sysLogPrintf(LOG_NOTE, "net: server notice: %s", text);
+	netHudPush(HUDKIND_SERVER, NETCHAT_FROM_NONE, "Server", text);
+}
+
+static u64 netHudLineLife(const struct feedline *line)
+{
+	return line->kind == HUDKIND_SERVER ? FEED_LIFE_MS * 2 : FEED_LIFE_MS;
 }
 
 // Whether Space is free for the chat in a match: no bind of player 1's uses it
@@ -956,6 +973,7 @@ static u32 netHudLineColour(const struct feedline *line)
 {
 	switch (line->kind) {
 	case NETCHAT_NOTICE:  return COL_NOTICE;
+	case HUDKIND_SERVER:  return COL_NOTICE;
 	case NETCHAT_PRIVATE: return COL_PRIVATE;
 	case HUDKIND_HINT:    return COL_HINT;
 	default:              return COL_TEXT;
@@ -1014,11 +1032,13 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 		s32 prefixw = 0;
 		s32 h;
 
-		if (!open && now - line->at >= FEED_LIFE_MS) {
-			break;
+		// gone from the screen (the server's stay longer than the
+		// players' lines after them)
+		if (!open && now - line->at >= netHudLineLife(line)) {
+			continue;
 		}
 
-		if (line->kind == NETCHAT_PLAYER) {
+		if (line->kind == NETCHAT_PLAYER || line->kind == HUDKIND_SERVER) {
 			snprintf(prefix, sizeof(prefix), "%s: ", line->name);
 			netHudMeasure(prefix, &prefixw, &h);
 		}
@@ -1050,21 +1070,21 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 		s32 alpha = 255;
 		s32 x = left;
 
-		if (!open && age > FEED_LIFE_MS - FEED_FADE_MS) {
-			alpha = (s32)((FEED_LIFE_MS - age) * 255 / FEED_FADE_MS);
+		if (!open && age > netHudLineLife(line) - FEED_FADE_MS) {
+			alpha = (s32)((netHudLineLife(line) - age) * 255 / FEED_FADE_MS);
 			alpha = alpha < 0 ? 0 : alpha;
 		}
 
 		gdl = text0f153a34(gdl, left - 3, y - 1, left + line->width + 3, y + line->height + 1, netHudFade(COL_BACK, alpha));
 
-		if (line->kind == NETCHAT_PLAYER) {
+		if (line->kind == NETCHAT_PLAYER || line->kind == HUDKIND_SERVER) {
 			char prefix[NET_MAXNAME + 4];
 			s32 w;
 			s32 h;
 
 			snprintf(prefix, sizeof(prefix), "%s: ", line->name);
 			netHudMeasure(prefix, &w, &h);
-			gdl = netHudText(gdl, x, y, prefix, netHudNameColour(line), alpha);
+			gdl = netHudText(gdl, x, y, prefix, line->kind == HUDKIND_SERVER ? COL_NOTICE : netHudNameColour(line), alpha);
 			x += w;
 		}
 
