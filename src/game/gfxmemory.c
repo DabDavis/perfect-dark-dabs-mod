@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "game/gfxmemory.h"
@@ -216,6 +217,61 @@ bool gfxIsFrameMemory(const void *ptr)
 
 	return false;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Whose memory ptr is, in words, for the renderer's reports of a list it
+ * could not read ("Unknown GBI opcode"): the frame's display list or vtx
+ * buffers (the frame being drawn's - the buffers have swapped by the time it
+ * is drawn - or the next one's), or a room's display lists - the
+ * nearest loaded room's allocation below it, with the offset against the
+ * length the room's lists came to. Anything else is "elsewhere" (a model
+ * file, a static list, the heap).
+ */
+void gfxDescribeAddress(const void *ptr, char *buf, s32 size)
+{
+	const u8 *p = ptr;
+	s32 bestroom = -1;
+	uintptr_t bestoff = 0;
+	s32 i;
+
+	for (i = 0; i < NUM_GFXTASKS; i++) {
+		if (g_GfxBuffers[i] && p >= g_GfxBuffers[i] && p < g_GfxBuffers[i + 1]) {
+			snprintf(buf, size, "frame display list buffer %d (%s) +0x%lx", i,
+					i == g_GfxActiveBufferIndex ? "the next frame's" : "the frame being drawn",
+					(unsigned long)(p - g_GfxBuffers[i]));
+			return;
+		}
+
+		if (g_VtxBuffers[i] && p >= g_VtxBuffers[i] && p < g_VtxBuffers[i + 1]) {
+			snprintf(buf, size, "frame vtx buffer %d (%s) +0x%lx, in use to +0x%lx", i,
+					i == g_GfxActiveBufferIndex ? "the next frame's" : "the frame being drawn",
+					(unsigned long)(p - g_VtxBuffers[i]),
+					(unsigned long)(i == g_GfxActiveBufferIndex ? (u32)(g_GfxMemPos - g_VtxBuffers[i]) : g_GfxTraceVtxUsed));
+			return;
+		}
+	}
+
+	if (g_Rooms) {
+		for (i = 1; i < g_Vars.roomcount; i++) {
+			const u8 *base = (const u8 *)g_Rooms[i].gfxdata;
+
+			if (base && p >= base && (bestroom < 0 || (uintptr_t)(p - base) < bestoff)) {
+				bestroom = i;
+				bestoff = p - base;
+			}
+		}
+	}
+
+	if (bestroom >= 0 && bestoff < 0x100000) {
+		snprintf(buf, size, "room %d's data +0x%lx (its lists end at +0x%x; loaded %d)", bestroom,
+				(unsigned long)bestoff, g_Rooms[bestroom].gfxdatalen, g_Rooms[bestroom].loaded240);
+		return;
+	}
+
+	snprintf(buf, size, "elsewhere (not frame memory, no loaded room's)");
+}
+#endif
 
 Gfx *gfxGetMasterDisplayList(void)
 {

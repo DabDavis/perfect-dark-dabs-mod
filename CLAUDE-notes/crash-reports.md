@@ -348,3 +348,28 @@ resolves it coherently: trust the body.
   overlay (`gameoverlayrenderer.so`, `VulkanSteamOverlayPresent`) under our
   first `vkQueuePresentKHR` (gfx_vulkan.cpp vk_run_job) at startup. External:
   turn the Steam overlay off for the game, or use the OpenGL renderer.
+
+## F3 pass 37 (2026-10-11)
+
+- **20261011-203505 (stable v3.14.0 = 90c8622, Windows), "Unknown GBI opcode
+  0xa2800004"**: the third of the 20260929-170457 / 20260930-124918 family
+  (w0's upper half `0x43a28000` = 325.0f, the same "a28000" shape; w1 two more
+  floats). The new report fields say a little more: a depth 2 list called by the
+  frame's own list at +80, the bad command exactly 256 commands (4096 bytes) in,
+  the six before it a CI8 texture load (LOADTLUT, TT RGBA16, two SETTILE /
+  SETTILESIZE pairs - `texLoadFromGdl()`'s output), segments 4/5/6 within 16 KB
+  below the list. Log: Dump All Assets, F8 twice, the Community Packs page,
+  then the XBLA switch (`gebean:` / `xblatables:` lines) just before. Not
+  reproduced or pinned; nothing between 90c8622 and fcd7ab824 touches it.
+  Hardened instead: `gfx_unknown_opcode()` no longer stops the game - it ends
+  that list (`return` from `gfx_run_dl()`), logs the first four, saves the
+  first as a report, and names where the list and each caller are
+  (`gfxDescribeAddress()`, gfxmemory.c: the frame's gfx / vtx buffers - by the
+  time a frame draws the buffers have swapped, so the drawn one is the
+  non-active index - or the nearest loaded room's `gfxdata`, or "elsewhere").
+  Test: gdb at `gfx_run_dl if gfx_dl_depth==1`, `set var cmd[3].words.w0 =
+  0x43a2800004000100`: four log lines, one report, the match draws on.
+- **20261010-235524 (bf1be7a Windows, online host, "Oops! All Lxs")**: a null
+  read inside the NVIDIA driver under `DrvSwapLayerBuffers` /
+  `DrvPresentBuffers`, no frame of ours; the log before it is ordinary (texture
+  dumps, net traffic lines). Driver crash: needinfo (driver version, update it).

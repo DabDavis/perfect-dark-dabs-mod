@@ -9,6 +9,7 @@ extern u8 *g_GfxBuffers[3];
 void gfxReset(void);
 Gfx *gfxGetMasterDisplayList(void);
 bool gfxIsFrameMemory(const void *ptr);
+void gfxDescribeAddress(const void *ptr, char *buf, s32 size);
 Vtx *gfxAllocateVertices(u32 count);
 void gfxCheckGfxPool(const Gfx *gdl);
 void *gfxAllocateMatrix(void);

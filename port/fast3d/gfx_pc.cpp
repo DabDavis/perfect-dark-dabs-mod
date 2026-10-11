@@ -8031,18 +8031,44 @@ struct GfxDlDepth {
 static const Gfx *gfx_dl_lists[GFX_DL_TRACK];
 static const Gfx *gfx_dl_calls[GFX_DL_TRACK];
 
+extern "C" void gfxDescribeAddress(const void *ptr, char *buf, int32_t size);
+
+static int gfx_unknown_opcodes;
+
+/**
+ * A list that runs into something that is not GBI. Ended there rather than the
+ * game stopped: the rest of the frame draws, and the first of a session is
+ * saved as a report (like the dropped vertex load above). 20261011-203505 (a
+ * v3.14.0 menu after Dump All Assets, texture pack toggles and the XBLA
+ * switch) was a depth 2 list called from the frame's own at +80, ending 256
+ * commands in after a run of texture loads, in memory that held floats - the
+ * same w0 shape as the two Carrington Institute reports above - and the report
+ * could not say whose list it was. It now names where the list and its caller
+ * are: a room's display lists, the frame's buffers, or neither.
+ */
 static void gfx_unknown_opcode(const Gfx *cmd, const Gfx *list, uint32_t opcode) {
-    char text[2048];
+    char text[3072];
+    char where[192];
     int len;
 
+    gfx_unknown_opcodes++;
+
+    // the first few of a session: after that it is the same list every frame
+    if (gfx_unknown_opcodes > 4) {
+        return;
+    }
+
+    gfxDescribeAddress(list, where, sizeof(where));
+
     len = snprintf(text, sizeof(text),
-            "Unknown GBI opcode 0x%02x at %p, %lld into list %p at depth %d%s.\n"
-            "w0 %016llx w1 %016llx\nsegments 4 %p 5 %p 6 %p 14 %p 15 %p\nbefore it:",
+            "Unknown GBI opcode 0x%02x at %p, %lld into list %p at depth %d%s; the list was ended there "
+            "(not a crash; the frame drew on).\n"
+            "w0 %016llx w1 %016llx\nsegments 4 %p 5 %p 6 %p 14 %p 15 %p\nthe list is in %s\nbefore it:",
             opcode, (const void *)cmd, (long long)(cmd - list), (const void *)list, gfx_dl_depth,
             gfx_dl_depth == 1 ? " (the frame's own)" : "",
             (unsigned long long)cmd->words.w0, (unsigned long long)cmd->words.w1,
             (void *)segmentPointers[4], (void *)segmentPointers[5], (void *)segmentPointers[6],
-            (void *)segmentPointers[14], (void *)segmentPointers[15]);
+            (void *)segmentPointers[14], (void *)segmentPointers[15], where);
 
     for (int k = 6; k >= 1 && len > 0 && len < (int)sizeof(text); k--) {
         if (cmd - k >= list) {
@@ -8054,12 +8080,17 @@ static void gfx_unknown_opcode(const Gfx *cmd, const Gfx *list, uint32_t opcode)
     for (int d = 0; d < gfx_dl_depth - 1 && d < GFX_DL_TRACK && len > 0 && len < (int)sizeof(text); d++) {
         const Gfx *call = gfx_dl_calls[d];
 
-        len += snprintf(text + len, sizeof(text) - len, "\ndepth %d: list %p called it at %p (+%lld)",
+        gfxDescribeAddress(gfx_dl_lists[d], where, sizeof(where));
+        len += snprintf(text + len, sizeof(text) - len, "\ndepth %d: list %p called it at %p (+%lld), in %s",
                 d + 1, (const void *)gfx_dl_lists[d], (const void *)call,
-                call && gfx_dl_lists[d] ? (long long)(call - gfx_dl_lists[d]) : -1LL);
+                call && gfx_dl_lists[d] ? (long long)(call - gfx_dl_lists[d]) : -1LL, where);
     }
 
-    sysFatalError("%s", text);
+    sysLogPrintf(LOG_ERROR, "%s", text);
+
+    if (gfx_unknown_opcodes == 1) {
+        crashReportSave(text);
+    }
 }
 
 uintptr_t clearMtx;
@@ -8467,8 +8498,9 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_RDPTILESYNC:
                 break;
             default:
+                // not GBI: what follows is not either, so the list ends here
                 gfx_unknown_opcode(cmd, gfx_dl_depth <= GFX_DL_TRACK ? gfx_dl_lists[gfx_dl_depth - 1] : dListStart, opcode);
-                break;
+                return;
         }
         ++cmd;
     }
