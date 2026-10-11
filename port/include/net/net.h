@@ -393,6 +393,14 @@ void netLagCompShotEnd(struct shotdata *sd, s32 isshooting, s32 cheap);
 void netLagCompPassBegin(void);
 void netLagCompPassEnd(void);
 const struct coord *netLagCompAimPos(struct prop *prop); // the autoaim's line of sight to a chr: its rewound place in a remote pass
+// A guest's blast (netlagcomp.c, F3 20261010-030750): an explosion from a
+// client player's projectile or Phoenix round hurts the chrs where that
+// player saw them. The host's own and offline play are untouched.
+void netLagCompBlastFromWeapon(s32 on);        // propExplode: the explosion about to be made is a weapon's (a projectile, a mine)
+void netLagCompBlastNote(s32 expindex, s32 type, s32 owner, struct coord *pos); // explosionCreate: whether this explosion is rewound, and how far
+s32 netLagCompBlastPos(s32 expindex, struct prop *prop, struct prop *expprop, struct coord *out); // explosionInflictDamage: a chr's place for the blast
+void netLagCompBlastProps(s32 expindex, s16 *propnums, s32 max, f32 radius, struct prop *expprop); // ... and chrs out of its rooms now
+void netLagCompBlastHit(s32 expindex, struct prop *prop, f32 damage, s32 firstframe); // the harness's record of a blast's damage
 void netLagCompAimTrace(void);  // --net-lagcomp-debug: a line per tick of a player's aim on both machines
 
 /**

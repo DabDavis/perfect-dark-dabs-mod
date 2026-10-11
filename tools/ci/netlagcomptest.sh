@@ -33,10 +33,25 @@
 #            the first (the rewinds' matrices are a tick's, never kept); and
 #            no chr is rebuilt over 1000 units from where it is now (sims
 #            die and respawn here: a pose from an earlier life is never used)
+#   blast    a guest's rockets at a moving target (F3 20261010-030750): the
+#            shooter is given the rocket launcher (--net-test-give; every
+#            player invincible, so nobody respawns away) and fires at the
+#            feet of a target strafing two seconds each way, 150 ms round
+#            trip. The host logs every explosion (E), every player where it
+#            is and where the guest saw it (P) and every first-frame blast
+#            damage (B). Over the rockets that went off while the target was
+#            a steady way on, the blast must be nearer where the guest saw
+#            the target than where the host has it, the first-frame damage
+#            the guest's view gives half as much again as the host's place
+#            does, and the damage dealt at least the latter (it is the nearer
+#            of the two). Every blast pushes the invincible target, so where
+#            it ends up drifts from run to run: 4200 frames, 15 rockets. Offline the round lands the same way and the
+#            target is where the guest saw it (the rewind is the offline
+#            answer by construction: CLAUDE-notes/netplay.md).
 #
 #   netlagcomptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netlagcomp-out), PORT (27400; uses PORT..PORT+7), MODDIR
+# Env: OUT (build/netlagcomp-out), PORT (27400; uses PORT..PORT+8), MODDIR
 # (mod_allinone), CASES (on off loss still soak), FRAMES (3600), RATEFRAMES
 # (8400: the on and loss runs, at least 30 shots), MINON (95),
 # MINGAP (20), AIMY (-50), STAGE (0x25), SEED (1), NEAR (700).
@@ -46,7 +61,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netlagcomp-out}; PORT=${PORT:-27400}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-on off loss still soak}
+CASES=${CASES:-on off loss still soak blast}
 FRAMES=${FRAMES:-3600}
 # the on and loss runs, whose rate is held to MINON: 8400 frames, the
 # shooter firing to tick 7800, 36-65 shots the shooter saw hit (one
@@ -83,6 +98,9 @@ def write(name, lines):
 write("shooter.script", [(t, t, 0x2000, 0, 0, 0, 0, 0, 0) for t in range(150, 7800, 30)])
 write("target.script", [(t, t + 59, 0x0001 if (t // 60) % 2 else 0x0002, 0, 0, 0, 0, 0, 0) for t in range(60, 20000, 60)])
 write("still.script", [(60, 20000, 0x0000, 0, 0, 0, 0, 0, 0)])
+# the blast case's target: two seconds each way, so the lag puts it a steady
+# distance on from where the shooter saw it
+write("strafe2.script", [(t, t + 119, 0x0001 if (t // 120) % 2 else 0x0002, 0, 0, 0, 0, 0, 0) for t in range(60, 20000, 120)])
 write("spray.script", [(t, t + 49, 0x2000, 0, 0, 0, 0, 0, 0) for t in range(150, 20000, 60)])
 PY
 
@@ -112,7 +130,7 @@ run() {
 	local label=$1 port=$2 lc=$3 sim=$4 tscript=$5; shift 5
 	local simargs="--net-sim $sim" weapons=${WEAPONS:-1,1,1,1,1,1}
 	local tmo=$((FRAMES / 60 + 340))
-	game "$label-host" $((tmo + 10)) "${INI}[Net]\nLagComp=$lc\n" --moddir "$MODDIR" --host "$port" --net-test-host 2 --net-test-stage ${STAGE:-0x25} \
+	game "$label-host" $((tmo + 10)) "${INI}[Net]\nLagComp=$lc\n${HOSTNET:-}" --moddir "$MODDIR" --host "$port" --net-test-host 2 --net-test-stage ${STAGE:-0x25} \
 		--net-test-sims ${SIMS:-0} --rng-seed ${SEED:-1} --mp-weapons "$weapons" --endless --net-test-god \
 		--net-lagcomp-log "$OUT/$label-host.lc" --net-lagcomp-compare ${HOSTDEBUG:-} --exit-frame $((FRAMES + 500)) $simargs "$@" &
 	local host=$!
@@ -183,6 +201,59 @@ show() {
 	M[$1]=$5
 }
 
+# blast LABEL OWNER: the host's explosions of OWNER's rockets and the
+# target's (p2) place at each, where it is (the host without the blast
+# rewind) and where the guest saw it (with it). Over the rockets that went
+# off while the target was a steady way on from that (MOVED, 100 units: the
+# lag's distance at a walk), the mean distance from the blast both ways and
+# the first-frame damage each would give (a rocket's: 4 x 8 x (1 - d/400)^2,
+# the farther floor axis), and B's damage, which the host dealt
+blast() {
+	python3 - "$OUT/$1-host.lc" "$1" "$2" "${MOVED:-100}" <<'PY'
+import sys, math
+path, label, owner, moved = sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4])
+exps = []
+cur = {}
+dmg = {}
+def hurt(dx, dz):
+    d = max(abs(dx), abs(dz))
+    return 32.0 * (1 - d / 400.0) ** 2 if d < 400 else 0.0
+for l in open(path):
+    w = l.split()
+    if not w: continue
+    if w[0] == "E":
+        k = (int(w[1]), w[3])
+        cur[w[3]] = k
+        if w[5] == owner and w[9] == "1":
+            exps.append({"k": k, "x": float(w[11]), "z": float(w[13])})
+    elif w[0] == "P" and w[4] == "p2" and w[3] in cur:
+        for e in exps:
+            if e["k"] == cur[w[3]]:
+                cx, cz, rx, rz = float(w[6]), float(w[7]), float(w[9]), float(w[10])
+                e["cur"] = math.hypot(cx - e["x"], cz - e["z"])
+                e["rew"] = math.hypot(rx - e["x"], rz - e["z"])
+                e["hc"] = hurt(cx - e["x"], cz - e["z"])
+                e["hr"] = hurt(rx - e["x"], rz - e["z"])
+                e["mv"] = math.hypot(cx - rx, cz - rz)
+    elif w[0] == "B" and w[5] == owner and w[11] == "p2" and w[3] in cur:
+        dmg[cur[w[3]]] = dmg.get(cur[w[3]], 0) + float(w[13])
+E = [e for e in exps if "cur" in e]
+M = [e for e in E if e["mv"] >= moved]
+n = len(M)
+avg = lambda f: sum(f(e) for e in M) / n if n else 0
+dealt = [dmg.get(e["k"], 0) for e in M]
+print("%s %d %d %.0f %.0f %.2f %.2f %.2f" % (label, len(E), n, avg(lambda e: e["cur"]), avg(lambda e: e["rew"]),
+      avg(lambda e: e["hc"]), avg(lambda e: e["hr"]), sum(dealt) / n if n else 0))
+PY
+}
+
+declare -A BN BM BC BR BHC BHR BD
+showblast() {
+	set -- $1
+	echo "     $1: rockets $2, $3 with the target moving on; blast to target where it is $4, where the guest saw it $5 (mean); first-frame damage those ways $6 / $7, dealt $8"
+	BN[$1]=$2; BM[$1]=$3; BC[$1]=$4; BR[$1]=$5; BHC[$1]=$6; BHR[$1]=$7; BD[$1]=$8
+}
+
 i=0
 for c in $CASES; do
 	case $c in
@@ -190,6 +261,9 @@ for c in $CASES; do
 		off)   run off $((PORT + i)) 0 "0,75" target.script; check_ok off && show "$(rate off)" ;;
 		loss)  FRAMES=$RATEFRAMES run loss $((PORT + i)) 1 "2,75" target.script; check_ok loss && show "$(rate loss)" ;;
 		still) HOSTDEBUG=--net-lagcomp-debug run still $((PORT + i)) 1 "0,75" still.script; check_ok still && show "$(rate still)" ;;
+		blast) FRAMES=${BLASTFRAMES:-4200} NEAR=${BLASTNEAR:-1000} AIMY=${BLASTAIMY:--165} run blast $((PORT + i)) 1 "0,75" strafe2.script \
+		           --net-test-give 300,0x18 --net-test-invincible
+		       check_ok blast && showblast "$(blast blast 1)" ;;
 		soak)  FRAMES=3000 SIMS=8 WEAPONS=9,9,9,9,9,9 SHOOTSCRIPT=spray.script HOSTDEBUG=--net-lagcomp-debug \
 		           run soak $((PORT + i)) 1 "0,75" spray.script ;;
 	esac
@@ -242,6 +316,16 @@ print("     still: %d shots at the target standing still: rewound it was hit %d 
          len(moving), sum(H[t] for t in moving), sum(N[t] for t in moving), len(saw), sum(H[t] for t in saw)))
 sys.exit(0 if len(still) >= 10 and sum(H[t] for t in still) >= 10 and not differ else 1)
 PY
+			;;
+		blast)
+			[ -n "${BN[blast]:-}" ] || { fail "blast: no measure"; continue; }
+			[ "${BN[blast]}" -ge 15 ] && [ "${BM[blast]}" -ge 5 ] || fail "blast: ${BN[blast]} rockets, ${BM[blast]} with the target moving on (want 15 and 5)"
+			python3 -c "
+import sys
+c, r, hc, hr, d = ${BC[blast]}, ${BR[blast]}, ${BHC[blast]}, ${BHR[blast]}, ${BD[blast]}
+sys.exit(0 if r < c and hr > hc * 1.5 and d >= hc else 1)" \
+				&& pass "blast: a guest's rockets at a target moving on went off ${BR[blast]} from where it saw it, ${BC[blast]} from where the host had it; the host dealt ${BD[blast]} a rocket (${BHC[blast]} without the rewind, ${BHR[blast]} where the guest saw it)" \
+				|| fail "blast: ${BR[blast]} / ${BC[blast]} from the target; damage dealt ${BD[blast]}, ${BHC[blast]} without the rewind, ${BHR[blast]} with"
 			;;
 		soak)
 			[ -e "$OUT/soak-host.log" ] || continue

@@ -2109,6 +2109,12 @@ void netPlayersTickBegin(void)
 {
 	netPlayersRefreshLocalCfg();
 
+	// --net-test-aimat on a host: its own player turns to the target too
+	// (netlagcomptest's blastlocal, the host firing as the reference)
+	if (g_NetMode == NETMODE_SERVER && !g_NetDedicated && netPlaying() && s_AimAt >= 0 && s_ScriptLen) {
+		netPlayersTestAim();
+	}
+
 	if (g_NetMode == NETMODE_CLIENT && netPlaying()) {
 		netPlayersClientCapture();
 		netPlayersClientSend();

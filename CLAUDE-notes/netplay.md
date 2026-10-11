@@ -2832,3 +2832,43 @@ in their own sections' notes.
   compensated; only hitscan is, `netlagcomp.c`), and a Phoenix round's
   blast is lag-compensated in place but hurts chrs where they are now.
   A projectile "nudge" (Unlagged's) would be a design change.
+
+- **A guest's blasts where it saw the chrs** (owner's decision 2026-10-11,
+  feat/net-blast-lagcomp, `netLagCompBlast*` in netlagcomp.c). The time
+  error above is the shooter's view lag L (round trip + queue, capped at
+  Net.LagCompMaxMs, plus interpolation: netLcViewFor, ~17 ticks at 150 ms):
+  it aimed at the target as it was L ticks before the host launched the
+  round. Rewinding the chrs by L when the round goes off gives the offline
+  answer (offline the round lands at t0+F on target(t0+F); online the host
+  lands it at Tf+F with t0 = Tf-L), so chosen over a spawn nudge, which
+  only makes up the one-way latency, not the interpolation. How: an
+  explosion made by `propExplode` of a weapon prop (rockets, grenades, the
+  Devastator's, mines, the Slayer's, GoldenEye/hack launcher rounds) or a
+  Phoenix round, owned by a remote player (`explosionCreate` ->
+  `netLagCompBlastNote`), keeps L for its life; `explosionInflictDamage`
+  reads each chr's place from the pose ring (`netLagCompBlastPos`) for the
+  distance, the bbox and the knockback's direction, never moving the chr
+  (its death, drops and knockback land on it as it is), and
+  `netLagCompBlastProps` adds chrs that were in reach but are out of the
+  blast's rooms now. A chr counts where it is or where the guest saw it,
+  whichever is nearer the blast: a round that struck the body itself on
+  the host keeps its damage (a pure rewind moved a struck target away from its own blast), at the
+  cost of a little extra favour to the shooter. The guest's own player is
+  never rewound; world, doors and props are as they are; the host's own
+  rounds and offline play are untouched (replay identical). Net.LagCompBlasts
+  (1) turns it off alone. --net-lagcomp-log adds E (each explosion, place,
+  L), P (each other player where it is and where the guest saw it) and B
+  (first-frame damage) lines; netlagcomptest `blast` measures it (rockets at a target
+  strafing two seconds each way, 150 ms: over the rockets that went off
+  with it moving on, the blast 320 from where the guest saw it and 375 from
+  where the host had it, first-frame damage dealt 5.98 a rocket against 3.49
+  without the rewind and 6.38 where the guest saw it; every blast pushes the
+  invincible target, so the numbers drift run to run, the gate is relative). Not
+  covered: the round's flight. Its collision with a chr is the host's
+  (projectileFindCollidingProp tests the chr's model in the host's world),
+  so a rocket that on the guest's screen flew into the target's body but
+  passes where the host has nobody goes on and goes off where it lands;
+  the rewind then helps only as far as that is near. Lag-compensating the
+  flight would mean rebuilding chr matrices per projectile step. Favours
+  the shooter: a target that moved on can be hurt by a blast that on its own
+  screen went off behind it.
