@@ -166,6 +166,15 @@ def build(mission, rundir=RUNDIR, check=True):
                 checked += 1
         for pid in sorted(set(conv) - set(lists)):
             bad.append('list %d is in the converted setup and not in the map' % pid)
+        if bad and os.environ.get('GF_AIMAP_SKIP_BAD') == '1':
+            # the retired Python converter this map walks no longer writes every
+            # list as geconvert.c does (README "Traps"): leave those lists out of
+            # the map, and say so, rather than lose the whole mission
+            for b in bad:
+                pid = int(b.split()[1])
+                lists.pop(pid, None)
+            print('aimap: %s: %d list(s) left out of the map (Python converter differs): %s' % (key, len(bad), '; '.join(bad)), file=sys.stderr)
+            bad = []
         if bad:
             raise SystemExit('aimap NULL FAILED for %s: %d of %d lists: %s' % (key, len(bad), len(lists), '; '.join(bad[:5])))
     for L in lists.values():

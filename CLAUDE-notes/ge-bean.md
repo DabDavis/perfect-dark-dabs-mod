@@ -15006,12 +15006,21 @@ settings gave each player's own bit. RX+ for 20 frames turned +66.5 degrees,
   outdoors it always does - GoldenEye asks only whether the rooms on the way
   are drawn (chrlvStanRoomRelated()). He walked off turning from his pad's
   heading, his escort (chr 2) at his side, and the two steered round each
-  other. And Perfect Dark's first-tick look-ahead (GOPOSFLAG_INIT) cut the
-  escort two waypoints at once; GoldenEye looks ahead only when the age comes
-  round. Both now as GoldenEye's for guards on converted stages (68e0bd4f1):
-  Janus within ~40 of the cartridge's path, arriving the same tick, at 60 and
-  73 FPS. gesolo's replay golden changes from frame 200 (Dam's guards out of
-  sight now move by magic).
+  other. 68e0bd4f1 took GoldenEye's magic test and look-ahead whole; the
+  sweep against ares (twenty missions with the opening played, every chr to
+  tick 1200, ~/wt/f3-1010c-gemission-run/pisweep*.sh + pat2-style distance
+  sums) found guards both closer and further off (Dam's tower patrol chr 44,
+  Statue Park's pursuers 6-8, Jungle's chr 1 worse; Silo 64, Cradle 1 closer):
+  whether GoldenEye goes magic depends on which rooms its renderer drew, which
+  neither PD's test nor a tile-walk test reproduces. Shipped instead
+  (e917bc6ad): a chr spawned at run time (CHRH2FLAG_SPAWNED) that sets off on a
+  route out of sight faces down it at once, as GoldenEye's magic start does;
+  every setup chr of the twenty missions moves exactly as before, Janus within
+  ~95 of the cartridge and on time. Trap: the world leg runs ours with the
+  opening skipped while ares plays its swirl, so a guard's magic (decided by
+  what is on screen) differs at the start - judge out-of-sight movement with
+  GF_MISSION_INTRO=1 on both sides; and a GoldenEye chr in magic keeps its
+  prop at the segment's start, so its sampled position lags its route.
 - **Surface 2's lip corner (F3 20261010-052108).** Walking at the 108-high lip
   near either end jammed the player in the corner of the climb wall and the
   lip's end; ares slides Bond along and up (scratch roofwalk.py, theta 159).
