@@ -2032,6 +2032,24 @@ we make this easier for players abroad, so anyone can play anyone".
   sent to the joiner), its gdb probe breaking in `netHudRenderFeed` with
   `var8009dfc0` set and taking the host's screenshot.
 
+- **"Not launching me into in progress game" (F3 20261012-020922, dab).**
+  Not a join fault: room 88ccd714 (MaxPlayers 4) had four players in its
+  match 4, so pdlobbyd's join said 409 full twice (it counts room members,
+  `humans()`, and nobody left that match: four chrs to its end in
+  savantique's log). A seat came free only when a player left the room
+  after match 4; dab joined the reopened room (no "launched; connecting"
+  line, status "waiting for the host to launch") and played match 5 in
+  slot 2 when the host launched it ~4 min later. A member who joins a
+  launched room with a free seat is taken into the running match: gate
+  netlobbytest `seat` (a room of three, a newcomer refused while full, a
+  player quitting at frame 900, the newcomer in again and into the match
+  in that seat; `--net-lobby-quit-frame` now works on a joiner too). Two
+  gaps the lobby owns, unchanged: a member whose game dies mid-match
+  holds its room seat until the match ends (reaping is off while a room is
+  launched), and a member who End Games back to the Game Lobby keeps its
+  room seat but is not connected again to that launch - either turns
+  newcomers away while the match has an open seat.
+
 - **A refusal said in the room (2026-10-09, F3 20261009-070735).** A guest
   without the host's mod (PerfectBear) joined a launched Perfect Dark
   campaign room, left at once [nomod], and its Game Lobby said "Launched:
