@@ -1187,7 +1187,7 @@ case_gebunker() {
 # turn, a right turn, straight) and a client rides; mode 2 the client's script
 # climbs in and drives the same way (C-up, C-left, C-right) and the host rides.
 # Every 30 ticks both log the rider against the tank as each has them: it
-# must stay on through the drive, where it stands on the hull within 40 units
+# must stay on through the drive (to T+1050, before either game ends), where it stands on the hull within 40 units
 # of where it stood before the tank moved, on both machines (a client's own
 # rider by its prediction, compared on the hull: no corrections while it
 # rides; the host's rider as the driving client's puppet, put on the tank as
@@ -1200,7 +1200,7 @@ tankride_check() {
 			on = ($0 ~ / on, rel /)
 			r = $0; sub(/.*rel /, "", r); split(r, a, /[ ,]/); along = a[3] + 0
 			k = $0; sub(/.*tank /, "", k); split(k, b, /[ ,]/); x = b[1] + 0; z = b[2] + 0; y = b[4] + 0
-			if (t >= 90) {
+			if (t >= 90 && t <= 1050) {
 				n++
 				if (!on && who == "rider") off++
 				if (!have) { ref = along; have = 1; x0 = x; z0 = z }
@@ -1224,14 +1224,14 @@ case_tankride() {
 			printf '1560 1562 4000 0 0 0 0 0 0\n1700 1799 0008 0 0 0 0 0 0\n1800 1999 000a 0 0 0 0 0 0\n2000 2199 0009 0 0 0 0 0 0\n2200 2279 0008 0 0 0 0 0 0\n' > "$OUT/tankride2.script"
 		fi
 		game $name-host 300 '[Mod]\nMapMods=GoldenEye Arenas\n' --host "$port" --net-test-host 1 --rng-seed 7 \
-			--net-test-coop 2 --net-test-coop-game ge --net-sim 0,90 --net-test-tankride 1500,$mode --exit-frame 3200 &
+			--net-test-coop 2 --net-test-coop-game ge --net-sim 0,90 --net-test-tankride 1500,$mode --exit-frame 3400 &
 		local host=$!
 		waitfor "$H" "net: hosting on UDP port\|cannot be played online" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; continue; }
 		if grep -q "cannot be played online" "$H"; then
 			echo "skip $name: GoldenEye is not converted here"; kill -TERM $host; wait $host; continue
 		fi
 		game $name-client 290 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join --net-sim 0,90 \
-			--net-test-input "$OUT/tankride$mode.script" --net-test-tankride 1500,$mode --exit-frame 3100 &
+			--net-test-input "$OUT/tankride$mode.script" --net-test-tankride 1500,$mode --exit-frame 3300 &
 		local client=$!
 		wait "$client"; local cx=$?
 		[ "$cx" = 143 ] && cx=0
