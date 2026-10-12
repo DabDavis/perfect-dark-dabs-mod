@@ -3470,3 +3470,32 @@ on its hull; nothing moved them with it. Now (getank.c "Riding on top"):
   before match 2 launches (`--net-test-chat-at-launch`) and holds W through
   the real key path in each match (`--net-test-hold-key W,60,240`,
   input.c `inputTestHoldKey`); it must walk in both.
+
+## Team Control online (protocol 31, 2026-10-12)
+
+The owner: "team control isn't enabled for online combat sim". In a team
+Combat Simulator match the active menu's sim pages (hold A; one page per sim
+on the player's team, `aibuddynums`) give orders through `botcmdApply`:
+Follow, Attack (its Pick Target dialog), Protect, Defend, Hold, Normal and
+the scenario's own. The host's own menu always worked on its real sims. A
+client's menu ran on its own copies of the sims, puppets that never think,
+so its orders did nothing; the only path to the host was its pad replayed
+into the host's `amTick`, which never carried Attack (the Pick Target
+dialog is a menu: the client's pad goes neutral meanwhile, and a replayed
+Attack would have pushed that dialog for a remote seat on the host).
+
+Now (`netplayers.c` "Team Control online"): the client's menu still applies
+the order to its own copy (that is what its menu shows as the sim's
+command), and `netPlayersClientOrder()` queues it for its next command
+(NETCMD_ORDER: u8 sim by bot config slot or 0xff all, u8 AIBOTCMD_*, u8
+Attack's target, a playernum or 0x80 + a bot slot; one order a command,
+resent with it until acked; a fold keeps the later). The host gives it in
+that player's pass (`netPlayersHostApplyChoices`, `g_Vars.currentplayer`
+the remote player, so Follow/Defend/Hold take its prop and place as its own
+menu would) after checking teams are on, the scenario's menu
+(`g_AmBotCommands`) has the command, the player is alive and the sim is on
+its team (by `g_MpAllChrConfigPtrs` teams, not the possibly stale
+`aibuddynums`). `amApply` on a host ignores a remote seat's replayed menu.
+A free-for-all has no sim pages (no buddies), and the host refuses an order
+there anyway. Packed commands grew from 32 to 36 bytes. Gate:
+`tools/ci/netteamtest.sh` (`--net-test-order`, `--net-test-order-check`).
