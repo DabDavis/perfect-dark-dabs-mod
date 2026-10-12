@@ -27,6 +27,16 @@
 #   lag     --net-sim 0,75 on both ends (150 ms round trip); screenshots of
 #           the client go to build/net-shots/predict-lag-*.png
 #   loss    --net-sim 2,75 on both ends (150 ms, 2% of datagrams lost)
+#   relay   a transatlantic relay (F3 20261012-123035: 219 ms, 94.4%):
+#           --net-sim 0,110,10,0,3000,300 on both ends, 220 ms round trip
+#           with a 300 ms stall about every 3 s each way, everything in it
+#           let through at its end. The host's walk of the client's player
+#           must wait out a stall and walk the commands that then come
+#           together each in turn (netPlayersHostWalk; the host's slot line
+#           counts both), and the prediction is gated as clean's: a dry tick
+#           had walked on by the last command (a step the client never
+#           took) and the burst after it folded into one tick (steps the
+#           client took that the host never did), a correction for each
 #   wine    the Windows build (build-win/pd.x86_64.exe) as the client under
 #           wine on the GPU's display (:0), the Linux host, 150 ms round trip
 #           (all of it held by the host's simulator: the Windows build's own
@@ -90,7 +100,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpredict-out}; PORT=${PORT:-27300}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-clean lag loss wine sims time hands cheats pitch skipdeath views views3p}
+CASES=${CASES:-clean lag relay loss wine sims time hands cheats pitch skipdeath views views3p}
 MAXCPM=${MAXCPM:-10}
 FRAMES=${FRAMES:-3000}
 MINMATCH=${MINMATCH:-99}
@@ -239,6 +249,21 @@ run() {
 	wait "$host"; echo "$label: host exit $?"
 }
 
+# check_relay: the relay run's stalls made the host's walk of the client's
+# player wait for commands and walk folded ones first (netPlayersHostWalk)
+check_relay() {
+	local line w c
+	line=$(grep -o "net: slot 1 commands [a-z ]*:.*" "$OUT/relay-host.log" | tail -1)
+	w=$(echo "$line" | sed -n 's/.*the walk waited \([0-9]*\) ticks, walked \([0-9]*\) folded.*/\1/p')
+	c=$(echo "$line" | sed -n 's/.*the walk waited \([0-9]*\) ticks, walked \([0-9]*\) folded.*/\2/p')
+	echo "     relay: host: ${line#net: }"
+	if [ "${w:-0}" -gt 0 ] && [ "${c:-0}" -gt 0 ]; then
+		pass "relay: the stalls had the host's walk wait $w ticks and walk $c folded commands first"
+	else
+		fail "relay: the host's walk never waited or caught up (waited ${w:-?}, walked ${c:-?})"
+	fi
+}
+
 # measure LABEL: the client's prediction log and stats line
 measure() {
 	local label=$1
@@ -362,36 +387,37 @@ check_run() {
 	return 0
 }
 
-# time: a 1-minute limit, no --endless
+# time: a 1-minute limit, no --endless (run_time PORT [LABEL [HOSTARGS...]])
 run_time() {
-	local port=$1
-	game "time-host" 300 --moddir "$MODDIR" --host "$port" --net-test-host 1 --net-test-stage 0x32 \
-		--net-test-sims 2 --rng-seed 1 --net-test-timelimit 1 --net-test-scorelimit 100 --exit-frame 5000 &
+	local port=$1 label=${2:-time}
+	shift; [ $# -gt 0 ] && shift
+	game "$label-host" 300 --moddir "$MODDIR" --host "$port" --net-test-host 1 --net-test-stage 0x32 \
+		--net-test-sims 2 --rng-seed 1 --net-test-timelimit 1 --net-test-scorelimit 100 --exit-frame 5000 "$@" &
 	local host=$!
-	waitfor "$OUT/time-host.log" "net: hosting on UDP port" 60 || { echo "FAIL: time host did not start"; kill -TERM $host; exit 2; }
-	game "time-client" 290 --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join \
+	waitfor "$OUT/$label-host.log" "net: hosting on UDP port" 60 || { echo "FAIL: $label host did not start"; kill -TERM $host; exit 2; }
+	game "$label-client" 290 --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join \
 		--net-test-input "$OUT/client.script" --exit-frame 5000 &
 	local client=$!
-	waitfor "$OUT/time-host.log" "match 1 ended" 200
+	waitfor "$OUT/$label-host.log" "match 1 ended" 200
 	sleep 3
 	kill -TERM "$client" "$host" 2>/dev/null
 	wait "$client"; wait "$host"
 }
 
 check_time() {
-	local h c ht hl ct
-	h=$(grep -h "net: match clock at the end" "$OUT/time-host.log" | tail -1)
-	c=$(grep -h "net: match clock at the end" "$OUT/time-client.log" | tail -1)
+	local label=${1:-time} h c ht hl ct
+	h=$(grep -h "net: match clock at the end" "$OUT/$label-host.log" | tail -1)
+	c=$(grep -h "net: match clock at the end" "$OUT/$label-client.log" | tail -1)
 	echo "     host:   ${h#*net: }"
 	echo "     client: ${c#*net: }"
 	ht=$(echo "$h" | sed -n 's/.*tick \([0-9]*\),.*/\1/p')
 	hl=$(echo "$h" | sed -n 's/.*level time \([0-9]*\) .*/\1/p')
 	ct=$(echo "$c" | sed -n 's/.*level time \([0-9]*\) .*/\1/p')
-	[ -n "$ht" ] && [ "$ht" -ge 3590 ] && [ "$ht" -le 3610 ] && pass "time: the host ended the 1-minute match at tick $ht" \
-		|| fail "time: the host ended it at tick '${ht}', not 3600"
+	[ -n "$ht" ] && [ "$ht" -ge 3590 ] && [ "$ht" -le 3610 ] && pass "$label: the host ended the 1-minute match at tick $ht" \
+		|| fail "$label: the host ended it at tick '${ht}', not 3600"
 	[ -n "$hl" ] && [ -n "$ct" ] && [ $((hl - ct)) -le 30 ] && [ $((ct - hl)) -le 30 ] \
-		&& pass "time: the client's level clock ($ct) agrees with the host's ($hl) within half a second" \
-		|| fail "time: the client's level clock '$ct' against the host's '$hl'"
+		&& pass "$label: the client's level clock ($ct) agrees with the host's ($hl) within half a second" \
+		|| fail "$label: the client's level clock '$ct' against the host's '$hl'"
 }
 
 # hands / cheats: a host and a client, the client's local-player block
@@ -514,6 +540,7 @@ for c in $CASES; do
 		pitch) HOSTARGS="--net-test-forward-pitch 1" CLIENTARGS="--net-test-forward-pitch 0" run pitch $((PORT + i)) "$FRAMES" 0 "0,38" ;;
 		lag)   run lag $((PORT + i)) "$FRAMES" 0 "0,75" ;;
 		loss)  run loss $((PORT + i)) "$FRAMES" 0 "2,75" ;;
+		relay) run relay $((PORT + i)) "$FRAMES" 0 "0,110,10,0,3000,300" ;;
 		sims)  SIMS=6 run sims $((PORT + i)) "$FRAMES" 0 "0,75" ;;
 		wine)  if [ -x "$(command -v wine)" ] && [ -e "$WINEEXE" ]; then run wine $((PORT + i)) "$FRAMES" 1 "${WINESIM-0,75}"; else echo "skip wine: no wine or no $WINEEXE"; fi ;;
 		time)  run_time $((PORT + i)) ;;
@@ -533,9 +560,10 @@ done
 
 for c in $CASES; do
 	case $c in
-		clean|lag|loss|wine|sims)
+		clean|lag|relay|loss|wine|sims)
 			[ -e "$OUT/$c-client.log" ] || continue
 			check_run "$c" || continue
+			[ "$c" = relay ] && check_relay
 			if [ "$c" = loss ] || [ "$c" = wine ] || [ "$c" = sims ]; then
 				MINMATCH=0 MAXCPM=100000 measure "$c" && pass "$c: measured (reported, not gated on $MINMATCH%)" || fail "$c: measure"
 			else

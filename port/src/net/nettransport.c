@@ -36,6 +36,7 @@ struct rawpacket {
 
 struct simpacket {
 	u32 due;
+	u32 seq; // the order it came in: those due together go in it (a stall's burst)
 	ENetAddress addr;
 	s32 len;
 	u8 data[NET_MTU]; // the receive buffer is the host's MTU, so none is longer
@@ -60,6 +61,10 @@ struct nethost {
 	s32 simcount;
 	u32 simrate;            // bytes a second the link takes in (0 any): a bottleneck with a queue
 	u64 simlinkfree;        // when that link is free again, in microseconds of enet_time_get
+	s32 simspikeevery;      // a stall about this often (ms, 0 none) ...
+	s32 simspikelen;        // ... holding everything that comes in this long, then all of it at once
+	u32 simspikestart;      // the current or next stall's start (enet_time_get)
+	u32 simseq;             // datagrams held so far, for their order
 
 	s32 dialonly; // refuse inbound connects (netHostSetDialOnly)
 };
@@ -166,14 +171,14 @@ static int ENET_CALLBACK netInterceptCallback(ENetEvent *event, ENetAddress *add
 		return 1;
 	}
 
-	if (h->simdrop > 0 || h->simdelay > 0 || h->simjitter > 0 || h->simrate > 0) {
+	if (h->simdrop > 0 || h->simdelay > 0 || h->simjitter > 0 || h->simrate > 0 || h->simspikeevery > 0) {
 		struct simpacket *pkt;
 
 		if (h->simdrop > 0 && (s32)(simRoll(h) % 100) < h->simdrop) {
 			return 1;
 		}
 
-		if (h->simdelay <= 0 && h->simjitter <= 0 && h->simrate == 0) {
+		if (h->simdelay <= 0 && h->simjitter <= 0 && h->simrate == 0 && h->simspikeevery <= 0) {
 			return 0;
 		}
 
@@ -182,7 +187,28 @@ static int ENET_CALLBACK netInterceptCallback(ENetEvent *event, ENetAddress *add
 		}
 
 		pkt = &h->simq[h->simcount++];
+		pkt->seq = h->simseq++;
 		pkt->due = enet_time_get() + h->simdelay + (h->simjitter > 0 ? simRoll(h) % (u32)(h->simjitter + 1) : 0);
+
+		// a stall (a relay's or a Wi-Fi link's hiccup): what comes in during
+		// one is let through together when it ends, the delay on top. The
+		// next starts about simspikeevery later (three quarters to five
+		// quarters of it, from the rolls)
+		if (h->simspikeevery > 0) {
+			const u32 now = enet_time_get();
+
+			if (h->simspikestart == 0) {
+				h->simspikestart = now + (u32)h->simspikeevery;
+			}
+
+			while ((s32)(now - (h->simspikestart + (u32)h->simspikelen)) >= 0) {
+				h->simspikestart += (u32)(h->simspikeevery * 3 / 4) + simRoll(h) % (u32)(h->simspikeevery / 2 + 1);
+			}
+
+			if ((s32)(now - h->simspikestart) >= 0 && (s32)(pkt->due - (h->simspikestart + (u32)h->simspikelen + (u32)h->simdelay)) < 0) {
+				pkt->due = h->simspikestart + (u32)h->simspikelen + (u32)h->simdelay;
+			}
+		}
 
 		// a bottleneck: each datagram waits for those before it to go
 		// through at simrate (a router's queue, SIMQUEUE_LEN deep)
@@ -218,7 +244,9 @@ static s32 simRelease(struct nethost *h)
 		s32 i;
 
 		for (i = 0; i < h->simcount; i++) {
-			if (best < 0 || (s32)(h->simq[i].due - h->simq[best].due) < 0) {
+			const s32 d = best < 0 ? 0 : (s32)(h->simq[i].due - h->simq[best].due);
+
+			if (best < 0 || d < 0 || (d == 0 && (s32)(h->simq[i].seq - h->simq[best].seq) < 0)) {
 				best = i;
 			}
 		}
@@ -703,6 +731,19 @@ void netHostSetSim(struct nethost *h, s32 droppct, s32 delayms, s32 jitterms, u3
 		}
 
 		h->simcount = 0;
+	}
+}
+
+void netHostSetSimSpikes(struct nethost *h, s32 everyms, s32 lenms)
+{
+	if (h) {
+		h->simspikeevery = everyms > 0 && lenms > 0 ? everyms : 0;
+		h->simspikelen = lenms > 0 ? lenms : 0;
+		h->simspikestart = 0;
+
+		if (h->simspikeevery > 0 && h->simq == NULL) {
+			h->simq = calloc(SIMQUEUE_LEN, sizeof(*h->simq));
+		}
 	}
 }
 

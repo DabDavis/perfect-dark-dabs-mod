@@ -20,6 +20,7 @@
 #include "game/game_0b0fd0.h"
 #include "game/modoptions.h"
 #include "game/player.h"
+#include "game/bondmove.h"
 #include "game/playermgr.h"
 #include "game/mplayer/mplayer.h"
 #include "game/bot.h"
@@ -27,6 +28,7 @@
 #include "screenshot.h"
 #include "gewatch.h"
 #include "gexplus.h"
+#include "getank.h"
 #include "net/net.h"
 #include "net/nettransport.h"
 #include "net/netsnap.h"
@@ -68,6 +70,7 @@
 #define NET_DEPTH_TARGET   384  // 1.5 commands waiting, in 1/256ths
 #define NET_PPM_PER_DEPTH  130  // clock trim per 1/256th of a command off target
 #define NET_PPM_MAX        50000
+#define NET_CATCHUP_MAX    64   // folded commands walked before the tick's own; past these the fold is the walk's
 
 
 
@@ -94,6 +97,18 @@ struct netpadq {
 	s32 lastplayed;          // the last tick played, -1 none
 	u32 depthsum;
 	u32 pressed;             // buttons this tick's command pressed, START too (netPlayersHostPressed)
+	// the walk by the commands alone (netPlayersHostWalk): a tick whose
+	// command has not come waits, and the commands folded into a tick walk
+	// first, oldest first, each as the client walked it
+	u8 nowalk;               // this tick's command has not come
+	s32 numheld;             // commands that never came, walked first by the last one's sticks
+	struct netcmd held;      // ... that command, no mouse
+	s32 numcatchup;          // the folded commands before the tick's own, to walk first
+	f32 catchupmdx;          // ... their mouse, summed (the fold's, should they not be walked)
+	f32 catchupmdy;
+	struct netcmd catchup[NET_CATCHUP_MAX];
+	u32 waited;              // counts: ticks the walk waited, commands walked folded
+	u32 caughtup;
 };
 
 struct extplayerconfig g_NetExtCfg[MAX_PLAYERS];
@@ -1203,6 +1218,164 @@ void netPlayersClientDevice(s32 weaponnum, s32 on)
 }
 
 /*
+ * The host's walk of a client's player (2026-10-12, F3 20261012-123035)
+ */
+
+// Whether the player's walk is one a command can be walked again by, as the
+// client's prediction replays one (netpredict.c's netPredictMoveBegin)
+static s32 netPlayersWalkSteady(const struct player *p)
+{
+	return g_Vars.tickmode == TICKMODE_NORMAL
+		&& p->bondmovemode == MOVEMODE_WALK
+		&& p->visionmode != VISIONMODE_SLAYERROCKET
+		&& p->eyespy == NULL
+		&& !p->walkinitmove
+		&& !p->isdead
+		&& geTankRidden(g_Vars.currentplayernum) == NULL;
+}
+
+/**
+ * bmoveTick, on the host, for a client's player in a tick pass: a client
+ * walks its player by its own commands, one a tick, and the host's walk of
+ * it has to be the same walk or every block disagrees with the prediction.
+ * It was not where the commands came late: a tick the queue ran dry walked
+ * on by the last command's sticks (an extra step the client never took),
+ * and the commands that then came together were folded into one tick (steps
+ * the client took that the host never did) - a stall on a long link (a
+ * relay's, ~220 ms) was a correction of a second's running and the fold's
+ * after it (F3 20261012-123035: 77 corrections, up to 305 units). Now a dry
+ * tick's walk waits for its command, and the commands folded into a tick
+ * are walked first, oldest first, each as the client walked it, before the
+ * tick's own: the host is a tick or more behind on that player for a moment
+ * and then where the client predicted it. Only for a steady walk (the
+ * prediction's replayable one) and a run of commands that presses and lets
+ * go of nothing: anything else holds and folds as before. 1: no walk now.
+ */
+static u8 *s_WalkJoySave = NULL;
+
+s32 netPlayersHostWalk(s32 allowc1x, s32 allowc1y, s32 allowc1buttons, s32 ignorec2)
+{
+	const s32 pad = netPadOfPlayer(g_Vars.currentplayernum);
+	struct player *p = g_Vars.currentplayer;
+	struct netpadq *q;
+	struct netcmd own;
+	OSContPad pads[NET_NUM_PADS];
+	s32 i;
+
+	if (g_NetReplaying || g_NetPass < NETPASS_TICK || !netPadIsRemote(pad) || !p || !p->prop) {
+		return 0;
+	}
+
+	q = &s_Pads[pad];
+
+	if (!netPlayersWalkSteady(p)) {
+		// walked as one: the fold's whole turn
+		if (q->numcatchup > 0) {
+			q->cur.mdx += q->catchupmdx;
+			q->cur.mdy += q->catchupmdy;
+			q->numcatchup = 0;
+		}
+
+		q->numheld = 0;
+
+		return 0;
+	}
+
+	if (q->nowalk) {
+		// the walk waits: run as on a frame drawn between ticks, at a level
+		// clock of zero and put back after (netPredictWalkHold) - the input
+		// still read as the held command (the gun's trigger, no press), the
+		// player where it was
+		static s32 holding = 0;
+		const s32 lvupdate240 = g_Vars.lvupdate240;
+		const s32 lvupdate60 = g_Vars.lvupdate60;
+		const s32 lvupdate240rem = g_Vars.lvupdate240rem;
+		const f32 lvupdate60f = g_Vars.lvupdate60f;
+		const f32 lvupdate60freal = g_Vars.lvupdate60freal;
+
+		if (holding) {
+			return 0;
+		}
+
+		holding = 1;
+		g_Vars.lvupdate240 = 0;
+		g_Vars.lvupdate60 = 0;
+		g_Vars.lvupdate240rem = 0;
+		g_Vars.lvupdate60f = 0;
+		g_Vars.lvupdate60freal = 0;
+		netPredictWalkHold(1);
+		bmoveTick(allowc1x, allowc1y, allowc1buttons, ignorec2);
+		netPredictWalkHold(0);
+		g_Vars.lvupdate240 = lvupdate240;
+		g_Vars.lvupdate60 = lvupdate60;
+		g_Vars.lvupdate240rem = lvupdate240rem;
+		g_Vars.lvupdate60f = lvupdate60f;
+		g_Vars.lvupdate60freal = lvupdate60freal;
+		holding = 0;
+		q->waited++;
+		return 1;
+	}
+
+	if (q->numcatchup <= 0 && q->numheld <= 0) {
+		return 0;
+	}
+
+	if (!s_WalkJoySave) {
+		s_WalkJoySave = malloc(joyNetSaveSize());
+
+		if (!s_WalkJoySave) {
+			q->cur.mdx += q->catchupmdx;
+			q->cur.mdy += q->catchupmdy;
+			q->numcatchup = 0;
+			q->numheld = 0;
+			return 0;
+		}
+	}
+
+	// each folded command a sample of its own, the other pads as they are
+	joyNetSave(s_WalkJoySave);
+
+	for (i = 0; i < NET_NUM_PADS; i++) {
+		joyNetGetCurrentPad(i, &pads[i]);
+	}
+
+	own = q->cur;
+
+	// i -1: the first step's sample consumed and not walked, so its walk
+	// meets no press or release against the tick's own (none of the steps
+	// press or let go of anything: netPlayersHostPlay)
+	for (i = -1; i < q->numheld + q->numcatchup; i++) {
+		const s32 k = i < 0 ? 0 : i;
+		const struct netcmd *c = k < q->numheld ? &q->held : &q->catchup[k - q->numheld];
+
+		pads[pad].button = c->buttons & ~START_BUTTON;
+		pads[pad].stick_x = c->sx;
+		pads[pad].stick_y = c->sy;
+		pads[pad].rstick_x = c->rsx;
+		pads[pad].rstick_y = c->rsy;
+		joyNetInjectSample(pads);
+
+		if (i < 0) {
+			continue;
+		}
+
+		// its mouse (netMouseDelta reads the pad's command)
+		q->cur = *c;
+		g_NetReplaying = 1;
+		bmoveTick(allowc1x, allowc1y, allowc1buttons, ignorec2);
+		g_NetReplaying = 0;
+	}
+
+	q->cur = own;
+	joyNetRestore(s_WalkJoySave);
+	q->caughtup += q->numheld + q->numcatchup;
+	q->numheld = 0;
+	q->numcatchup = 0;
+
+	return 0;
+}
+
+/*
  * The mouse
  */
 
@@ -1557,9 +1730,9 @@ static void netPlayersLogSlot(s32 slot, const char *why)
 {
 	const struct netpadq *q = &s_Pads[slot];
 
-	sysLogPrintf(LOG_NOTE, "net: slot %d commands %s: played %u (ticks 0..%d in order, %u out of order), folded %u, dry %u, lost %u, fire presses %u, mean depth %.2f",
+	sysLogPrintf(LOG_NOTE, "net: slot %d commands %s: played %u (ticks 0..%d in order, %u out of order), folded %u, dry %u, lost %u, fire presses %u, mean depth %.2f; the walk waited %u ticks, walked %u folded commands first",
 			slot, why, q->played, q->lastplayed, q->outoforder, q->folded, q->dry, q->lost, q->presses,
-			q->played + q->dry ? (f32)q->depthsum / (f32)(q->played + q->dry - q->folded) : 0.f);
+			q->played + q->dry ? (f32)q->depthsum / (f32)(q->played + q->dry - q->folded) : 0.f, q->waited, q->caughtup);
 	sysLogPrintf(LOG_NOTE, "net: commands host %s: CMDs dropped for a base not here %u (all views)", why, s_CmdNoBase);
 }
 
@@ -1598,9 +1771,9 @@ void netPlayersTraceSlot(FILE *f, s32 playernum)
 	}
 
 	q = &s_Pads[pad];
-	fprintf(f, "    commands: next tick %u, played %u, folded %u, dry %u, lost %u, out of order %u, buttons now %04x, mean depth %.2f\n",
+	fprintf(f, "    commands: next tick %u, played %u, folded %u, dry %u, lost %u, out of order %u, buttons now %04x, mean depth %.2f; the walk waited %u ticks, walked %u folded first\n",
 			q->next, q->played, q->folded, q->dry, q->lost, q->outoforder, q->cur.buttons,
-			q->played + q->dry > q->folded ? (f32)q->depthsum / (f32)(q->played + q->dry - q->folded) : 0.f);
+			q->played + q->dry > q->folded ? (f32)q->depthsum / (f32)(q->played + q->dry - q->folded) : 0.f, q->waited, q->caughtup);
 
 	if (!q->hascfg) {
 		fprintf(f, "    settings: none received yet (the host's own are used)\n");
@@ -1781,6 +1954,11 @@ static void netPlayersHostPlay(void)
 		}
 
 		prevbuttons = q->cur.buttons;
+		q->nowalk = 0;
+		q->numheld = 0;
+		q->numcatchup = 0;
+		q->catchupmdx = 0;
+		q->catchupmdy = 0;
 
 		// what never came is lost: only the ring can hold one, so past a
 		// ring of empty ticks the rest are skipped at once
@@ -1797,6 +1975,16 @@ static void netPlayersHostPlay(void)
 		q->lost += lost;
 		q->next += lost;
 
+		// what never came walks as a dry tick once walked, by the last
+		// command's sticks and no mouse: its ticks waited for it
+		// (netPlayersHostWalk)
+		if (lost > 0) {
+			q->numheld = lost < NET_CATCHUP_MAX ? (s32)lost : NET_CATCHUP_MAX;
+			q->held = q->cur;
+			q->held.mdx = 0;
+			q->held.mdy = 0;
+		}
+
 		if (netQHas(q, q->next)) {
 			q->cur = q->ring[q->next % NETCMD_RING];
 			q->ringtick[q->next % NETCMD_RING] = 0;
@@ -1812,21 +2000,60 @@ static void netPlayersHostPlay(void)
 			// behind: fold the next ones in while that loses no edge
 			depth = netQDepth(q);
 
-			while (depth > NET_DEPTH_FOLD
-					&& (q->ring[q->next % NETCMD_RING].buttons == q->cur.buttons || depth > NET_DEPTH_FOLDANY)) {
-				netFold(&q->cur, &q->ring[q->next % NETCMD_RING]);
-				q->ringtick[q->next % NETCMD_RING] = 0;
-				q->lastplayed = q->next;
-				q->next++;
-				q->played++;
-				q->folded++;
-				depth--;
+			{
+				// a run that presses and lets go of nothing - since the
+				// command before it, too - walks each folded command first
+				// as the client walked it (netPlayersHostWalk), the tick's
+				// own last by its own sticks and mouse: no move of the
+				// client's is lost to the fold, nor guessed at, and its
+				// prediction agrees. Anything else folds as it always has:
+				// a walked step that met a release would spend it there (a
+				// use tap counted out, `usedowntime`, and never jumped -
+				// netpredicttest relay's jump at a stall's end)
+				struct netcmd own = q->cur;
+				s32 walkeach = q->cur.buttons == prevbuttons;
+
+				while (depth > NET_DEPTH_FOLD
+						&& (q->ring[q->next % NETCMD_RING].buttons == q->cur.buttons || depth > NET_DEPTH_FOLDANY)) {
+					const struct netcmd *c = &q->ring[q->next % NETCMD_RING];
+
+					if (walkeach && c->buttons == own.buttons && q->numcatchup < NET_CATCHUP_MAX) {
+						q->catchup[q->numcatchup++] = own;
+						q->catchupmdx += own.mdx;
+						q->catchupmdy += own.mdy;
+					} else {
+						walkeach = 0;
+					}
+
+					own = *c;
+					netFold(&q->cur, c);
+					q->ringtick[q->next % NETCMD_RING] = 0;
+					q->lastplayed = q->next;
+					q->next++;
+					q->played++;
+					q->folded++;
+					depth--;
+				}
+
+				if (walkeach && q->numcatchup > 0) {
+					q->cur.mdx = own.mdx;
+					q->cur.mdy = own.mdy;
+				} else {
+					q->numcatchup = 0;
+				}
+
+				if (q->numcatchup == 0) {
+					q->catchupmdx = 0;
+					q->catchupmdy = 0;
+				}
 			}
 		} else {
-			// dry: hold what was held, no mouse, nothing new pressed
+			// dry: hold what was held, no mouse, nothing new pressed; and
+			// the walk waits for the command (netPlayersHostWalk)
 			q->cur.mdx = 0;
 			q->cur.mdy = 0;
 			q->dry++;
+			q->nowalk = 1;
 		}
 
 		q->depthsum += netQDepth(q);

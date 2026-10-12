@@ -503,9 +503,11 @@ void netSessionInit(void)
 }
 
 /**
- * --net-sim DROP,DELAY[,JITTER[,KBPS]]: the transport's loss and latency
- * simulator on what this machine receives (tools/ci/netplayertest.sh), and a
- * bottleneck of KBPS kilobytes a second with a queue in front of it
+ * --net-sim DROP,DELAY[,JITTER[,KBPS[,EVERY,STALL]]]: the transport's loss and
+ * latency simulator on what this machine receives (tools/ci/netplayertest.sh),
+ * a bottleneck of KBPS kilobytes a second with a queue in front of it, and a
+ * STALL ms hiccup about every EVERY ms, everything in it let through at its end
+ * (a relay's: tools/ci/netpredicttest.sh's relay case)
  */
 static void netSessionApplySim(void)
 {
@@ -514,15 +516,18 @@ static void netSessionApplySim(void)
 	int delay = 0;
 	int jitter = 0;
 	int kbps = 0;
+	int spikeevery = 0;
+	int spikelen = 0;
 
-	if (!sim || !g_NetHostSocket || sscanf(sim, "%d,%d,%d,%d", &drop, &delay, &jitter, &kbps) < 1) {
+	if (!sim || !g_NetHostSocket || sscanf(sim, "%d,%d,%d,%d,%d,%d", &drop, &delay, &jitter, &kbps, &spikeevery, &spikelen) < 1) {
 		return;
 	}
 
 	netHostSetSim(g_NetHostSocket, drop, delay, jitter, 12345);
 	netHostSetSimRate(g_NetHostSocket, kbps > 0 ? (u32)kbps * 1024 : 0);
-	sysLogPrintf(LOG_NOTE, "net: --net-sim: %d%% of datagrams in dropped, the rest %d ms late (+0..%d), link %d KB/s (0 any)", drop, delay,
-			jitter, kbps);
+	netHostSetSimSpikes(g_NetHostSocket, spikeevery, spikelen);
+	sysLogPrintf(LOG_NOTE, "net: --net-sim: %d%% of datagrams in dropped, the rest %d ms late (+0..%d), link %d KB/s (0 any), a %d ms stall about every %d ms (0 none)",
+			drop, delay, jitter, kbps, spikelen, spikeevery);
 }
 
 static void netSessionOpenSocket(void)

@@ -1098,6 +1098,34 @@ void netPredictPresentEnd(void)
 	s_PresentPlayer = NULL;
 }
 
+/**
+ * The host's walk of a client's player waiting a tick for its command
+ * (netplayers.c's netPlayersHostWalk): the walk runs as on a frame drawn
+ * between ticks - at a level clock of zero, the walk's own state put back
+ * after - so the input is still read (the gun's trigger as held, nothing
+ * pressed) and the player stays where it was. Begin with 1, end with 0.
+ */
+static u8 s_HoldSave[NETPRED_RICHMAX];
+static struct player *s_HoldPlayer = NULL;
+
+void netPredictWalkHold(s32 begin)
+{
+	if (begin) {
+		s_HoldPlayer = NULL;
+
+		if (g_Vars.currentplayer && netPredRichSize() <= NETPRED_RICHMAX) {
+			s_HoldPlayer = g_Vars.currentplayer;
+			netPredSaveRich(s_HoldPlayer, s_HoldSave);
+		}
+	} else {
+		if (s_HoldPlayer && s_HoldPlayer == g_Vars.currentplayer) {
+			netPredLoadRich(s_HoldPlayer, s_HoldSave);
+		}
+
+		s_HoldPlayer = NULL;
+	}
+}
+
 // bwalkTryJump on the client: the use press that reached no door, after the
 // tick's walk, tried again after the same tick's walk in a replay
 void netPredictJumpTry(void)
