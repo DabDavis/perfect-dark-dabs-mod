@@ -294,6 +294,19 @@ static s32 addrSameIp(const struct netaddr *a, const struct netaddr *b)
 }
 
 /**
+ * Whether the lobby saw a peer (`pub`, the public address in its PEER) at this
+ * socket's own public address: the only pair whose LAN endpoints can be one
+ * LAN's. A remote peer's private address is somebody else's machine here -
+ * home routers hand out the same few - and whatever answered there was taken
+ * for the host on the LAN rung (F3 pass 38, 2026-10-12: two players joining a
+ * public room from elsewhere were "treated as LAN").
+ */
+static s32 rdvSamePublic(const struct netaddr *pub)
+{
+	return s_Registered && addrSameIp(pub, &s_Public);
+}
+
+/**
  * The lobby's LAN rule (README "LAN endpoints"): private-range only, so
  * neither end can be aimed at a third party's public address through a
  * peer's claims
@@ -724,17 +737,24 @@ static void rdvOnPeer(struct nethost *h, const u8 *d, s32 len)
 		s_HavePeer = 1;
 		s_NumCands = 0;
 
-		// LAN first: a same-LAN pair should meet there
-		for (i = 1; i < neps; i++) {
-			rdvAddCand(&eps[i].a, 1);
+		// LAN first: a same-LAN pair should meet there - a pair the lobby
+		// saw at one public address (rdvSamePublic())
+		if (rdvSamePublic(&eps[0].a)) {
+			for (i = 1; i < neps; i++) {
+				rdvAddCand(&eps[i].a, 1);
+			}
+		} else if (neps > 1) {
+			sysLogPrintf(LOG_NOTE, "rdv: the host's LAN endpoint%s left out: the lobby sees it at another public address", neps > 2 ? "s" : "");
 		}
 
 		rdvAddCand(&eps[0].a, 0);
 		sysLogPrintf(LOG_NOTE, "rdv: PEER host %s, %d endpoint%s (public %s); punching", name, neps, neps == 1 ? "" : "s", addrStr(&eps[0].a));
 		rdvStartLadder();
 	} else {
-		for (i = 1; i < neps; i++) {
-			rdvAddCand(&eps[i].a, 1);
+		if (rdvSamePublic(&eps[0].a)) {
+			for (i = 1; i < neps; i++) {
+				rdvAddCand(&eps[i].a, 1);
+			}
 		}
 
 		rdvAddCand(&eps[0].a, 0);
@@ -1234,6 +1254,12 @@ static void rdvHostTick(struct nethost *h, u64 now)
 		p->lastspray = now;
 
 		for (j = 0; j < p->neps; j++) {
+			// a remote joiner's LAN endpoints are other machines here
+			// (rdvSamePublic())
+			if (p->eps[j].lan && !rdvSamePublic(&p->eps[0].a)) {
+				continue;
+			}
+
 			// (the joiner reads SPRAYED from the host's reply alone, never a
 			// spray; flagged as the reply is, all the same)
 			rdvPunch(h, &p->eps[j].a, p->cookie, PUNCHF_HOST | (s_NoNat ? 0 : PUNCHF_SPRAYED));
