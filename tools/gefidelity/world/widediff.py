@@ -186,6 +186,11 @@ def compare(rep, ge0, pd0, off, numpads, ge_pad_to_pd, ge_ailist_to_pd, mapping_
                 if ge != b[f]:
                     rep.add('door.' + f, k, '%s %s GoldenEye %d, ours %d' % (what, f, ge, b[f]), abs(ge - b[f]))
         elif 'weaponnum' in a:
+            if 'weaponnum' not in b:
+                # a weapon record on the cartridge that ours holds as something
+                # else (a finding, not a reason to lose the mission's report)
+                rep.add('pickup.kind', k, '%s is a weapon in GoldenEye, not one in ours' % what, 1)
+                continue
             pickups.append((k, a['weaponnum'], b['weaponnum']))
             if a['dual'] != b['dual']:
                 rep.add('pickup.dual', k, '%s paired with record %s in GoldenEye, %s in ours' % (what, a['dual'], b['dual']), 1)
