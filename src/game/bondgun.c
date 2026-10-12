@@ -14743,6 +14743,10 @@ void bgunTickGameplay(bool triggeron)
 
 			bgunGiveMaxAmmo(false);
 		} else if (cheatIsActive(CHEAT_UNLIMITEDAMMO)) {
+#ifndef PLATFORM_N64
+			// on a GoldenEye stage after the pickups instead (lvTick())
+			if (!modloaderStageIsRemake(g_Vars.stagenum))
+#endif
 			bgunGiveMaxAmmo(false);
 		}
 	}

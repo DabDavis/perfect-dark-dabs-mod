@@ -1670,6 +1670,19 @@ Gfx *lvRender(Gfx *gdl)
 				}
 
 				propsTestForPickup();
+#ifndef PLATFORM_N64
+				// GoldenEye's infinite ammo tops the ammunition up as its frame
+				// is drawn (lvRender()'s set_max_ammo_for_cur_player()), after
+				// the pickups: a reload's draw on the ammunition lets a crate or
+				// gun of that ammunition be picked up in that frame, which
+				// Perfect Dark's top-up in the gun's tick never left (F3
+				// 20261011-061056, Egyptian's golden bullets)
+				if (cheatIsActive(CHEAT_UNLIMITEDAMMO) && !cheatIsActive(CHEAT_UNLIMITEDAMMONORELOADS)
+						&& modloaderStageIsRemake(g_Vars.stagenum)
+						&& g_Vars.tickmode == TICKMODE_NORMAL && g_Vars.lvupdate240 > 0) {
+					bgunGiveMaxAmmo(false);
+				}
+#endif
 				NET_REMOTE_PASS_END();
 
 				gdl = bgRender(gdl);

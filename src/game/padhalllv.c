@@ -11,6 +11,9 @@
 #include "lib/libc/ll.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "modloader.h"
+#endif
 
 /**
  * Path Finding
@@ -51,6 +54,24 @@
 #define WPSEG_GET_ID(seg) (seg & (0xffff & ~(WPSEGFLAG_OUTWARDSONLY | WPSEGFLAG_INWARDSONLY)))
 
 u32 g_NavSeed[2] = {0};
+
+#ifndef PLATFORM_N64
+/**
+ * GoldenEye's route finder (its padhalllv.c) takes the first neighbour at
+ * each step and the first segment into each next group, where Perfect Dark
+ * tosses a coin at each (padrandomroutes) and, coin or not, takes the last
+ * segment into a group. On a converted level's missions a guard runs
+ * GoldenEye's route: Archives' outdoor guards came in through the doorway
+ * beside the one the cartridge sends them through (F3 20261011-055946).
+ * Simulants in a match keep Perfect Dark's.
+ */
+static bool navGeRoutes(void)
+{
+	return !g_Vars.mplayerisrunning && modloaderStageIsRemake(g_Vars.stagenum);
+}
+#else
+#define navGeRoutes() false
+#endif
 
 void navSetSeed(u32 upper, u32 lower)
 {
@@ -267,7 +288,7 @@ struct waygroup *waygroupChooseNeighbour(s32 *groupnums, s32 step, u32 ignoremas
 			if (group->step == step) {
 				best = group;
 
-				if (!g_Vars.padrandomroutes) {
+				if (!g_Vars.padrandomroutes || navGeRoutes()) {
 					break;
 				}
 
@@ -411,7 +432,7 @@ struct waypoint *waypointChooseNeighbour(s32 *pointnums, s32 step, s32 groupnum,
 			if (point->groupnum == groupnum && point->step == step) {
 				best = point;
 
-				if (!g_Vars.padrandomroutes) {
+				if (!g_Vars.padrandomroutes || navGeRoutes()) {
 					break;
 				}
 
@@ -604,6 +625,10 @@ void waypointFindSegmentIntoGroup(struct waygroup *fromgroup, struct waygroup *t
 				if (togroup == &groups[neighbour->groupnum]) {
 					*frompoint = fromwp;
 					*topoint = neighbour;
+
+					if (navGeRoutes()) {
+						return;
+					}
 
 					if (!g_Vars.padrandomroutes) {
 						break;

@@ -428,6 +428,7 @@ struct gefontchar {
 
 struct gefont {
 	u8 *data;
+	u32 datalen;
 	s32 kerning[13 * 13];
 	struct gefontchar chars[94];
 
@@ -558,6 +559,7 @@ static s32 frontLoadFont(struct gefont *font, const char *rel)
 	}
 
 	font->data = data;
+	font->datalen = len;
 
 	for (s32 i = 0; i < 13 * 13; i++) {
 		font->kerning[i] = (s32)be32(data + i * 4);
@@ -1326,12 +1328,30 @@ static void frontSaveBestTimes(void)
 	fsFileFree(f);
 }
 
+/**
+ * A font's glyphs are drawn straight out of its file's buffer, and the
+ * renderer keeps a texture by its address alone (not its size): a font freed
+ * with its glyphs still cached left them to whatever was loaded there next -
+ * another conversion's font at another offset drew a 'G' for a 'd' and a 'K'
+ * for a 'g' (F3 20261011-063840, Goldfinger 64's folder after GoldenEye's).
+ */
+static void frontFreeFont(struct gefont *font)
+{
+	if (font->data) {
+		videoFreeCachedTextures(font->data, font->data + font->datalen);
+	}
+
+	sysMemFree(font->data);
+	font->data = NULL;
+	font->datalen = 0;
+}
+
 static void frontUnload(void)
 {
 	frontUnloadModel();
 	frontFreeBriefing();
-	sysMemFree(g_Front.zurich.data);
-	sysMemFree(g_Front.gothic.data);
+	frontFreeFont(&g_Front.zurich);
+	frontFreeFont(&g_Front.gothic);
 	sysMemFree(g_Front.title);
 	sysMemFree(g_Front.options);
 	g_Front.options = NULL;
