@@ -34,6 +34,7 @@
 #include "modmode.h"
 #include "fs.h"
 #include "video.h"
+#include "input.h"
 #include "menuimage.h"
 #include "xblamesh.h"
 #include "config.h"
@@ -4515,6 +4516,22 @@ void netLobbyMenuPushBriefing(void)
 	} else {
 		menuPushRootDialog(&g_NetBriefingMenuDialog, MENUROOT_MPSETUP);
 	}
+}
+
+/**
+ * The lobby test (netlobbytest.sh rematch, --net-test-chat-at-launch): the
+ * Game Lobby's Chat opened as its row opens it, over the Game Lobby, by a
+ * keyboard player (typing at once: menuitemKeyboardInit). Whether it types.
+ */
+s32 netLobbyMenuPushChat(void)
+{
+	netLobbyMenuPushRoom();
+
+	if (!isCurrent(&s_ChatDialog)) {
+		menuPushDialog(&s_ChatDialog);
+	}
+
+	return inputIsTextInputActive();
 }
 
 // The lobby test's screenshots: is that page the one on screen?

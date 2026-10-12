@@ -26,6 +26,11 @@
 #         joiner's end screen, then back to the room still connected); the
 #         joiner READYs again and a second match is launched and played on
 #         the same connection, no new ticket.
+#         Before the second launch the joiner opens the Game Lobby's Chat
+#         (typing, as a keyboard player's does) and is still in it as the
+#         match loads; it holds W (the keyboard, --net-test-hold-key) from
+#         tick 60 to 240 of each match and must walk in both (F3
+#         20261012-021339: the dead keyboard's typing outlived its dialog).
 #
 #   netlobbytest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
@@ -96,7 +101,7 @@ game rematch-host hostguy2 $((GPORT + 1)) 300 --net-lobby-script host --net-lobb
 	--net-lobby-matches 2 --net-lobby-end-frame 300 --net-test-stage 0x32 --net-test-sims 2 --rng-seed 8 &
 P3=$!
 game rematch-join joiner2 $((GPORT + 1)) 300 --net-lobby-script join --net-lobby-room "Rematch Test" \
-	--net-lobby-matches 2 --net-lobby-leave-frame 0 &
+	--net-lobby-matches 2 --net-lobby-leave-frame 0 --net-test-chat-at-launch --net-test-hold-key W,60,240 &
 P4=$!
 # the room's own rules (owner, F3 20261010-053136): the host plays with
 # non-stock settings offline; its room starts at stock, one rule is changed
@@ -187,6 +192,16 @@ fi
 grep -q "lobby script: host back in room $ROOMID after match 2" "$H" && pass "rematch: $(line "$H" "host back in room $ROOMID after match 2")" || fail "rematch: host not back after match 2"
 grep -q "lobby script: client back in room $ROOMID after match 2" "$J" && pass "rematch: $(line "$J" "client back in room $ROOMID after match 2")" || fail "rematch: join not back after match 2"
 [ "$(grep -c "lobby: back in room $ROOMID's lobby" "$J")" = 2 ] && pass "rematch: join: Game Lobby menu after each match" || fail "rematch: join: Game Lobby menu count $(grep -c "lobby: back in room $ROOMID's lobby" "$J")"
+# the keyboard walks in match 2, which launched with the Game Lobby's Chat
+# open and typing (F3 20261012-021339: the keys stayed letters all match)
+grep -q "lobby script: join: the Game Lobby's Chat open, typing 1" "$J" && pass "rematch: join: the Game Lobby's Chat open (typing) as match 2 launched" \
+	|| fail "rematch: join: the Chat was not open and typing before match 2: $(line "$J" "the Game Lobby's Chat open")"
+walks=$(grep -o "hold-key: let go at tick [0-9]*: walked [0-9]* units, typing 0" "$J" | sed 's/.*walked \([0-9]*\) units.*/\1/' | tr '\n' ' ')
+if [ "$(echo $walks | awk '{ print (NF == 2 && $1 >= 200 && $2 >= 200) }')" = 1 ]; then
+	pass "rematch: join walked with W held (the keyboard) in both matches: $walks units"
+else
+	fail "rematch: join's W walk per match: '$walks' ($(grep -o 'hold-key: .*' "$J" | tr '\n' ';'))"
+fi
 [ "$r3" = 0 ] && [ "$r4" = 0 ] || fail "rematch: exit codes host $r3 join $r4"
 meet rules joiner3
 H=$OUT/rules-host.log; J=$OUT/rules-join.log; I=$OUT/save-rules-host/pd.ini
