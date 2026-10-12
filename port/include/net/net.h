@@ -403,7 +403,7 @@ void netEvGas(struct coord *pos);                                               
  * screen is put where that player saw it when it fired (its matrices
  * rebuilt in fresh gfx memory, the live ones never written) and put back
  * after; on a client the shot's hits are logged for the harness.
- * Net.LagComp=0 turns the rewind off, Net.LagCompMaxMs caps it (200).
+ * Net.LagComp=0 turns the rewind off, Net.LagCompMaxMs caps it (300).
  */
 struct shotdata;
 void netLagCompShotBegin(struct shotdata *sd, s32 isshooting);
@@ -412,6 +412,7 @@ void netLagCompShotEnd(struct shotdata *sd, s32 isshooting, s32 cheap);
 // (its autoaim follows the others where it saw them, so with the autoaim on
 // everything on its screen is rewound for the two)
 void netLagCompPassBegin(void);
+void netLagCompRaiseOldDefault(void); // Mod.SettingsRevision 2: Net.LagCompMaxMs 200 -> 300
 void netLagCompPassEnd(void);
 const struct coord *netLagCompAimPos(struct prop *prop); // the autoaim's line of sight to a chr: its rewound place in a remote pass
 // A guest's blast (netlagcomp.c, F3 20261010-030750): an explosion from a
