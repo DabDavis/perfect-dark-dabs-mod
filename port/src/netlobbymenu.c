@@ -46,6 +46,7 @@
 #include "net/net.h"
 #include "net/netlobby.h"
 #include "net/netproto.h"
+#include "netprofile.h"
 
 /**
  * Online Game: the lobby's rooms on PD's own menu dialogs (the flow is
@@ -86,7 +87,6 @@ static void hostTeamSend(void);
 
 extern struct menudialogdef g_NetBriefingMenuDialog;
 extern struct menudialogdef g_NetCreateMenuDialog;
-extern struct menudialogdef g_MpPlayerSetupViaQuickGoMenuDialog;
 extern struct menudialogdef g_NetRoomMenuDialog;
 extern struct menudialogdef g_NetJoinPasswordMenuDialog;
 extern struct menudialogdef g_NetKickMenuDialog;
@@ -1383,6 +1383,19 @@ static MenuDialogHandlerResult dialogOnline(s32 operation, struct menudialogdef 
 		netLobbyWarm();
 		netLobbySignInAgain();
 		s_NameNext = 0;
+
+		// player 1 plays the online profile while the online pages are up
+		// (netprofile.c), its name the account's
+		netProfileEnter();
+	}
+
+	// Back from the online pages: the offline player 1 again
+	if (operation == MENUOP_CLOSE) {
+		netProfileLeave();
+	}
+
+	if (operation == MENUOP_TICK) {
+		netProfileTick();
 	}
 
 	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
@@ -1414,9 +1427,10 @@ static struct menuitem s_OnlineItems[] = {
 	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER | MENUITEMFLAG_LIST_LEAVEATENDS, NAMEBOX_W, NAMEBOX_H, handlerNameBox },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE, (uintptr_t)"Next\n", 0, handlerNameNext },
 	// the player's own character and controls (Reverse Pitch), which go to
-	// the host as this player's (netWriteSlotCfg: player 1's): Combat
-	// Simulator's Player Setup (F3 20261011-225920: "y invert" online)
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_OPENSDIALOG, (uintptr_t)"Player Setup...\n", 0, (void *)&g_MpPlayerSetupViaQuickGoMenuDialog },
+	// the host as this player's (netWriteSlotCfg: player 1's): the online
+	// profile's Player Setup (netprofile.c; F3 20261011-225920: "y invert"
+	// online, 20261012-115801: kept between sessions)
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_OPENSDIALOG, (uintptr_t)"Player Setup...\n", 0, (void *)&g_NetPlayerSetupMenuDialog },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
 	{ MENUITEMTYPE_END },
 };
@@ -4208,8 +4222,9 @@ static MenuItemHandlerResult handlerChatKeyboard(s32 operation, struct menuitem 
 	return 0;
 }
 
+// the field the keyboard's whole width (param3), as the account page's name
 static struct menuitem s_ChatItems[] = {
-	{ MENUITEMTYPE_KEYBOARD, MPSETUP_MAXNAME, 0, 0, 0, handlerChatKeyboard },
+	{ MENUITEMTYPE_KEYBOARD, MPSETUP_MAXNAME, 0, 0, 1, handlerChatKeyboard },
 	{ MENUITEMTYPE_END },
 };
 
@@ -4220,6 +4235,15 @@ static struct menudialogdef s_ChatDialog = {
 static MenuItemHandlerResult handlerChat(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
+		// The Game Lobby's Chat chosen with the keyboard or the mouse: the
+		// line Space and T open, a whole chat line long, in the chat window
+		// (nethud.c). The on-screen keyboard's seventeen letters were all
+		// that row gave (F3 20261012-123906: "small amount of space to
+		// type"); a pad's press still gets the keyboard
+		if (isCurrent(&g_NetRoomMenuDialog) && inputLastPressWasKeyboard() && netHudLobbyChatOpen()) {
+			return 0;
+		}
+
 		menuPushDialog(&s_ChatDialog);
 	}
 
@@ -4548,7 +4572,7 @@ static struct menuitem s_RoomItems[] = {
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textReady, 0, handlerReady },
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textTeam, 0, handlerTeam },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Chat\n", 0, handlerChat },
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_OPENSDIALOG, (uintptr_t)"Player Setup...\n", 0, (void *)&g_MpPlayerSetupViaQuickGoMenuDialog },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_OPENSDIALOG, (uintptr_t)"Player Setup...\n", 0, (void *)&g_NetPlayerSetupMenuDialog },
 	{ MENUITEMTYPE_SELECTABLE, 1, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Kick...\n", 0, handlerHostOnly },
 	{ MENUITEMTYPE_SELECTABLE, 2, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Settings...\n", 0, handlerHostOnly },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Back to Campaign\n", 0, handlerCampaign },
@@ -5394,12 +5418,39 @@ void netLobbyMenuPushRoomAfterMatch(void)
 	netLobbyMenuPushRoom();
 }
 
+// Name Entry is in this machine's menus, under whatever is up over it
+static s32 lobbyNameEntryUp(void)
+{
+	const struct menu *menu = &g_Menus[0];
+	s32 i;
+	s32 j;
+
+	for (i = 0; i < menu->depth && i < ARRAYCOUNT(menu->layers); i++) {
+		for (j = 0; j < menu->layers[i].numsiblings && j < ARRAYCOUNT(menu->layers[i].siblings); j++) {
+			if (menu->layers[i].siblings[j] && menu->layers[i].siblings[j]->definition == &g_NetOnlineMenuDialog) {
+				return 1;
+			}
+		}
+	}
+
+	return 0;
+}
+
 // Once per loop (netPump): the client's way back from the Perfect Menu
 void netLobbyMenuFrame(void)
 {
 	struct menudialogdef *top;
 
 	onlineTestTick();
+
+	// The online profile (netprofile.c) is left as Name Entry closes; a
+	// campaign room's host plays its menus with Name Entry gone from them,
+	// and leaves the room from there: the offline player back once no room,
+	// no session (a match's own players are over player 1 until its end)
+	// and no online page holds it
+	if (netProfileActive() && g_NetMode == NETMODE_NONE && !netLobbyInRoom() && !lobbyNameEntryUp()) {
+		netProfileLeave();
+	}
 
 	if (!s_RoomOverOnline) {
 		return;
