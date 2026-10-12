@@ -36,6 +36,7 @@
 #include "geroom.h"
 #include "gehitpuff.h"
 #include "net/net.h"
+#include "killfeed.h"
 
 #define GE_EXPLOSION_HARMLESS_TICKS 8
 #endif
@@ -400,6 +401,7 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 			exp->makescorch = makescorch;
 			exp->owner = playernum;
 #ifndef PLATFORM_N64
+			killfeedNoteExplosion(exp - g_Explosions, sourceprop); // a rocket's, a mine's: the kill feed's weapon
 			if (g_NetMode == NETMODE_SERVER) netLagCompBlastNote(exp - g_Explosions, type, playernum, exppos); // netplay: a guest's blast, where it saw the chrs
 #endif
 
@@ -1208,7 +1210,13 @@ void explosionInflictDamage(struct prop *expprop)
 #ifndef PLATFORM_N64
 					if (g_NetMode == NETMODE_SERVER) netLagCompBlastHit(exp - g_Explosions, prop, minfrac, isfirstframe); // netplay: the harness's record
 #endif
+#ifndef PLATFORM_N64
+					killfeedSetExplosion(exp - g_Explosions); // what made it, for the kill feed
+#endif
 					chrDamageByExplosion(chr, minfrac, &spa0, ownerprop, &expprop->pos);
+#ifndef PLATFORM_N64
+					killfeedSetExplosion(-1);
+#endif
 
 					if (prop->type == PROPTYPE_CHR && !isfirstframe) {
 						chrDisfigure(chr, &expprop->pos, damageradius);

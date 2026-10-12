@@ -82,6 +82,7 @@
 #include "modloader.h"
 #include "simbrain.h"
 #include "net/net.h"
+#include "killfeed.h"
 
 // GoldenEye's frame as geguns.c takes it for its guns' rates: two sixtieths
 #define GE_FRAME60 2
@@ -5034,6 +5035,10 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	if (chr->prop == g_Vars.currentplayer->prop && g_Vars.currentplayer->invincible) {
 		return;
 	}
+
+#ifndef PLATFORM_N64
+	killfeedNoteHit(chr, gset, aprop, explosion); // the kill feed's weapon (drawing only)
+#endif
 
 	if (g_NetMode == NETMODE_SERVER) netEvChrDamage(chr, aprop, hitpart, damageshield, explosion); // netplay E4: a hit that lands
 

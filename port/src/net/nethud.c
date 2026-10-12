@@ -689,6 +689,12 @@ void netHudSay(const char *text)
 	}
 }
 
+/** The players panel is up (held P): the kill feed (killfeed.c) keeps out of its way */
+s32 netHudPanelUp(void)
+{
+	return s_PanelHeld || (s_TestPanelTick && g_NetTick >= s_TestPanelTick);
+}
+
 void netHudCounts(s32 *in, s32 *of, s32 *specs)
 {
 	char name[NET_MAXNAME + 1];

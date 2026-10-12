@@ -183,7 +183,8 @@
 // 31 (GoldenEye's tank ridden on top, 2026-10-12: CLAUDE-notes/netplay.md
 //    "F3 pass 37"): the local-player block's tank part grows to 48 bytes
 //    (NETLP_SIZE 736): u8 ride at 24 (the player stands on a tank somebody
-//    else drives), f32 across, up, along at 28 (its place in the hull's axes)
+//    else drives), f32 across, up, along at 28 (its place in the hull's axes);
+//    DEATH ends in a u8 weapon (the kill feed, killfeed.c)
 #define NET_PROTOCOL_VERSION 31
 
 #define NETMSG_CONNECT    1
@@ -969,7 +970,9 @@
  *   8 GLASS      (E5, glassDestroy)       REF obj
  *   9 DEATH      (E6, mpstatsRecordDeath) s8 attacker, s8 victim (mpchr slots:
  *                players 0-11, sims 12+, -1 none), s8 attacker given (-1 none,
- *                -2 outside the match), s8 victim given (the same)
+ *                -2 outside the match), s8 victim given (the same),
+ *                31) u8 weapon (the kill feed's: a weapon number, 0xfe an
+ *                explosion nothing named, 0xff none; killfeed.c)
  *  10 HUDMSG     (E7, hudmsgCreateFromArgs; only to the player's machine)
  *                str(255) text, u8 type (<= 11), s32 conf00, conf01, conf02,
  *                u32 textcolour, glowcolour, alignh, s32 conf16, u32 alignv,

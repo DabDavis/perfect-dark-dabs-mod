@@ -19,6 +19,7 @@
 #include "data.h"
 #include "types.h"
 #include "net/net.h"
+#include "killfeed.h"
 
 u32 var80070590 = 0x00000000;
 
@@ -272,6 +273,10 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 	if (g_Vars.normmplayerisrunning && g_MpSetup.scenario == MPSCENARIO_POPACAP && !NET_CLIENT) { // netplay: a client's Pop a Cap state is the host's block
 		pacHandleDeath(aplayernum, vplayernum);
 	}
+
+#ifndef PLATFORM_N64
+	killfeedRecord(aplayernum, vplayernum); // the kill feed's line (drawing only)
+#endif
 
 	// Find attacker and victim mpchrs
 	if (aplayernum >= 0) {
