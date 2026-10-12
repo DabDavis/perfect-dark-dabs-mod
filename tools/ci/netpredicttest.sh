@@ -48,6 +48,13 @@
 #           for ticks it spent dead here come in)
 #   time    a 1-minute time limit: the host ends it at 3600 ticks (give or
 #           take a few) and the client's level clock agrees
+#   teamlimit  the time run with teams off, a team score limit of 3 and the
+#           client's seat given 4 kills at tick 600 (--net-test-givekills):
+#           online a team number with teams off is nothing a player chose (a
+#           lobby deals its members onto teams 0 and 1, a seat past the
+#           fourth is team 0), and Perfect Dark checks the team limit teams
+#           or not, so summed kills ended a free-for-all early. No team
+#           limit online with teams off: the clock ends it at 3600
 #   hands   the local-player block's guns under Akimbo (F3 20261010-034434),
 #           Ravine, 150 ms: the host hands the client's player GoldenEye's
 #           Golden Gun with a DY357 in its inventory, then the DY357 alone
@@ -100,7 +107,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpredict-out}; PORT=${PORT:-27300}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-clean lag relay loss wine sims time hands cheats pitch skipdeath views views3p}
+CASES=${CASES:-clean lag relay loss wine sims time teamlimit hands cheats pitch skipdeath views views3p}
 MAXCPM=${MAXCPM:-10}
 FRAMES=${FRAMES:-3000}
 MINMATCH=${MINMATCH:-99}
@@ -544,6 +551,7 @@ for c in $CASES; do
 		sims)  SIMS=6 run sims $((PORT + i)) "$FRAMES" 0 "0,75" ;;
 		wine)  if [ -x "$(command -v wine)" ] && [ -e "$WINEEXE" ]; then run wine $((PORT + i)) "$FRAMES" 1 "${WINESIM-0,75}"; else echo "skip wine: no wine or no $WINEEXE"; fi ;;
 		time)  run_time $((PORT + i)) ;;
+		teamlimit) run_time $((PORT + i)) teamlimit --net-test-teamscorelimit 2 --net-test-givekills 1,600,4 ;;
 		hands) run_lp hands $((PORT + i)) "[Mod]\nAkimbo=1\n" "[Mod]\nAkimboTriggers=1\nQuickWeaponSwap=1\n" \
 				"--net-test-stage 0x17 --net-sim 0,72 --net-test-give 600,0x6d,-0x08/1200,0x08" "--net-sim 0,72" ;;
 		skipdeath) run_rules skipdeath $((PORT + i)) "[Mod]\nSkipDeathScreen=1\n" "[Mod]\nSkipDeathScreen=0\n" \
@@ -576,6 +584,7 @@ for c in $CASES; do
 		views) [ -e "$OUT/views-client.log" ] && check_views views 0 ;;
 		views3p) [ -e "$OUT/views3p-client.log" ] && check_views views3p 1 ;;
 		time) [ -e "$OUT/time-host.log" ] && check_time ;;
+		teamlimit) [ -e "$OUT/teamlimit-host.log" ] && check_time teamlimit ;;
 		hands) [ -e "$OUT/hands-client.log" ] && check_hands ;;
 		cheats) [ -e "$OUT/cheats-client.log" ] && check_cheats ;;
 	esac
