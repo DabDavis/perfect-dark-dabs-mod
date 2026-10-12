@@ -136,6 +136,13 @@ fi
 # a newcomer is turned away while it is full; a player quits mid-match and the
 # newcomer, joining again, is taken into the running match in that seat
 if [ "${SEAT:-1}" = 1 ]; then
+	# a lobby of its own: the pairs' sign-ins from 127.0.0.1 used up the
+	# sign-in limit (429 for the late newcomer)
+	python3 -u "$ROOT/tools/pdlobbyd/pdlobbyd.py" --host 127.0.0.1 --port 0 --udp-host 127.0.0.1 --udp-port 0 --auth open --relay-ports 0 \
+		> "$OUT/pdlobbyd-seat.log" 2>&1 &
+	SLOBBY=$!
+	waitfor "$OUT/pdlobbyd-seat.log" "pdlobbyd listening on" 20 || fail "seat: its pdlobbyd did not start"
+	LPORT=$(sed -n 's/.*listening on 127.0.0.1:\([0-9]*\).*/\1/p' "$OUT/pdlobbyd-seat.log" | head -1)
 	SP=$((GPORT + 3))
 	game seat-host seathost "$SP" 300 --net-lobby-script host --net-lobby-room "Seat Test" --net-lobby-size 3 --net-lobby-wait 2 \
 		--net-lobby-end-frame 2400 --net-test-stage 0x32 --net-test-sims 0 --rng-seed 10 &
@@ -155,6 +162,7 @@ if [ "${SEAT:-1}" = 1 ]; then
 	game seat-charlie seatcharlie $((SP + 3)) 200 --net-lobby-script join --net-lobby-room "Seat Test" --net-lobby-leave-frame 0 &
 	S5=$!
 	wait $S1; rs1=$?; wait $S3; rs3=$?; wait $S5; rs5=$?
+	kill $SLOBBY 2>/dev/null; wait $SLOBBY 2>/dev/null
 	echo "     seat: exits host $rs1 alpha $rs2 bravo $rs3 full $rs4 charlie $rs5"
 fi
 kill $LOBBY 2>/dev/null; wait $LOBBY 2>/dev/null
