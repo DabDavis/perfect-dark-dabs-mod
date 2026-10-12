@@ -52,6 +52,14 @@
 // DEATH carries a weapon number in a byte, two values above kept
 _Static_assert(NUM_WEAPONS < KILLFEED_WEAPON_EXPLOSION, "a weapon number past the kill feed's byte");
 
+// The feed is drawn smaller than its glyphs, about its top right corner
+// (gDPSetRectScaleEXT, as the online pages' Online Text Size is): the HUD
+// font at full size made each line a third of a 16:9 screen wide (the
+// coordinator, 2026-10-12). Boxes, padding and spacing scale with it.
+#define FEED_SCALE      0.65f
+// G_SETRECTSCALE_EXT's point is 12 signed bits of quarter units
+#define FEED_SCALE_XMAX 508
+
 #define COL_NAME        0xf0f0f0ff
 #define COL_OWNNAME     0xffe070ff
 #define COL_WEAPON      0xb8b8b8ff
@@ -376,10 +384,25 @@ static Gfx *killfeedRenderPd(Gfx *gdl, const struct feedparts *parts, s32 n, s32
 	s32 y = top;
 	s32 height;
 	s32 dummy;
+	s32 scalex;
 	s32 i, j;
 
 	g_ScaleX = g_ViRes == VIRES_HI ? 2 : 1;
 	right = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX - 8;
+
+	// scaled about the top right corner; past the point's reach (a high
+	// resolution frame) about the furthest point, laid out further right
+	// to end in the same place
+	{
+		const s32 rpx = (right + 3) * g_ScaleX;
+		const s32 px = rpx < FEED_SCALE_XMAX ? rpx : FEED_SCALE_XMAX;
+
+		if (px != rpx) {
+			right = (s32)((px + (rpx - px) / FEED_SCALE) / g_ScaleX) - 3;
+		}
+
+		scalex = px;
+	}
 
 	// a full-width view keeps the HUD's right edge (HUD Centering)
 	if (fullwidth) {
@@ -387,6 +410,7 @@ static Gfx *killfeedRenderPd(Gfx *gdl, const struct feedparts *parts, s32 n, s32
 	}
 
 	gdl = text0f153628(gdl);
+	gDPSetRectScaleEXT(gdl++, FEED_SCALE, scalex, top);
 
 	// a line's height: textMeasure() takes it from a newline
 	textMeasure(&height, &dummy, "Ay\n", g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
@@ -423,6 +447,7 @@ static Gfx *killfeedRenderPd(Gfx *gdl, const struct feedparts *parts, s32 n, s32
 		y += height + 4;
 	}
 
+	gDPSetRectScaleEXT(gdl++, 1.0f, 0, 0);
 	gdl = text0f153780(gdl);
 
 	if (fullwidth) {
@@ -487,7 +512,7 @@ Gfx *killfeedRender(Gfx *gdl)
 			lines[i].box = parts[i].box;
 		}
 
-		return geHudRenderFeed(gdl, lines, n, (g_MpSetup.options & MPOPTION_NORADAR) != 0);
+		return geHudRenderFeed(gdl, lines, n, (g_MpSetup.options & MPOPTION_NORADAR) != 0, FEED_SCALE);
 	}
 
 	// under the radar (its disc to 42 rows down), or at the top with none

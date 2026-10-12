@@ -1263,11 +1263,12 @@ static Gfx *hudFillBox(Gfx *gdl, f32 x1, f32 y1, f32 x2, f32 y2, u32 colour)
  * the frame's right edge less the radar's margin and started under the radar's
  * disc (its centre 0x1a down, 16 units across), each on a box.
  */
-Gfx *geHudRenderFeed(Gfx *gdl, const struct gehudfeedline *lines, s32 n, s32 noradar)
+Gfx *geHudRenderFeed(Gfx *gdl, const struct gehudfeedline *lines, s32 n, s32 noradar, f32 scale)
 {
 	struct hudframe f;
 	s32 height;
 	s32 dummy;
+	s32 x2;
 	s32 y;
 	s32 i, j;
 
@@ -1282,8 +1283,20 @@ Gfx *geHudRenderFeed(Gfx *gdl, const struct gehudfeedline *lines, s32 n, s32 nor
 
 	y = noradar ? 10 : 0x1a + 16 + 6;
 
+	// scaled about the top right corner of the first box, in the frame
+	// buffer's pixels (G_SETRECTSCALE_EXT, killfeed.c); a corner past the
+	// point's reach (12 signed bits of quarter units) is scaled about the
+	// furthest point and laid out further right to end in the same place
+	{
+		const f32 rpx = viGetViewLeft() + (f.width - 7) * f.sx;
+		const f32 px = rpx < 508.0f ? rpx : 508.0f;
+		const f32 py = viGetViewTop() + (y - 1) * f.sy;
+
+		x2 = (s32)((px + (rpx - px) / scale - viGetViewLeft()) / f.sx + 0.5f) - 3;
+		gDPSetRectScaleEXT(gdl++, scale, px, py);
+	}
+
 	for (i = 0; i < n; i++) {
-		const s32 x2 = f.width - 10;
 		s32 widths[4];
 		s32 width = 0;
 		s32 x;
@@ -1311,6 +1324,8 @@ Gfx *geHudRenderFeed(Gfx *gdl, const struct gehudfeedline *lines, s32 n, s32 nor
 
 		y += height + 3;
 	}
+
+	gDPSetRectScaleEXT(gdl++, 1.0f, 0, 0);
 
 	return hudEnd(gdl);
 }
