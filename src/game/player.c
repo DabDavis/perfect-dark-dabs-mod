@@ -8729,7 +8729,17 @@ s32 playerTickThirdPerson(struct prop *prop)
 		return tickop2;
 	}
 
-	if (PLAYERCOUNT() == 1) {
+	if (PLAYERCOUNT() == 1
+#ifndef PLATFORM_N64
+			// netplay: a client's own player seen through its own eyes. Its
+			// body is ticked (chrTick, and its chrUpdateCloak) only in another
+			// player's pass - the branch above - and a client runs no pass but
+			// its own: the cloak never came on here, so neither the cloak's
+			// look nor the RC-P120's drain on its magazine did either (the
+			// owner: "the rcp120 cloak is desynced for clients but not host")
+			|| (g_NetMode == NETMODE_CLIENT && netIsLocalSlot(playernum))
+#endif
+			) {
 		chrUpdateCloak(chr);
 	}
 

@@ -30,6 +30,26 @@
 #           host's from its descriptor, head and all (its puppets' "Guards
 #           Alerted! guards" count; they had been missing unless a chr there
 #           wore the same body and head, F3 20261010-034414).
+#   cloak   (0x32, no sims, two clients) the first client's player is given
+#           the RC-P120 and switches its cloak with the alt mode button: on,
+#           off, on until the magazine runs dry (the host switches it off),
+#           on again. Every 30 ticks (--net-test-trace) the client's switch,
+#           its own player's cloak and its magazine, and the second client's
+#           puppet of it must be the host's (a sample either side allowed).
+#           The client's own player never cloaked (its body is ticked only
+#           in other players' passes), so its magazine never drained there,
+#           and the host's switch-off at an empty magazine never reached it:
+#           its next press cloaked the host's player and uncloaked its own.
+#   laptop  (0x32, 2 sims, the client's player invincible) the client's player is given the Laptop Gun
+#           (--net-test-give) and fires it with the alt mode button held
+#           (its second function): thrown to deploy as a sentry. The host's laptopDeploy makes an
+#           autogun (a DYNOBJ, kind 6) the moment it leaves the hand; the
+#           client must make it too and pose it where the host has it, in
+#           flight and standing (it had made none: nobody but the host saw
+#           a thrown laptop, F3 20261012-014545). Its aim and firing ride in
+#           the record (protocol 31): the sims come for the client's
+#           player, the sentry fires at them, and the client must draw some
+#           of its shots.
 #
 # Side-by-side screenshots (shots: host and client a moment apart, the
 # host's player stood just behind the client's, both looking at the same
@@ -38,7 +58,7 @@
 #   netpuppettest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: OUT (build/netpuppet-out), PORT (27200; uses PORT..PORT+4), MODDIR
-# (mod_allinone), CASES (skedar lossy doors two alarm shots; shots only takes the
+# (mod_allinone), CASES (skedar lossy doors two alarm laptop cloak shots; shots only takes the
 # screenshots, its players invincible and moved, so it gates on nothing but a
 # clean run).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
@@ -47,7 +67,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpuppet-out}; PORT=${PORT:-27200}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-skedar lossy doors two alarm shots}
+CASES=${CASES:-skedar lossy doors two alarm laptop cloak shots}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -86,6 +106,25 @@ cat > "$OUT/client2.script" <<'EOF'
 60 500 0008 0 0 0 0 0.15 0
 700 1000 0008 0 0 0 0 -0.25 0
 1300 1700 0008 0 0 0 0 0.3 0
+EOF
+# laptop: the alt mode button (L) held and fire pressed with it - the
+# Laptop Gun's second function while L is down: the throw - turned a little
+# first so it flies into the room
+cat > "$OUT/laptop.script" <<'EOF'
+400 430 0 0 0 0 0 0.4 0
+450 499 0020 0 0 0 0 0 0
+500 504 2020 0 0 0 0 0 0
+505 560 0020 0 0 0 0 0 0
+EOF
+# cloak: the alt mode button (L) pressed and let go switches the RC-P120's
+# cloak (CONTROLMODE_PC: bgunConsiderToggleGunFunction's own toggle): on,
+# off a second later, on until the magazine runs dry (the host switches it
+# off), and on once more
+cat > "$OUT/cloak.script" <<'EOF'
+500 505 0020 0 0 0 0 0 0
+600 605 0020 0 0 0 0 0 0
+800 805 0020 0 0 0 0 0 0
+1300 1305 0020 0 0 0 0 0 0
 EOF
 cat > "$OUT/shots.script" <<'EOF'
 60 300 0008 0 0 0 0 0 0
@@ -221,6 +260,8 @@ run() {
 	# under gdb now and then, and it must not find the host gone)
 	local extra=100 cscript=client.script
 	[ "$label" = shots ] && { extra=1500; cscript=shots.script; }
+	[ "$label" = laptop ] && cscript=laptop.script
+	[ "$label" = cloak ] && cscript=cloak.script
 	game "$label-host" 240 --moddir "$MODDIR" --host "$port" --net-test-host "$nclients" --net-test-stage "$stage" \
 		--net-test-sims "$sims" --endless --rng-seed 1 --mp-weapons 1,4,7,9,10,1 \
 		--net-test-input "$OUT/host.script" --net-snap-dump "$OUT/$label-host.dump" \
@@ -283,7 +324,7 @@ def angd(x, y):
     if d > math.pi: d -= TAU
     if d < -math.pi: d += TAU
     return abs(d)
-P = []; O = []; D = []; T = []; R = []
+P = []; O = []; D = []; T = []; R = []; L = []
 for line in open(tpath):
     p = line.split()
     if p[0] == 'P':
@@ -291,6 +332,7 @@ for line in open(tpath):
         R.append((int(p[12]), int(p[13])))
     elif p[0] == 'O':
         O.append((int(p[1]), float(p[2]), int(p[3]), int(p[4])))
+        if int(p[4]) == 6 and int(p[9]) == 13: L.append((int(p[1]), float(p[2]), int(p[3]), [float(x) for x in p[5:8]]))
         R.append((int(p[8]), int(p[10])))
     elif p[0] == 'D': D.append((int(p[1]), float(p[2]), int(p[3]), float(p[4])))
     elif p[0] == 'T': T.append((int(p[1]), float(p[2])))
@@ -381,6 +423,26 @@ if mode in ('full', 'lossy'):
         print(f"ok   {label}: {considered} dropped weapons the host offered: {shown} shown on the client while offered, {gone} gone after")
     else:
         print(f"FAIL {label}: dropped weapons: {considered} offered, {shown} shown, {gone} gone after"); status = 1
+if mode == 'laptop':
+    # the thrown laptop: an autogun DYNOBJ (kind 6) on the host, made here
+    # and posed where the host had it, in flight and once it stood
+    hl = sorted({eid for eid, v in H.items() if any(s[10] == 6 for s in v)})
+    errs = []; far = []
+    for (ct, rt, eid, pos) in L:
+        r = at(eid, rt)
+        if not r: continue
+        a, b, t = r
+        if a[10] != 6 or a[3] not in (1, 2) or b[3] not in (1, 2): continue
+        hp = [a[4][k] + (b[4][k] - a[4][k]) * t for k in range(3)]
+        e = math.dist(hp, pos); errs.append(e)
+        if e > 8 and len(far) < 5: far.append(f"client tick {ct} rt {rt:.2f} id {eid}: {['%.1f' % x for x in pos]} host {['%.1f' % x for x in hp]}")
+    errs.sort()
+    moved = max((math.dist(L[0][3], x[3]) for x in L), default=0)
+    if hl and len(errs) >= 20 and q(errs, 0.95) <= 4 and moved > 20:
+        print(f"ok   {label}: the host's thrown laptop (id {', '.join(map(str, hl))}) made here: {len(L)} traced poses, {len(errs)} compared, error median {q(errs, .5):.2f} p95 {q(errs, .95):.2f} max {errs[-1]:.2f} units, flew {moved:.0f} units")
+    else:
+        for x in far: print("     " + x)
+        print(f"FAIL {label}: thrown laptop: host ids {hl or 'none'}, client poses {len(L)}, compared {len(errs)}, p95 {q(errs, .95) if errs else -1:.2f}, flew {moved:.0f}"); status = 1
 if mode == 'doors':
     errs = []; moved = set()
     for (ct, rt, eid, frac) in D:
@@ -452,6 +514,8 @@ check_run() {
 		two)    run two $((PORT + i)) 0x32 4 2 2000 ;;
 		shots)  run shots $((PORT + i)) 0x32 8 1 1300 ;;
 		alarm)  run alarm $((PORT + i)) 0x17 0 1 2400 --chr-trace ;;
+		laptop) run laptop $((PORT + i)) 0x32 2 1 2400 --net-test-give 300,0x0e --net-test-invincible-pad 1 ;;
+		cloak)  run cloak $((PORT + i)) 0x32 0 2 1800 --net-test-give 300,0x0d --net-test-trace 30 ;;
 		esac
 		i=$((i + 1))
 	done
@@ -476,6 +540,55 @@ for c in $CASES; do
 	        else
 	        	fail "alarm: host spawns $hs, client's own spawns $cs (want 0), host's guards made on the client '${cb:-?}' (want 2 or more)"
 	        fi ;;
+	cloak)  check_run cloak client client2
+	        python3 - "$OUT/cloak-host.log" "$OUT/cloak-client.log" "$OUT/cloak-client2.log" <<'PY' || status=1
+import re, sys
+def trace(path):
+    t = {}
+    for l in open(path):
+        m = re.search(r"net: trace tick (\d+) player 1 .* ammo (\d+) .* devices (\S+) cloaked (-?\d+)", l)
+        if m: t[int(m.group(1))] = (int(m.group(2)), int(m.group(3), 16) & 0x80 != 0, int(m.group(4)))
+    return t
+H, C, C2 = (trace(x) for x in sys.argv[1:4])
+ticks = sorted(k for k in H if k >= 450 and k in C and k in C2)
+bad = []
+def near(d, k, f, want):
+    # the same as the host's at this sample, or at the one before or after
+    # (the client's ticks lead the host's commands; the third machine draws
+    # the host's a render delay late)
+    return any(f(d[j]) == want for j in (k - 30, k, k + 30) if j in d)
+ons = sum(1 for a, b in zip(ticks, ticks[1:]) if not H[a][1] and H[b][1])
+offs = sum(1 for a, b in zip(ticks, ticks[1:]) if H[a][1] and not H[b][1])
+dry = any(H[a][1] and not H[b][1] and H[b][0] == 0 for a, b in zip(ticks, ticks[1:]))
+for k in ticks:
+    if not near(C, k, lambda x: x[1], H[k][1]): bad.append(f"tick {k}: the client's cloak switch {C[k][1]}, the host's {H[k][1]}")
+    if not near(C, k, lambda x: x[2], H[k][2]): bad.append(f"tick {k}: the client's own player cloaked {C[k][2]}, the host's {H[k][2]}")
+    if not near(C2, k, lambda x: x[2], H[k][2]): bad.append(f"tick {k}: the third machine's puppet cloaked {C2[k][2]}, the host's {H[k][2]}")
+    if H[k][2] and not any(j in C and abs(C[j][0] - H[k][0]) <= 12 for j in (k - 30, k, k + 30)):
+        bad.append(f"tick {k}: cloaked, the client's magazine {C[k][0]}, the host's {H[k][0]}")
+print(f"     cloak: {len(ticks)} samples; on the host the cloak came on {ons} times and went off {offs} ({'once at an empty magazine' if dry else 'never at an empty magazine'})")
+if ons >= 3 and offs >= 2 and dry and not bad:
+    print("ok   cloak: the client's switch, its own player's cloak and its magazine, and the third machine's puppet, as the host's")
+else:
+    for b in bad[:12]: print("     " + b)
+    print(f"FAIL cloak: {len(bad)} samples off the host's (on {ons}, off {offs}, dry {dry})"); sys.exit(1)
+PY
+	        grep "net: local block .*cloaks set" "$OUT/cloak-client.log" | tail -1 | sed "s/^.*net: /     cloak client: /" ;;
+	laptop) check_run laptop client
+	        grep -q "net: --net-test-give: slot 1 given guns 0x0e" "$OUT/laptop-host.log" || fail "laptop: the host never gave the client's player the Laptop Gun"
+	        lp=$(grep "net: puppets " "$OUT/laptop-client.log" | tail -1 | sed -n 's/.*thrown laptops made \([0-9]*\), autogun shots drawn \([0-9]*\).*/\1 \2/p')
+	        hf=$(grep -o "autogun records firing [0-9]*" "$OUT/laptop-host.log" | tail -1 | awk '{print $4}')
+	        set -- $lp
+	        if [ "${1:-0}" -lt 1 ]; then
+	        	fail "laptop: the client made '${1:-?}' thrown laptops (want 1 or more)"
+	        elif [ "${hf:-0}" -gt 0 ] && [ "${2:-0}" -lt 1 ]; then
+	        	fail "laptop: the host's sentry fired ($hf records firing) and the client drew none of its shots"
+	        elif [ "${hf:-0}" -gt 0 ]; then
+	        	pass "laptop: the client made $1 thrown laptop(s) and drew $2 of the sentry's shots (the host's records firing: $hf)"
+	        else
+	        	echo "     laptop: made $1 thrown laptop(s); the host's sentry never fired this run (no sim came by): its shots untested"
+	        fi
+	        compare laptop laptop-client 1 0.5 laptop || status=1 ;;
 	shots)  check_run shots client
 	        for f in host client; do [ -s "$SHOTDIR/shots-$f.png" ] || fail "shots: no $f screenshot"; done ;;
 	esac

@@ -10806,6 +10806,225 @@ void autogunTickShoot(struct prop *autogunprop)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * An autogun on a net client (netPuppetObjTick; never offline or on the
+ * host): the host's autogunTick and autogunTickShoot decide where it aims,
+ * whether it fires and what its rounds hit, and the snapshots carry the aim
+ * and the firing (netents.c). This draws what the host's would show on its
+ * own screen: the barrel's spin, the muzzle flashes, the gun's sound and the
+ * tracer to the first wall or door along the aim. The hits' sparks, sounds
+ * and damage are the host's events. Returns the shots drawn.
+ */
+s32 autogunTickNetClient(struct prop *prop)
+{
+	struct autogunobj *autogun = (struct autogunobj *)prop->obj;
+	struct defaultobj *obj = prop->obj;
+	struct model *model = obj->model;
+	struct modelnode *node;
+	bool fireleft = false;
+	bool fireright = false;
+	s32 shots = 0;
+
+	if (autogun->beam) {
+		beamTick(autogun->beam);
+	}
+
+	if (model == NULL || lvIsPaused()) {
+		return 0;
+	}
+
+	// the barrel (autogunTick's end)
+	if (autogun->firing) {
+		autogun->barrelspeed += 0.009971722f * g_Vars.lvupdate60freal;
+
+		if (autogun->barrelspeed > 0.5983033f) {
+			autogun->barrelspeed = 0.5983033f;
+		}
+	} else if (autogun->barrelspeed > 0.0f) {
+		autogunSlowBarrel(autogun);
+
+		if (autogun->barrelspeed <= 0.0001f) {
+			autogun->barrelspeed = 0.0f;
+		}
+	}
+
+	if (autogun->barrelspeed > 0.0f) {
+		autogun->barrelrot += autogun->barrelspeed * g_Vars.lvupdate60freal;
+
+		while (autogun->barrelrot >= M_BADTAU) {
+			autogun->barrelrot -= M_BADTAU;
+		}
+	}
+
+	// autogunTickShoot's rate
+	if (g_Vars.lvupdate240 <= TICKS(4) && ((g_Vars.lvframe60 & 1) || g_Vars.lvupdate60 == 0)) {
+		return 0;
+	}
+
+	if (autogun->firing && (obj->flags & OBJFLAG_DEACTIVATED) == 0) {
+		autogun->firecount++;
+
+		fireleft = (autogun->firecount % 2) == 0;
+
+		if (modelGetPart(model->definition, MODELPART_AUTOGUN_FLASHLEFT)) {
+			fireright = (autogun->firecount % 2) == 1;
+		}
+
+		if (fireleft || fireright) {
+			struct coord gunpos;
+			RoomNum gunrooms[8];
+			struct coord hitpos;
+			struct modelnode *flashnode;
+			struct modelnode *posnode = NULL;
+
+			shots++;
+
+			if ((autogun->firecount & 7)
+					|| (flashnode = modelGetPart(model->definition, MODELPART_AUTOGUN_FLASHRIGHT)) == NULL) {
+				flashnode = modelGetPart(model->definition, MODELPART_AUTOGUN_FLASHLEFT);
+			}
+
+			if (flashnode == NULL) {
+				posnode = modelGetPart(model->definition, MODELPART_AUTOGUN_0003);
+			}
+
+			gunpos.x = prop->pos.x;
+			gunpos.y = prop->pos.y;
+			gunpos.z = prop->pos.z;
+			roomsCopy(prop->rooms, gunrooms);
+
+			if ((autogun->firecount % 4) == 0 && autogun->beam) {
+				struct beam *beam = autogun->beam;
+				struct coord dir;
+				struct coord dist;
+				f32 distance;
+
+				propSetPerimEnabled(prop, false);
+
+				if ((prop->flags & PROPFLAG_ONTHISSCREENTHISTICK) && (flashnode || posnode)) {
+					Mtxf *nodemtx;
+					Mtxf mtx;
+
+					if (flashnode) {
+						union modelrodata *rodata = flashnode->rodata;
+
+						nodemtx = modelFindNodeMtx(model, flashnode, 0);
+						gunpos.x = rodata->chrgunfire.pos.x;
+						gunpos.y = rodata->chrgunfire.pos.y;
+						gunpos.z = rodata->chrgunfire.pos.z;
+					} else {
+						nodemtx = modelFindNodeMtx(model, posnode, 0);
+						gunpos.x = gunpos.y = gunpos.z = 0.0f;
+					}
+
+					if (nodemtx) {
+						mtx00015be4(camGetProjectionMtxF(), nodemtx, &mtx);
+						mtx4TransformVecInPlace(&mtx, &gunpos);
+
+						if (cdTestLos10(&prop->pos, prop->rooms, &gunpos, gunrooms, CDTYPE_BG, GEOFLAG_BLOCK_SHOOT) == CDRESULT_COLLISION) {
+							gunpos.x = prop->pos.x;
+							gunpos.y = prop->pos.y;
+							gunpos.z = prop->pos.z;
+							roomsCopy(prop->rooms, gunrooms);
+						}
+					} else {
+						gunpos.x = prop->pos.x;
+						gunpos.y = prop->pos.y;
+						gunpos.z = prop->pos.z;
+					}
+				}
+
+				dir.x = cosf(autogun->xrot) * sinf(autogun->yrot);
+				dir.y = sinf(autogun->xrot);
+				dir.z = cosf(autogun->xrot) * cosf(autogun->yrot);
+
+				hitpos.x = gunpos.x + dir.x * 65536.0f;
+				hitpos.y = gunpos.y + dir.y * 65536.0f;
+				hitpos.z = gunpos.z + dir.z * 65536.0f;
+
+				if (cdExamLos08(&gunpos, gunrooms, &hitpos, CDTYPE_BG | CDTYPE_DOORS, GEOFLAG_BLOCK_SHOOT) == CDRESULT_COLLISION) {
+					cdGetPos(&hitpos, __LINE__, "prop/propobj.c");
+				}
+
+				propSetPerimEnabled(prop, true);
+
+				dist.x = hitpos.x - gunpos.x;
+				dist.y = hitpos.y - gunpos.y;
+				dist.z = hitpos.z - gunpos.z;
+				distance = sqrtf(dist.x * dist.x + dist.y * dist.y + dist.z * dist.z);
+
+				if (distance > 0.0f) {
+					beam->from = gunpos;
+					beam->dir.x = dist.x / distance;
+					beam->dir.y = dist.y / distance;
+					beam->dir.z = dist.z / distance;
+
+					if (distance > 10000.0f) {
+						distance = 10000.0f;
+					}
+
+					beam->age = 0;
+					beam->weaponnum = autogun->base.modelnum == MODEL_CETROOFGUN ? WEAPON_CALLISTO : WEAPON_RCP45;
+					beam->maxdist = distance;
+
+					if (distance < 500.0f) {
+						distance = 500.0f;
+					}
+
+					beam->speed = 0.2f * distance;
+					beam->mindist = 0.2f * distance;
+
+					if (beam->mindist > 3000.0f) {
+						beam->mindist = 3000.0f;
+					}
+
+					beam->dist = (2.0f * RANDOMFRAC() - 1.0f) * beam->speed;
+				}
+			}
+		}
+
+		if (autogun->allowsoundframe < g_Vars.lvframe60) {
+			s32 soundgap = 2;
+			s32 soundnum = SFX_806F;
+
+			psStopSound(prop, PSTYPE_GENERAL, 0xffff);
+
+			if (autogun->base.modelnum == MODEL_CETROOFGUN) {
+				soundnum = SFX_MENU_ERROR;
+			}
+
+			if (autogun->base.modelnum == MODEL_CHRAUTOGUN) {
+				soundnum = SFX_8044;
+				soundgap = 4;
+			}
+
+			soundnum = geSfxOr(253, soundnum);
+
+			psCreate(NULL, prop, soundnum, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
+
+			autogun->allowsoundframe = soundgap + g_Vars.lvframe60;
+		}
+	}
+
+	node = modelGetPart(model->definition, MODELPART_AUTOGUN_FLASHLEFT);
+
+	if (node) {
+		union modelrwdata *rwdata = modelGetNodeRwData(model, node);
+		rwdata->chrgunfire.visible = fireleft;
+	}
+
+	node = modelGetPart(model->definition, MODELPART_AUTOGUN_FLASHRIGHT);
+
+	if (node) {
+		union modelrwdata *rwdata = modelGetNodeRwData(model, node);
+		rwdata->chrgunfire.visible = fireright;
+	}
+
+	return shots;
+}
+#endif
+
 u32 var80069cc0 = 0x00000000;
 
 void chopperInitMatrices(struct prop *prop)
@@ -21052,6 +21271,132 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 
 	return laptop;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * A net client's copy of a Laptop Gun the host's laptopDeploy() made (a
+ * snapshot's DYNOBJ autogun, netpuppets.c): the same object in a free slot
+ * of g_ThrownLaptops, which a client never deploys into itself (the host
+ * makes projectiles, bgunCreateThrownProjectile). The snapshots place it,
+ * aim it and say when it fires (autogunTickNetClient); nothing here ticks it.
+ */
+struct autogunobj *laptopMakeNetClient(s32 modelnum)
+{
+	struct modeldef *modeldef;
+	struct autogunobj *laptop = NULL;
+	struct prop *prop;
+	struct model *model;
+	s32 index;
+
+	if (g_ThrownLaptops == NULL || modelnum < 0 || modelnum >= NUM_MODELS || g_ModelStates[modelnum].fileid == 0) {
+		return NULL;
+	}
+
+	for (index = 0; index < g_MaxThrownLaptops; index++) {
+		if (g_ThrownLaptops[index].base.prop == NULL) {
+			laptop = &g_ThrownLaptops[index];
+			break;
+		}
+	}
+
+	if (laptop == NULL) {
+		return NULL;
+	}
+
+	setupLoadModeldef(modelnum);
+	modeldef = g_ModelStates[modelnum].modeldef;
+
+	if (modeldef == NULL) {
+		return NULL;
+	}
+
+	prop = propAllocate();
+	model = modelmgrInstantiateModelWithoutAnim(modeldef);
+
+	if (prop == NULL || model == NULL) {
+		if (model) {
+			modelmgrFreeModel(model);
+		}
+
+		if (prop) {
+			propFree(prop);
+		}
+
+		return NULL;
+	}
+
+	{
+		struct defaultobj tmp = {
+			256,                    // extrascale
+			0,                      // hidden2
+			OBJTYPE_AUTOGUN,        // type
+			0,                      // modelnum
+			1,                      // pad
+			0,                      // flags
+			0,                      // flags2
+			0,                      // flags3
+			NULL,                   // prop
+			NULL,                   // model
+			1, 0, 0,                // realrot
+			0, 1, 0,
+			0, 0, 1,
+			0,                      // hidden
+			NULL,                   // geo
+			NULL,                   // projectile
+			0,                      // damage
+			1000,                   // maxdamage
+			0xff, 0xff, 0xff, 0x00, // shadecol
+			0xff, 0xff, 0xff, 0x00, // nextcol
+			0x0fff,                 // floorcol
+			0,                      // tiles
+		};
+
+		laptop->base = tmp;
+	}
+
+	laptop->base.modelnum = modelnum;
+	prop = objInit(&laptop->base, modeldef, prop, model);
+
+	if (prop == NULL) {
+		laptop->base.prop = NULL;
+		return NULL;
+	}
+
+	laptop->targetpad = -1;
+	laptop->aimdist = 5000;
+	laptop->target = NULL;
+	laptop->targetteam = 0;
+	laptop->nextchrtest = 0;
+	laptop->firecount = 0;
+	laptop->lastseebond60 = -1;
+	laptop->lastaimbond60 = -1;
+	laptop->allowsoundframe = -1;
+	laptop->firing = false;
+	laptop->yspeed = 0;
+	laptop->xspeed = 0;
+	laptop->barrelspeed = 0;
+	laptop->barrelrot = 0;
+	laptop->shotbondsum = 0;
+	laptop->ammoquantity = 255;
+	laptop->beam = &g_ThrownLaptopBeams[index];
+	laptop->beam->age = -1;
+	laptop->yzero = 0;
+	laptop->xzero = 0;
+	laptop->yrot = 0;
+	laptop->xrot = 0;
+	laptop->ymaxleft = 12.56f;
+	laptop->ymaxright = -12.56f;
+	laptop->maxspeed = PALUPF(0.0697f);
+
+	prop->forcetick = true;
+
+	laptop->base.hidden |= OBJHFLAG_TAGGED;
+	laptop->base.flags |= OBJFLAG_THROWNLAPTOP | OBJFLAG_01000000 | OBJFLAG_WEAPON_AICANNOTUSE;
+	laptop->base.flags3 |= OBJFLAG3_INTERACTABLE | OBJFLAG3_08000000;
+
+	return laptop;
+}
+#endif
 
 struct weaponobj *weaponCreateProjectileFromGset(s32 modelnum, struct gset *gset, struct chrdata *chr)
 {

@@ -117,6 +117,9 @@ static inline void netStoreSetTick(u8 *s, u32 t) { s[4] = (u8)t; s[5] = (u8)(t >
 #define NETOBJ_MOUNTED    0x40 // (protocol 28) somebody is in it: GoldenEye's tank driven
 #define NETOBJ_LENSGONE   0x80 // (protocol 29) a camera's lens shot out (cctvHandleLensShot)
 
+// (protocol 31) OBJ record byte 20 of an autogun (no weapon number there)
+#define NETAUTOGUN_FIRING 0x01
+
 // DOOR record byte 4
 #define NETDOOR_ENABLED   0x01
 #define NETDOOR_DELISTED  0x02 // (protocol 24) as NETOBJ_DELISTED
@@ -320,6 +323,12 @@ struct netlptank {
 	f32 rel[3];    // ... where: across, up, along in the hull's axes
 };
 
+// (protocol 31) the local-player block's byte 202: the player's cloaks on
+// (devicesactive), the host's word once it has played the command that
+// switched one here (netEntsClientApplyLocal)
+#define NETLPDEV_CLOAKRCP120 0x01 // DEVICE_CLOAKRCP120: the RC-P120's cloak
+#define NETLPDEV_CLOAKDEVICE 0x02 // DEVICE_CLOAKDEVICE: the Cloaking Device
+
 #define NETLP_DEAD       0x01
 #define NETLP_INVINCIBLE 0x02
 
@@ -341,6 +350,7 @@ struct netlpstate {
 	u8 inv[32];             // a bit per weapon number held
 	u8 invdual[32];         // a bit per weapon number held twice
 	u16 blurdrug;           // (protocol 20) the player chr's blurdrugamount: a tranquilizer's drugged screen
+	u8 devices;             // (protocol 31) the cloaks switched on: NETLPDEV_*
 	struct netmove mv;
 	struct netlptank tank;  // (protocol 23)
 };

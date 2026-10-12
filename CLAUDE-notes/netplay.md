@@ -3551,3 +3551,75 @@ there anyway. Packed commands grew from 32 to 36 bytes. Gate:
   seat by the client's value, as the client predicts it.
 - Gates: netpredicttest `skipdeath` (host 1, client 0, `--net-test-kill`,
   `--net-test-deathlog`), `views` / `views3p` (`--net-test-viewlog`).
+
+## A thrown Laptop Gun online (protocol 31, 2026-10-12)
+
+F3 20261012-014545 (ElmoBear, a client in a Combat Simulator match: "i dont
+see my laptop gun throwing"). The throw itself went to the host as any fire
+does, and the host deployed the sentry (`laptopDeploy`, a slot of
+`g_ThrownLaptops`): it flew, stood, shot and blew up there. But the sentry is
+an *autogun* made at run time, so the snapshots described it as a DYNOBJ
+(kind 6), and `netPupDyn` made no DYNOBJ ("debris and the like"): on every
+client - the thrower's own and the others' - nothing left the hand, nothing
+stood, only its hits' sparks and damage (the host's events) and its
+explosion came through. Now:
+
+- **Made on the client.** A DYNOBJ whose objtype is OBJTYPE_AUTOGUN is made
+  by `laptopMakeNetClient()` (propobj.c) into a free slot of
+  `g_ThrownLaptops` (a client never deploys into its own: the host makes
+  projectiles), as `laptopDeploy` builds one; posed by its record like any
+  dynamic object, in flight and standing, and freed when its id leaves.
+- **Aimed and firing as the host's.** An autogun's OBJ record carries bytes
+  20-22 now (`NETAUTOGUN_FIRING`, the turn in 256ths, the elevation in half
+  degrees, signed; netsnap.h/netproto.h), for any autogun - a mission's
+  turrets too, which on a client had stood at their setup aim and never
+  flashed. `netPuppetObjTick` runs `autogunTickNetClient()`: the barrel's
+  spin, the flashes, the gun's sound and a tracer every fourth shot to the
+  first wall or door along the aim, at `autogunTickShoot`'s rate; what the
+  rounds hit is the host's (events).
+- **Out of the thrower's hand at once.** `bgunCreateThrownProjectile` on a
+  client still returns before making anything, but a gun thrown to deploy
+  (WEAPONFLAG3_DEPLOYS) is let go there (`bgunFreeWeapon`, as the host
+  does), not a round trip later when the host's inventory says so: the
+  third-person body stopped holding the laptop it had just thrown.
+- Gate: netpuppettest `laptop` (2 sims, the client's player invincible: it
+  is given the Laptop Gun and fires with the alt mode button, L, held - the
+  second function; the host's kind-6 autogun must be made on the client
+  and posed within 4 units, p95, where the host had it, and when the host's
+  sentry fired - "autogun records firing" in its snap summary - the client
+  must have drawn shots: "thrown laptops made", "autogun shots drawn" in
+  its puppets summary). In a script, B held does not change a Laptop Gun's
+  function on PC (CONTROLMODE_PC reads the alt mode button, L_TRIG, and the
+  laptop's second function is a temporary one while it is held).
+
+## The RC-P120's cloak on a client (protocol 31, 2026-10-12)
+
+The owner: "the rcp120 cloak is desynced for clients but not host". A
+client's switch (the alt mode button on PC, or the second function's fire)
+reached the host with the command and switched the host's copy, but:
+
+- **A client's own player never cloaked.** In a match a player's body is
+  ticked (`chrTick`, and in it `chrUpdateCloak`) only in another player's
+  pass (`playerTickThirdPerson`'s "every other player" branch); offline,
+  or on the host, some other pass always runs. A client runs only its own
+  pass, so seen through its own eyes its chr never got CHRHFLAG_CLOAKED:
+  no cloak look, and the RC-P120's drain (which needs the chr cloaked) never
+  ran there - the magazine stood full until the host's stopped moving
+  (`NET_LPSTABLE`). `playerTickThirdPerson` now calls `chrUpdateCloak` for
+  a client's own player when that branch did not tick the body (as it does
+  for a lone player offline). The Cloaking Device shared the same gap.
+- **Nothing carried the switch back.** `devicesactive` was in no block, so
+  what the host decided alone - the cloak off when the magazine runs dry,
+  and anything else that clears it - never reached the client: it went on
+  believing the cloak on, and its next press switched the host's on and its
+  own off, inverted from then on. The local-player block's byte 202 carries
+  the cloaks on (`NETLPDEV_*`); the client takes the host's word once the
+  host has played the command that last switched one here (the switch shows
+  at once; an older block would switch it back for a round trip). "cloaks
+  set" in the local block summary counts the host's word put over this
+  machine's (0 in the gate: with the drain in step the two agree).
+- Gate: netpuppettest `cloak` (two clients, no sims): the first client
+  switches on, off, on until the magazine runs dry, on again; every 30 ticks
+  (`--net-test-trace`, whose player lines now end in `devices` and
+  `cloaked`) its switch, its own cloak and magazine, and the second client's
+  puppet of it must be the host's.

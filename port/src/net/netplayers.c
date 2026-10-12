@@ -2491,12 +2491,13 @@ static void netPlayersTrace(void)
 
 		// (busy: the commands played for that pad so far that held any
 		// input; speed: the walk's forwards and sideways, the shot push)
-		sysLogPrintf(LOG_NOTE, "net: trace tick %u player %d pad %d%s pos %.1f %.1f %.1f theta %.2f verta %.2f weapon %d ammo %d dead %d busy %u speed %.2f %.2f push %.1f %.1f",
+		sysLogPrintf(LOG_NOTE, "net: trace tick %u player %d pad %d%s pos %.1f %.1f %.1f theta %.2f verta %.2f weapon %d ammo %d dead %d busy %u speed %.2f %.2f push %.1f %.1f devices %#x cloaked %d",
 				g_NetTick, i, pad, netPadIsRemote(pad) ? " (remote)" : netIsLocalSlot(i) ? " (local)" : "",
 				p->prop->pos.x, p->prop->pos.y, p->prop->pos.z, p->vv_theta, p->vv_verta,
 				p->gunctrl.weaponnum, p->hands[HAND_RIGHT].loadedammo[0], p->isdead,
 				pad >= 0 && pad < MAX_PLAYERS ? s_Pads[pad].busy : 0, p->speedforwards, p->speedsideways,
-				p->bondshotspeed.x, p->bondshotspeed.z);
+				p->bondshotspeed.x, p->bondshotspeed.z, p->devicesactive,
+				p->prop->chr ? (p->prop->chr->hidden & CHRHFLAG_CLOAKED) != 0 : -1);
 	}
 
 	if (g_NetMode == NETMODE_CLIENT) {

@@ -183,9 +183,15 @@
 // 31 (GoldenEye's tank ridden on top, 2026-10-12: CLAUDE-notes/netplay.md
 //    "F3 pass 37"): the local-player block's tank part grows to 48 bytes
 //    (NETLP_SIZE 736): u8 ride at 24 (the player stands on a tank somebody
-//    else drives), f32 across, up, along at 28 (its place in the hull's axes); and a CMD's command
-//    can carry Team Control's order to a sim (NETCMD_ORDER: u8 sim, u8
-//    command, u8 target), packed commands 36 bytes (were 32)
+//    else drives), f32 across, up, along at 28 (its place in the hull's axes);
+//    a CMD's command can carry Team Control's order to a sim (NETCMD_ORDER:
+//    u8 sim, u8 command, u8 target), packed commands 36 bytes (were 32);
+//    an autogun's OBJ record (a thrown Laptop Gun's sentry, a mission's
+//    turret) carries its aim and firing in bytes 20-22 (NETAUTOGUN_FIRING,
+//    the turn in 256ths, the elevation in half degrees), and a client makes
+//    a DYNOBJ autogun (the thrown laptop) it had left out; the local-player
+//    block's byte 202 (was 0) holds the player's cloaks on (NETLPDEV_*: the
+//    RC-P120's, the Cloaking Device), the host's word over the client's
 #define NET_PROTOCOL_VERSION 31
 
 #define NETMSG_CONNECT    1
@@ -806,6 +812,9 @@
  *     15, the last call's level in the high one; DOOR byte 4 bit 4,
  *     NETDOOR_GLASSGONE: a windowed door's pane shot out)
  *     (protocol 28: OBJ byte 0 bit 0x40, NETOBJ_MOUNTED: GoldenEye's tank
+ *     (protocol 31: an autogun's OBJ byte 20 bit 1, NETAUTOGUN_FIRING;
+ *     byte 21 its turn in 256ths of a turn, byte 22 its elevation in half
+ *     degrees, signed - GoldenEye's tank's bytes 21-22 are its turret's)
  *     with somebody in it, which nobody else may climb into; DOOR bytes
  *     6-14 where the door stands (3 x 24-bit eighths, as OBJ's) and 15-16
  *     its first room: a fall-away door, Surface's vent hatch, falls)
@@ -817,7 +826,9 @@
  *     left hand's gun, 0 for none; was 0), s32 loadedammo[4]
  *     (right 0, 1, left 0, 1), u16 ammoheld[33], u16 0, u8 weapons[32]
  *     (a bit per weapon number), u8 dualweapons[32], u16 blurdrug (protocol
- *     20: the chr's blurdrugamount, a tranquilizer's drugged screen), u8 0[6],
+ *     20: the chr's blurdrugamount, a tranquilizer's drugged screen), u8
+ *     devices (protocol 31: NETLPDEV_CLOAKRCP120 1, NETLPDEV_CLOAKDEVICE 2,
+ *     the cloaks on; was 0), u8 0[5],
  *     then the movement state (protocol 5; struct netmove, netsnap.h), the
  *     player after command lastcmd, from which the client replays the
  *     commands after it (netpredict.c): f32 speedtheta, speedverta,
