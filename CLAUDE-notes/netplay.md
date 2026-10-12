@@ -2044,11 +2044,23 @@ we make this easier for players abroad, so anyone can play anyone".
   netlobbytest `seat` (a room of three, a newcomer refused while full, a
   player quitting at frame 900, the newcomer in again and into the match
   in that seat; `--net-lobby-quit-frame` now works on a joiner too). Two
-  gaps the lobby owns, unchanged: a member whose game dies mid-match
-  holds its room seat until the match ends (reaping is off while a room is
-  launched), and a member who End Games back to the Game Lobby keeps its
-  room seat but is not connected again to that launch - either turns
-  newcomers away while the match has an open seat.
+  gaps it showed, fixed the same night (owner: "fix both"): (1) a member
+  whose game died mid-match held its room seat to the match's end (pdlobbyd
+  reaps nobody while a room is launched), so newcomers heard "full" with a
+  seat open. Now the host's heartbeat carries `seated`, the accounts its
+  session has (`netSessionHostAccountsJson`: connected clients, players or
+  spectators, and seats held for a drop), and pdlobbyd (api 6, README
+  "Seats in a running match") removes a member it does not name whose game
+  has stopped polling for 30 s - after the host's 30 s hold, so a crash
+  still comes back to its seat within the hold. (2) A member who used End
+  Game kept its room seat but was never connected to that launch again
+  ("Leave the room and join it again"). Now the Game Lobby offers "Back
+  Into the Match" (`netLobbyRejoin`): it asks the lobby for a fresh ticket
+  (the "ticket" action; the launch's ticket was spent, "ticket used
+  already") and connects again as a join in progress. It keeps its room
+  seat meanwhile (it still polls, so it is never reaped). Gates:
+  netlobbytest `crash` and `endgame`; test_pdlobbyd `SeatedTests`. No wire
+  change (protocol 31 as it was).
 
 - **A refusal said in the room (2026-10-09, F3 20261009-070735).** A guest
   without the host's mod (PerfectBear) joined a launched Perfect Dark

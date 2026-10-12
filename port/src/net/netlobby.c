@@ -77,6 +77,11 @@
 #define LOBBY_MAINCHAT_POLL_MS 2000 // the main menu's chat is asked for this often while it is up
 #define LOBBY_MAINCHAT_WANT_MS 1500 // and "up" lasts this long after the Briefing Room last said so
 
+// the host's session accounts for its heartbeat (pdlobbyd api 6 "seated"),
+// written by the main thread, read by the beat thread, under s_Lock; "" none
+static char s_BeatSeated[1024] = "";
+static u64 s_BeatSeatedAt = 0;
+
 struct lobbyjob {
 	s32 kind;
 	u32 epoch;          // the room it was for (an action for a room left since is dropped)
@@ -140,6 +145,8 @@ static char s_GoneText[200] = "";
 static s32 s_LastStatus = 0;
 static SDL_atomic_t s_Unreachable; // the last request on either thread got no answer at all
 static char s_PendTicket[NET_MAXTICKET + 2] = "";
+static u32 s_PendTicketSeq = 0;   // a ticket asked for by itself ("ticket" action): Back Into the Match
+static u32 s_SeenTicketSeq = 0;
 static char s_JobUser[GHOSTNET_MAXUSER + 2] = "";  // the account as the last job was queued
 static char s_JobPin[GHOSTNET_MAXPIN + 2] = "";     // (Ghost Trials edits g_GhostNet* meanwhile)
 // under s_Lock: the main menu's chat (pdlobbyd API 4: GET and POST /chat),
@@ -198,6 +205,8 @@ static u64 s_ReportedAt = 0;
 // the launch, as this machine follows it
 static u32 s_LaunchHandled = 0;    // the launch (its "at") this machine acted on
 static u32 s_LaunchEndedAt = 0;    // the launch whose session ended for good here (refused, left): not retried
+static s32 s_LaunchEndedLeft = 0;
+static s32 s_RejoinPending = 0;    // Back Into the Match: waiting for the fresh ticket it asked for  // ... by this player's own End Game: offered back in (netLobbyRejoin)
 static char s_LaunchEndedText[200] = ""; // why (kept apart from s_MainMessage, which the room's page clears on opening)
 static s32 s_LobbyConnSpectator = 0; // a member: the connection it made was a spectator's
 static u64 s_LaunchDeadline = 0;
@@ -1163,6 +1172,17 @@ static void lobbyRunJob(struct lobbyjob *job)
 					s_PendOffset = s_PendTime - (s64)time(NULL);
 				}
 				SDL_UnlockMutex(s_Lock);
+			} else if (strcmp(job->path, "ticket") == 0 && objok) {
+				// a fresh ticket (its own nonce): the launch's last one was
+				// spent on the connection this player left
+				char ticket[NET_MAXTICKET + 2];
+
+				if (jsonGetStr(obj, "ticket", ticket, sizeof(ticket))) {
+					SDL_LockMutex(s_Lock);
+					snprintf(s_PendTicket, sizeof(s_PendTicket), "%s", ticket);
+					s_PendTicketSeq++;
+					SDL_UnlockMutex(s_Lock);
+				}
 			}
 		} else if (job->kind == JOB_LEAVE) {
 			// gone already, or the lobby is down: either way not in it
@@ -1355,7 +1375,12 @@ static int lobbyBeatThread(void *arg)
 		job.kind = JOB_ACTION;
 		job.epoch = s_Epoch;
 		snprintf(job.path, sizeof(job.path), "heartbeat");
-		snprintf(job.body, sizeof(job.body), "{}");
+
+		if (s_BeatSeated[0]) {
+			snprintf(job.body, sizeof(job.body), "{\"seated\":%s}", s_BeatSeated);
+		} else {
+			snprintf(job.body, sizeof(job.body), "{}");
+		}
 		lastbeat = lobbyNowMs();
 		SDL_UnlockMutex(s_Lock);
 
@@ -2625,6 +2650,34 @@ const char *netLobbyLaunchEndedText(void)
 }
 
 /**
+ * A member that left the room's running match (End Game) keeps its room seat
+ * and is offered back in (F3 20261012-020922): the Game Lobby's "Back Into
+ * the Match" connects to the same launch again, a join in progress into
+ * the open seat, with the ticket its state poll keeps fresh
+ */
+s32 netLobbyCanRejoin(void)
+{
+	return netLobbyLaunchEnded() && s_LaunchEndedLeft;
+}
+
+void netLobbyRejoin(void)
+{
+	if (!netLobbyCanRejoin()) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "lobby: back into room %s's match in progress", s_Room.sum.id);
+	s_LaunchEndedAt = 0;
+	s_LaunchEndedLeft = 0;
+	s_LaunchRetries = 0;
+	s_LaunchRetryAt = 0;
+	s_RejoinPending = 1;
+	s_MainMessage[0] = '\0';
+	// the connect waits for a fresh ticket: the one it came in on is spent
+	lobbyQueue(JOB_ACTION, "ticket", "{}");
+}
+
+/**
  * A launched campaign room between missions (netcoop.c): the host is in its
  * own menus and a member connected to it waits for its next mission, which
  * "waiting for the players" and "connecting" did not say
@@ -2851,6 +2904,7 @@ static void lobbyClientTick(void)
 
 		s_LaunchRetries = 0;
 		s_LaunchEndedAt = 0;
+		s_RejoinPending = 0;
 	}
 
 	// a session that ended (refused, left the match, the host gone) closes,
@@ -2910,13 +2964,14 @@ static void lobbyClientTick(void)
 			g_NetNoticePending = 0;
 
 			if (netSessionLastRefuse() == NETREFUSE_LEFT) {
-				snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "You left the game. Leave the room and join it again to play on.");
+				snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "You left the match. Pick Back Into the Match to play on.");
 			} else if (netSessionNoticeText()[0]) {
 				snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", netSessionNoticeText());
 			}
 
 			if (s_Room.launched && s_Room.launchat == s_LaunchHandled) {
 				s_LaunchEndedAt = s_Room.launchat;
+				s_LaunchEndedLeft = netSessionLastRefuse() == NETREFUSE_LEFT;
 				snprintf(s_LaunchEndedText, sizeof(s_LaunchEndedText), "%s", s_MainMessage[0] ? s_MainMessage : "The connection to the host ended.");
 				s_LaunchRetryAt = 0;
 				s_LaunchRetries = 0;
@@ -3381,6 +3436,15 @@ void netLobbyTick(void)
 	if (s_Lock) {
 		SDL_LockMutex(s_Lock);
 
+		// a hosting room's session accounts, once a second, for the beat
+		if (lobbyNowMs() - s_BeatSeatedAt >= 1000) {
+			s_BeatSeatedAt = lobbyNowMs();
+
+			if (!s_IsHost || netSessionHostAccountsJson(s_BeatSeated, sizeof(s_BeatSeated)) < 0) {
+				s_BeatSeated[0] = '\0';
+			}
+		}
+
 		if (s_PendUdpSeq != s_SeenUdpSeq) {
 			s_SeenUdpSeq = s_PendUdpSeq;
 			netRdvSetLobby(&s_PendUdpAddr);
@@ -3467,6 +3531,18 @@ void netLobbyTick(void)
 			s_Room = s_PendRoom;
 			s_RoomAtMs = lobbyNowMs();
 			snprintf(s_PendTicketMain, sizeof(s_PendTicketMain), "%s", s_PendTicket);
+		}
+
+		if (s_PendTicketSeq != s_SeenTicketSeq) {
+			s_SeenTicketSeq = s_PendTicketSeq;
+			snprintf(s_PendTicketMain, sizeof(s_PendTicketMain), "%s", s_PendTicket);
+
+			// Back Into the Match: connect with it now
+			if (s_RejoinPending) {
+				s_RejoinPending = 0;
+				s_LaunchHandled = 0;
+				s_CandNext = 0;
+			}
 		}
 
 		// the offset as of the last reply: our clock runs it on between
@@ -4189,6 +4265,13 @@ static void lobbyScriptTick(void)
 				s_ScriptEpoch = s_Room.sum.hostepoch;
 				s_ScriptHosting = 0;
 				lobbyScriptStep(4, "join: in the room's match in progress");
+			} else if (!netLobbyBusy() && !s_InRoom && now - s_ScriptAt > 3000 && sysArgCheck("--net-lobby-join-retry")
+					&& strstr(s_MainMessage, "full")) {
+				// --net-lobby-join-retry: a full room is asked again, as a
+				// player does, until a seat comes free
+				sysLogPrintf(LOG_NOTE, "lobby script: join: %s; trying again", s_MainMessage);
+				s_MainMessage[0] = '\0';
+				lobbyScriptStep(1, "join: list the rooms again");
 			} else if (!netLobbyBusy() && !s_InRoom && now - s_ScriptAt > 3000) {
 				sysLogPrintf(LOG_ERROR, "lobby script: could not join: %s", s_MainMessage);
 				fflush(stdout);
@@ -4263,6 +4346,16 @@ static void lobbyScriptTick(void)
 				exit(0);
 			}
 
+			// --net-lobby-crash-frame on a joiner: its game gone as a crash is
+			// (no LEAVE, nothing to the lobby): the host holds its seat, then
+			// the lobby frees it on the host's word (pdlobbyd api 6)
+			if (!s_ScriptHosting && netSessionMatchActive() && !netSessionBarrierHeld()
+					&& sysArgGetInt("--net-lobby-crash-frame", 0) > 0 && g_Vars.lvframenum >= sysArgGetInt("--net-lobby-crash-frame", 0)) {
+				sysLogPrintf(LOG_NOTE, "lobby script: join: frame %d, level time %d; gone as a crash is", g_Vars.lvframenum, lvGetStageTime60());
+				fflush(stdout);
+				_Exit(9);
+			}
+
 			if (netSessionMatchActive() && s_ScriptLeaveFrame > 0 && g_Vars.lvframenum >= s_ScriptLeaveFrame) {
 				snprintf(text, sizeof(text), "join: frame %d; End Game", g_Vars.lvframenum);
 				lobbyScriptStep(5, text);
@@ -4272,6 +4365,16 @@ static void lobbyScriptTick(void)
 			}
 			break;
 		case 5:
+			// --net-lobby-rejoin: out of the running match by End Game, the
+			// Game Lobby's Back Into the Match a moment later
+			if (sysArgCheck("--net-lobby-rejoin") && netLobbyCanRejoin() && now - s_ScriptAt > 4000) {
+				sysLogPrintf(LOG_NOTE, "lobby script: join: in the room, the match running (%s); Back Into the Match", netLobbyLaunchEndedText());
+				s_ScriptLeaveFrame = 0;
+				netLobbyRejoin();
+				lobbyScriptStep(10, "join: going back into the match");
+				break;
+			}
+
 			if (lobbyScriptBackInRoom() && now - s_ScriptAt > 1000) {
 				s_ScriptPlayed++;
 				sysLogPrintf(LOG_NOTE, "lobby script: client back in room %s after match %d (version %d, %d members, state %s, session %s)",
@@ -4338,6 +4441,16 @@ static void lobbyScriptTick(void)
 				snprintf(text, sizeof(text), "join: back in room %s after the carried-on match (host %s, %d members, state %s)",
 						s_Room.sum.id, s_Room.sum.host, s_Room.nmembers, s_Room.sum.state);
 				lobbyScriptStep(6, text);
+			}
+			break;
+		case 10:
+			// Back Into the Match: connected to the launch again, a join in progress
+			if (netSessionMatchLoading()) {
+				lobbyScriptStep(4, "join: back in the room's match in progress");
+			} else if (now - s_ScriptAt > 60000) {
+				sysLogPrintf(LOG_ERROR, "lobby script: Back Into the Match did not take this machine in: %s", s_MainMessage);
+				fflush(stdout);
+				exit(6);
 			}
 			break;
 		}
