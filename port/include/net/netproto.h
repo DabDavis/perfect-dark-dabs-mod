@@ -183,7 +183,9 @@
 // 31 (GoldenEye's tank ridden on top, 2026-10-12: CLAUDE-notes/netplay.md
 //    "F3 pass 37"): the local-player block's tank part grows to 48 bytes
 //    (NETLP_SIZE 736): u8 ride at 24 (the player stands on a tank somebody
-//    else drives), f32 across, up, along at 28 (its place in the hull's axes)
+//    else drives), f32 across, up, along at 28 (its place in the hull's axes); and a CMD's command
+//    can carry Team Control's order to a sim (NETCMD_ORDER: u8 sim, u8
+//    command, u8 target), packed commands 36 bytes (were 32)
 #define NET_PROTOCOL_VERSION 31
 
 #define NETMSG_CONNECT    1
@@ -659,11 +661,12 @@
  *                                 (the client keyframes when its base has not
  *                                 moved for 30 ticks)
  *   per command, ticks first, first+1, ...: (protocol 30) a netdelta of its
- *     32 packed bytes against the command before it in this packet (the
+ *     NETCMD_PACKED bytes against the command before it in this packet (the
  *     first against basetick's): u32 buttons, s8 x4, f32 mdx, mdy, u8 flags, u32
  *     tick - viewtick (0xffffffff none), u8 viewfrac, viewdelay, u8
- *     equip[2], u8 device[2], u16 body[2], u8 bodyflags (0 where the flag is
- *     clear); before 30 each command's fields as follows, whole:
+ *     equip[2], u8 device[2], u16 body[2], u8 bodyflags, (protocol 31) u8
+ *     order[3], u8 0 - 36 bytes (0 where the flag is clear); before 30 each
+ *     command's fields as follows, whole:
  *     u32 buttons                 OSContPad.button (protocol 11: START too;
  *                                 the host clears it unless the player is
  *                                 dead, where it respawns as offline)
@@ -705,6 +708,18 @@
  *                                 host faces that player's body by it and
  *                                 reads its speeds against it, and the body
  *                                 reaches everyone in SNAP as any chr's yaw
+ *     (protocol 31) when flags has NETCMD_ORDER: u8 sim, u8 command, u8
+ *                                 target - Team Control (the active menu's
+ *                                 sim pages in a team match): the sim by its
+ *                                 bot config slot (NETORDER_ALLSIMS: every
+ *                                 sim on the player's team), the AIBOTCMD_*
+ *                                 and Attack's target (a playernum, or
+ *                                 NETORDER_SIM + a bot config slot;
+ *                                 NETORDER_NOTARGET for the rest); the host
+ *                                 gives it in that player's pass, as its own
+ *                                 menu would, if teams are on, the sim is on
+ *                                 the player's team and the scenario's menu
+ *                                 has the command
  *
  * A spectator sends CMD too (protocol 9): the host takes its snapshot ack
  * and nothing else (its commands drive nothing), and its CMDACK names the
@@ -995,6 +1010,10 @@
 #define NETCMD_DEVICE      0x04 // u8 weaponnum, u8 on follow (protocol 15)
 #define NETCMD_BODY        0x08 // u16 facing, u16 travel, u8 bodyflags follow (protocol 19)
 #define NETBODY_TRAVEL     0x01 // NETCMD_BODY's travel is held (the player moving)
+#define NETCMD_ORDER       0x10 // u8 sim, u8 command, u8 target follow (protocol 31): Team Control
+#define NETORDER_ALLSIMS   0xff // the order's sim: every sim on the player's team (the menu's all-bots mode)
+#define NETORDER_NOTARGET  0xff // the order's target: none (any command but Attack)
+#define NETORDER_SIM       0x80 // ... a sim's: 0x80 + its bot config slot (below it a player's playernum)
 
 #define NETCONN_SPECTATE   0x01 // CONNECT's flags
 #define NETACC_INPROGRESS  0x01 // ACCEPT's flags

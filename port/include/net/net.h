@@ -156,6 +156,7 @@ s32 netCheatsEnabled(u32 *bank0, u32 *bank1);
 // or on the host
 void netPlayersClientEquip(s32 right, s32 left);
 void netPlayersClientDevice(s32 weaponnum, s32 on);
+void netPlayersClientOrder(s32 sim, s32 command, s32 target); // Team Control's order (protocol 31): mpchr indexes, -1 all sims / no target
 static inline void netRemotePassEnd(void)
 {
 	g_NetRemotePass = 0;

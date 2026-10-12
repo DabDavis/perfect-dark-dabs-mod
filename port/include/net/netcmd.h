@@ -26,10 +26,12 @@ struct netcmd {
 	u8 device[2];            // NETCMD_DEVICE: a device's weapon number, and on or off
 	u16 body[2];             // NETCMD_BODY: the tethered body's facing and travel, 65536ths of a turn
 	u8 bodyflags;            // ... NETBODY_TRAVEL
+	u8 order[3];             // NETCMD_ORDER (protocol 31): Team Control's order to a sim - the sim
+	                         // (NETORDER_*), the AIBOTCMD_* and Attack's target (NETORDER_*)
 };
 
 #define NETCMD_NOVIEW 0xffffffff
-#define NETCMD_PACKED 32
+#define NETCMD_PACKED 36 // (protocol 31: 32 before the order, one byte spare)
 
 void netCmdPack(const struct netcmd *c, u32 tick, u8 *p);
 void netCmdUnpack(const u8 *p, u32 tick, struct netcmd *c);

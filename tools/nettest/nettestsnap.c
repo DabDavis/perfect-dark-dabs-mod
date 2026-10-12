@@ -808,7 +808,7 @@ s32 cmdTestCodec(void)
 		c->mdx = srnd() % 3 ? 0 : srndf(-20, 20);
 		c->mdy = srnd() % 3 ? 0 : srndf(-20, 20);
 		c->flags = (u8)(NETCMD_MOUSELOCKED | (srnd() % 20 == 0 ? NETCMD_EQUIP : 0) | (srnd() % 30 == 0 ? NETCMD_DEVICE : 0)
-				| (srnd() % 2 ? NETCMD_BODY : 0));
+				| (srnd() % 2 ? NETCMD_BODY : 0) | (srnd() % 40 == 0 ? NETCMD_ORDER : 0));
 		c->viewtick = i < 5 ? NETCMD_NOVIEW : 1000 + (u32)i - 7 - (u32)(srnd() % 2);
 		c->viewfrac = (u8)srnd();
 		c->viewdelay = (u8)(40 + srnd() % 3);
@@ -821,6 +821,12 @@ s32 cmdTestCodec(void)
 		if (c->flags & NETCMD_DEVICE) {
 			c->device[0] = (u8)srnd();
 			c->device[1] = (u8)(srnd() & 1);
+		}
+
+		if (c->flags & NETCMD_ORDER) {
+			c->order[0] = (u8)srnd();
+			c->order[1] = (u8)(srnd() % 15);
+			c->order[2] = (u8)srnd();
 		}
 
 		if (c->flags & NETCMD_BODY) {
@@ -858,7 +864,7 @@ s32 cmdTestCodec(void)
 		// for comparison only: Quake 3's way, a 2-byte mask of the fields
 		// that differ from the command before and those fields whole
 		{
-			static const u8 fsz[15] = { 4, 1, 1, 1, 1, 4, 4, 1, 4, 1, 1, 2, 2, 4, 1 };
+			static const u8 fsz[16] = { 4, 1, 1, 1, 1, 4, 4, 1, 4, 1, 1, 2, 2, 4, 1, 3 };
 			u8 a[NETCMD_PACKED];
 			u8 c2[NETCMD_PACKED];
 			s32 k;
@@ -875,7 +881,7 @@ s32 cmdTestCodec(void)
 				netCmdPack(&sent[t], 1000 + t, c2);
 				maskbytes += 2;
 
-				for (k = 0; k < 15; k++) {
+				for (k = 0; k < 16; k++) {
 					if (memcmp(a + off, c2 + off, fsz[k]) != 0) {
 						maskbytes += fsz[k];
 					}
@@ -908,7 +914,8 @@ s32 cmdTestCodec(void)
 					&& got.viewtick == want->viewtick
 					&& got.viewfrac == want->viewfrac && got.viewdelay == want->viewdelay
 					&& memcmp(got.equip, want->equip, 2) == 0 && memcmp(got.device, want->device, 2) == 0
-					&& got.body[0] == want->body[0] && got.body[1] == want->body[1] && got.bodyflags == want->bodyflags);
+					&& got.body[0] == want->body[0] && got.body[1] == want->body[1] && got.bodyflags == want->bodyflags
+					&& memcmp(got.order, want->order, 3) == 0);
 		}
 
 		SCHECK(netBufOk(&b) && netBufRemaining(&b) == 0);

@@ -22,6 +22,8 @@
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/mplayer/mplayer.h"
+#include "game/bot.h"
+#include "game/botcmd.h"
 #include "screenshot.h"
 #include "gewatch.h"
 #include "gexplus.h"
@@ -141,6 +143,20 @@ static s32 s_EquipPending = 0;    // a menu's pick for the next command (NETCMD_
 static u8 s_EquipHands[2];
 static s32 s_DevicePending = 0;   // ... and a device switched (NETCMD_DEVICE)
 static u8 s_Device[2];
+// (protocol 31) Team Control's orders waiting for a command each (NETCMD_ORDER)
+#define NET_ORDERQ 8
+static u8 s_Orders[NET_ORDERQ][3];
+static s32 s_OrderHead = 0;
+static s32 s_OrderCount = 0;
+// --net-test-order TICK:CMD[:SIM[:TARGET]][,...]: Team Control's orders as the
+// active menu gives them (SIM a bot config slot, else the first sim on the
+// player's team; -1 all of them; TARGET Attack's mpchr index), on either role;
+// --net-test-order-check TICK: every sim's order logged then
+#define NET_TESTORDERS 4
+static s32 s_TestOrders = 0;
+static u32 s_TestOrderTick[NET_TESTORDERS];
+static s32 s_TestOrder[NET_TESTORDERS][3];
+static u32 s_TestOrderCheck = 0;
 static u32 s_TestEquipTick = 0;   // --net-test-equip TICK,WEAPON: a menu's pick made at TICK
 static s32 s_TestEquipWeapon = 0;
 // --net-test-give TICK,RIGHT[,LEFT][/TICK,RIGHT[,LEFT]...]: the host hands
@@ -255,6 +271,31 @@ void netPlayersArgs(void)
 	}
 
 	s_TestTrace = sysArgGetInt("--net-test-trace", 0);
+
+	{
+		const char *order = sysArgGetString("--net-test-order");
+
+		s_TestOrderCheck = (u32)sysArgGetInt("--net-test-order-check", 0);
+
+		while (order && *order && s_TestOrders < NET_TESTORDERS) {
+			unsigned int tick = 0;
+			int cmd = 0;
+			int sim = -2;
+			int target = -1;
+
+			if (sscanf(order, "%u:%i:%i:%i", &tick, &cmd, &sim, &target) < 2) {
+				break;
+			}
+
+			s_TestOrderTick[s_TestOrders] = tick;
+			s_TestOrder[s_TestOrders][0] = cmd;
+			s_TestOrder[s_TestOrders][1] = sim;
+			s_TestOrder[s_TestOrders][2] = target;
+			s_TestOrders++;
+			order = strchr(order, ',');
+			order = order ? order + 1 : NULL;
+		}
+	}
 	s_MenuShot = sysArgCheck("--net-test-menu-shot");
 
 	{
@@ -800,6 +841,200 @@ static void netPlayersTestGive(s32 pad)
  * and the device it switched (protocol 15), played once each, and only
  * what the player holds here
  */
+/*
+ * Team Control online (protocol 31). In a team match the active menu's sim
+ * pages order the sims on the player's team (botcmdApply). A client's sims
+ * are puppets that never think, so its menu's order goes to the host in its
+ * next command (NETCMD_ORDER), and the host gives it in that player's pass
+ * as the player's own menu would there; the sim's behaviour then reaches
+ * every machine in the snapshots. The client keeps the order on its own copy
+ * of the sim too, which is what its menu shows as the sim's command.
+ */
+
+// A command's name for the log (the game's text ends in a newline)
+static const char *netOrderName(s32 command)
+{
+	static char names[2][32];
+	static s32 which = 0;
+	const char *text = botGetCommandName(command);
+	char *out = names[which ^= 1];
+	s32 i;
+
+	for (i = 0; text && text[i] && text[i] != '\n' && i < (s32)sizeof(names[0]) - 1; i++) {
+		out[i] = text[i];
+	}
+
+	out[i] = '\0';
+	return out;
+}
+
+// A mpchr index on the wire: a player's playernum, or NETORDER_SIM + a sim's
+// bot config slot (the key every machine shares); -1 none
+static s32 netOrderChrToWire(s32 mpchr)
+{
+	struct chrdata *chr;
+
+	if (mpchr < 0 || mpchr >= g_MpNumChrs) {
+		return -1;
+	}
+
+	if (mpchr < PLAYERCOUNT()) {
+		return mpchr < MAX_PLAYERS ? mpchr : -1;
+	}
+
+	chr = g_MpAllChrPtrs[mpchr];
+
+	if (!chr || !chr->aibot || !chr->aibot->config) {
+		return -1;
+	}
+
+	return NETORDER_SIM + (s32)(chr->aibot->config - g_BotConfigsArray);
+}
+
+// ... and back: the chr, NULL for none
+static struct chrdata *netOrderWireToChr(s32 v)
+{
+	s32 i;
+
+	if (v < NETORDER_SIM) {
+		return v < PLAYERCOUNT() ? g_MpAllChrPtrs[v] : NULL;
+	}
+
+	for (i = PLAYERCOUNT(); i < g_MpNumChrs; i++) {
+		struct chrdata *chr = g_MpAllChrPtrs[i];
+
+		if (chr && chr->aibot && chr->aibot->config && NETORDER_SIM + (chr->aibot->config - g_BotConfigsArray) == v) {
+			return chr;
+		}
+	}
+
+	return NULL;
+}
+
+/**
+ * A client: Team Control's order from this machine's menu (activemenu.c), for
+ * the host with the next command: the sim by its mpchr index (-1 every sim on
+ * the player's team), the AIBOTCMD_*, Attack's target by mpchr index (-1 none)
+ */
+void netPlayersClientOrder(s32 sim, s32 command, s32 target)
+{
+	s32 wsim = NETORDER_ALLSIMS;
+	s32 wtarget = NETORDER_NOTARGET;
+	u8 *o;
+
+	if (g_NetMode != NETMODE_CLIENT || command < 0 || command > 0xff) {
+		return;
+	}
+
+	if (sim >= 0) {
+		wsim = netOrderChrToWire(sim);
+
+		if (wsim < NETORDER_SIM) {
+			return;
+		}
+
+		wsim -= NETORDER_SIM;
+	}
+
+	if (target >= 0) {
+		wtarget = netOrderChrToWire(target);
+
+		if (wtarget < 0) {
+			return;
+		}
+	}
+
+	if (s_OrderCount >= NET_ORDERQ) {
+		// the oldest gives way: the menu's newest order is the player's
+		s_OrderHead = (s_OrderHead + 1) % NET_ORDERQ;
+		s_OrderCount--;
+	}
+
+	o = s_Orders[(s_OrderHead + s_OrderCount) % NET_ORDERQ];
+	o[0] = (u8)wsim;
+	o[1] = (u8)command;
+	o[2] = (u8)wtarget;
+	s_OrderCount++;
+	sysLogPrintf(LOG_NOTE, "net: this machine ordered sim %d (wire %d) to %s (command %d, target %d) at tick %u",
+			sim, wsim, netOrderName(command), command, target, g_NetTick);
+}
+
+/**
+ * The host, in a remote player's pass: give its order (NETCMD_ORDER) as its
+ * own menu would here, if teams are on, the scenario's menu has the command
+ * and the sim is on the player's team
+ */
+static void netPlayersHostOrder(s32 pad, s32 playernum, const u8 *o)
+{
+	struct player *p = g_Vars.players[playernum];
+	const s32 cmd = o[1];
+	struct chrdata *target = NULL;
+	const char *why = NULL;
+	s32 n = 0;
+	s32 i;
+
+	if (!g_Vars.normmplayerisrunning || !(g_MpSetup.options & MPOPTION_TEAMSENABLED)) {
+		why = "not a team match";
+	} else if (!p || !p->prop || p->isdead) {
+		why = "dead";
+	} else {
+		why = "not on the scenario's menu";
+
+		for (i = 0; i < ARRAYCOUNT(g_AmBotCommands); i++) {
+			if (g_AmBotCommands[i] == cmd) {
+				why = NULL;
+				break;
+			}
+		}
+	}
+
+	if (!why && cmd == AIBOTCMD_ATTACK) {
+		target = netOrderWireToChr(o[2]);
+
+		if (!target || !target->prop) {
+			why = "no such target";
+		}
+	}
+
+	if (!why) {
+		const s32 team = g_MpAllChrConfigPtrs[playernum]->team;
+
+		for (i = PLAYERCOUNT(); i < g_MpNumChrs; i++) {
+			struct chrdata *chr = g_MpAllChrPtrs[i];
+
+			if (!chr || !chr->aibot || !chr->aibot->config || !chr->prop || g_MpAllChrConfigPtrs[i]->team != team) {
+				continue;
+			}
+
+			if (o[0] != NETORDER_ALLSIMS && chr->aibot->config - g_BotConfigsArray != o[0]) {
+				continue;
+			}
+
+			if (target) {
+				// the menu's all-bots Attack leaves out the target itself
+				if (target != chr) {
+					botApplyAttack(chr, target->prop);
+					n++;
+				}
+			} else {
+				botcmdApply(chr, cmd);
+				n++;
+			}
+		}
+
+		if (n == 0) {
+			why = "no such sim on its team";
+		}
+	}
+
+	if (why) {
+		sysLogPrintf(LOG_NOTE, "net: slot %d's order to sim %d (command %d) not taken: %s (tick %u)", pad, o[0], cmd, why, g_NetTick);
+	} else {
+		sysLogPrintf(LOG_NOTE, "net: slot %d ordered %d sim%s (sim %d) to %s (command %d, target %d) (tick %u)",
+				pad, n, n == 1 ? "" : "s", o[0], netOrderName(cmd), cmd, o[2], g_NetTick);
+	}
+}
+
 static void netPlayersHostApplyChoices(s32 playernum)
 {
 	const s32 pad = netPadOfPlayer(playernum);
@@ -838,6 +1073,11 @@ static void netPlayersHostApplyChoices(s32 playernum)
 			sysLogPrintf(LOG_NOTE, "net: slot %d's pick of guns 0x%02x/0x%02x not taken: %s", pad, right, left,
 					p->isdead ? "dead" : "not held here");
 		}
+	}
+
+	if (q->cur.flags & NETCMD_ORDER) {
+		q->cur.flags &= ~NETCMD_ORDER;
+		netPlayersHostOrder(pad, playernum, q->cur.order);
 	}
 
 	if (q->cur.flags & NETCMD_DEVICE) {
@@ -1442,6 +1682,12 @@ static void netFold(struct netcmd *into, const struct netcmd *c)
 		into->device[1] = c->device[1];
 	}
 
+	if (c->flags & NETCMD_ORDER) {
+		into->order[0] = c->order[0];
+		into->order[1] = c->order[1];
+		into->order[2] = c->order[2];
+	}
+
 	// the body: the later one's, and none if the later one has none
 	into->flags = (into->flags & ~NETCMD_BODY) | (c->flags & NETCMD_BODY);
 	into->body[0] = c->body[0];
@@ -1612,6 +1858,8 @@ void netPlayersClientMatchStart(s32 pad)
 	s_MenuUp = 0;
 	s_EquipPending = 0;
 	s_DevicePending = 0;
+	s_OrderHead = 0;
+	s_OrderCount = 0;
 	memset(s_SentTick, 0, sizeof(s_SentTick));
 	memset(s_Pads, 0, sizeof(s_Pads));
 
@@ -1826,6 +2074,16 @@ static void netPlayersClientCapture(void)
 		c->equip[0] = s_EquipHands[0];
 		c->equip[1] = s_EquipHands[1];
 		s_EquipPending = 0;
+	}
+
+	// Team Control's orders, one a command (protocol 31)
+	memset(c->order, 0, sizeof(c->order));
+
+	if (s_OrderCount > 0) {
+		c->flags |= NETCMD_ORDER;
+		memcpy(c->order, s_Orders[s_OrderHead], sizeof(c->order));
+		s_OrderHead = (s_OrderHead + 1) % NET_ORDERQ;
+		s_OrderCount--;
 	}
 
 	if (s_DevicePending) {
@@ -2187,10 +2445,104 @@ static void netPlayersTrace(void)
 	}
 }
 
+/**
+ * --net-test-order: Team Control's orders given at their ticks as the active
+ * menu gives them (amApply, amPickTargetMenuList): on this machine's own copy
+ * of the sim, and from a client to the host. --net-test-order-check: every
+ * sim's order in the log at that tick
+ */
+static void netPlayersTestOrders(void)
+{
+	s32 g;
+	s32 i;
+
+	if (g_NetDedicated || g_NetLocalSlot < 0 || g_NetLocalSlot >= PLAYERCOUNT() || !g_Vars.normmplayerisrunning) {
+		return;
+	}
+
+	for (g = 0; g < s_TestOrders; g++) {
+		const s32 prev = g_Vars.currentplayernum;
+		const s32 cmd = s_TestOrder[g][0];
+		const s32 target = s_TestOrder[g][2];
+		struct player *me;
+		s32 sim = -1;
+
+		if (g_NetTick != s_TestOrderTick[g]) {
+			continue;
+		}
+
+		setCurrentPlayerNum(g_NetLocalSlot);
+		me = g_Vars.currentplayer;
+
+		if (s_TestOrder[g][1] >= 0) {
+			struct chrdata *chr = netOrderWireToChr(NETORDER_SIM + s_TestOrder[g][1]);
+			sim = chr ? mpPlayerGetIndex(chr) : -1;
+		} else if (s_TestOrder[g][1] == -2 && me->numaibuddies > 0) {
+			sim = me->aibuddynums[0];
+		}
+
+		sysLogPrintf(LOG_NOTE, "net: --net-test-order: tick %u, player %d (%d sims on its team) orders %s %d to %s",
+				g_NetTick, g_NetLocalSlot, me->numaibuddies, sim >= 0 ? "sim" : "all sims", sim, netOrderName(cmd));
+
+		for (i = 0; i < me->numaibuddies; i++) {
+			struct chrdata *chr = g_MpAllChrPtrs[me->aibuddynums[i]];
+
+			if (sim >= 0 && me->aibuddynums[i] != sim) {
+				continue;
+			}
+
+			if (cmd == AIBOTCMD_ATTACK) {
+				if (target >= 0 && target < g_MpNumChrs && g_MpAllChrPtrs[target] && g_MpAllChrPtrs[target] != chr) {
+					botApplyAttack(chr, g_MpAllChrPtrs[target]->prop);
+				}
+			} else {
+				botcmdApply(chr, cmd);
+			}
+		}
+
+		// a sim off this player's team still goes, for the host to refuse
+		netPlayersClientOrder(sim >= 0 || s_TestOrder[g][1] == -2 ? sim : -1, cmd, cmd == AIBOTCMD_ATTACK ? target : -1);
+		setCurrentPlayerNum(prev);
+	}
+
+	if (s_TestOrderCheck && g_NetTick == s_TestOrderCheck) {
+		for (i = PLAYERCOUNT(); i < g_MpNumChrs; i++) {
+			struct chrdata *chr = g_MpAllChrPtrs[i];
+			s32 follow = -1;
+			s32 attack = -1;
+			f32 dist = -1;
+
+			if (!chr || !chr->aibot || !chr->aibot->config || !chr->prop) {
+				continue;
+			}
+
+			if (chr->aibot->command == AIBOTCMD_FOLLOW || chr->aibot->command == AIBOTCMD_PROTECT) {
+				struct prop *fp = g_Vars.props + chr->aibot->followprotectpropnum;
+
+				follow = fp->chr ? mpPlayerGetIndex(fp->chr) : -1;
+				dist = sqrtf((fp->pos.x - chr->prop->pos.x) * (fp->pos.x - chr->prop->pos.x)
+						+ (fp->pos.z - chr->prop->pos.z) * (fp->pos.z - chr->prop->pos.z));
+			} else if (chr->aibot->command == AIBOTCMD_ATTACK) {
+				struct prop *ap = g_Vars.props + chr->aibot->attackpropnum;
+
+				attack = ap->chr ? mpPlayerGetIndex(ap->chr) : -1;
+			}
+
+			sysLogPrintf(LOG_NOTE, "net: order check tick %u sim %d slot %d team %d command %d (%s) follows %d attacks %d dist %.0f",
+					g_NetTick, i, (s32)(chr->aibot->config - g_BotConfigsArray), g_MpAllChrConfigPtrs[i]->team,
+					chr->aibot->command, netOrderName(chr->aibot->command), follow, attack, dist);
+		}
+	}
+}
+
 // After joyDebugJoy, at the head of the tick
 void netPlayersTickBegin(void)
 {
 	netPlayersRefreshLocalCfg();
+
+	if ((s_TestOrders || s_TestOrderCheck) && netPlaying()) {
+		netPlayersTestOrders();
+	}
 
 	// --net-test-aimat on a host: its own player turns to the target too
 	// (netlagcomptest's blastlocal, the host firing as the reference)

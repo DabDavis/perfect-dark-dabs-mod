@@ -24,6 +24,7 @@ void netCmdPack(const struct netcmd *c, u32 tick, u8 *p)
 	PUT8(c->device[0]); PUT8(c->device[1]);
 	PUT8(c->body[0]); PUT8(c->body[0] >> 8); PUT8(c->body[1]); PUT8(c->body[1] >> 8);
 	PUT8(c->bodyflags);
+	PUT8(c->order[0]); PUT8(c->order[1]); PUT8(c->order[2]);
 #undef PUT8
 #undef PUT32
 }
@@ -49,6 +50,7 @@ void netCmdUnpack(const u8 *p, u32 tick, struct netcmd *c)
 	c->body[0] = (u16)(p[i] | (p[i + 1] << 8)); i += 2;
 	c->body[1] = (u16)(p[i] | (p[i + 1] << 8)); i += 2;
 	c->bodyflags = GET8();
+	c->order[0] = GET8(); c->order[1] = GET8(); c->order[2] = GET8();
 #undef GET8
 #undef GET32
 
@@ -59,6 +61,10 @@ void netCmdUnpack(const u8 *p, u32 tick, struct netcmd *c)
 
 	if (!(c->flags & NETCMD_DEVICE)) {
 		c->device[0] = c->device[1] = 0;
+	}
+
+	if (!(c->flags & NETCMD_ORDER)) {
+		c->order[0] = c->order[1] = c->order[2] = 0;
 	}
 
 	if (!(c->flags & NETCMD_BODY)) {
