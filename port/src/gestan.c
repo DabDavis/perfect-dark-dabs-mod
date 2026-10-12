@@ -1764,8 +1764,16 @@ bool geStanPlayerFloor(s32 playernum, const struct geo *geo, struct coord *pos, 
 	}
 
 	// GoldenEye has no jump; ours lands where it lands, and the floor it
-	// lands on is the tile walked on from then on
-	if (airborne) {
+	// lands on is the tile walked on from then on - a floor more than a
+	// body's rise over the walked tile, one no walk would have stepped onto.
+	// A floor within that is no landing: going down a Cartel silo doorway's
+	// slope (Goldfinger 64) the player "falls" a few units at every step,
+	// and the unlinked sliver lying across the doorway at the top floor's
+	// height (up to 30 over the slope) was taken as the floor landed on;
+	// all its walls then stood round him and he could not move, door open or
+	// shut, at all six silos walking out of the silo (F3
+	// 20261010-220602; the airborne rule came with Vaults' stairs)
+	if (airborne && found > surface + GESTAN_RISE) {
 		g_StanPlayerTile[playernum] = floortile;
 		g_StanPlayerFromTile[playernum] = floortile;
 		return false;

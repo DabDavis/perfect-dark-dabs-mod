@@ -7657,9 +7657,14 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 				projectile->losttimer240 += g_Vars.lvupdate240;
 
 				if (((projectile->flags & PROJECTILEFLAG_NOTIMELIMIT) == 0 && projectile->losttimer240 > TICKS(9600))
-						|| prop->pos.y < -20000.0f || prop->pos.y > 32000.0f
-						|| prop->pos.x < -32000.0f || prop->pos.x > 32000.0f
-						|| prop->pos.z < -32000.0f || prop->pos.z > 32000.0f) {
+						|| ((prop->pos.y < -20000.0f || prop->pos.y > 32000.0f
+							|| prop->pos.x < -32000.0f || prop->pos.x > 32000.0f
+							|| prop->pos.z < -32000.0f || prop->pos.z > 32000.0f)
+#ifndef PLATFORM_N64
+						// a converted level wider than the box: out when past its rooms
+						&& (!geRoomActive() || geRoomPosPastLevel(&prop->pos))
+#endif
+						)) {
 					obj->hidden |= OBJHFLAG_DELETING;
 				}
 

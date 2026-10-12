@@ -1079,3 +1079,57 @@ GoldenEye's knife (it is thrown as slot 186, which is the arena's there).
 - Probe trap: the port's movement stick is `rstick_x/y` (OSContPad +7/+8, the
   extended controls), not `stick_x/y`; and `joy.c`'s line after
   `osContGetReadData()` moves between builds (728 here, 613 on 90c8622).
+
+## F3 pass 37 (2026-10-11, fix/f3-1011-gfmods)
+
+- **Cartel's silo doorways, all six, walking out (F3 20261010-220602).** The
+  silos are copies: inside floor -540 (room 22 and its kin), two force-crouch
+  tiles sloping to the outside's -570, and the unlinked sliver pair (399/400,
+  540/541, 730/731, ...) across the doorway at -540. Walking *out*, the slope
+  makes the player "fall" a few units every step (isfalling), and
+  geStanPlayerFloor()'s airborne rule (Vaults' stairs, pass 35) took the floor
+  the collision found - the sliver - as the walked tile: all its walls stood
+  round him, door open or shut. Pass 34/35 only swept walking *in*. A floor is
+  taken as landed on now only when it is more than GESTAN_RISE over the walked
+  tile. `probe/doorsweep.py` in the session's run dir (SILO=1, SIDES, LATS,
+  STOPS, CLOSE=1, WATCH=<tiles> for a watchpoint on g_StanPlayerTile[0]):
+  base 95 stuck of 252 stops, fix 0 with the door open; with the door asked
+  shut on a stopped player one stop stays wedged against silo 1's half-shut
+  door (frac 78.9) - a blocked closing door stops in GoldenEye too, and the
+  door reopens on B. Silo 1's side-1 lane at x -11155 is a start spot the
+  sweep teleports onto (never walked to), not a doorway.
+- **Projectiles past Perfect Dark's box (F3 20261011-062449, Alps).**
+  projectileTick() deletes an airborne projectile outside x/z +-32000, y
+  -20000..32000. Alps is 233,000 units across (road y -18,500, x/z past
+  40,000): every rocket, the Aston Martin's shells and every gun a dying guard
+  dropped (a dropped gun is an airborne projectile) was deleted on its first
+  tick. On a converted level outside the box it is now out only past the
+  rooms' union + 2000 (geRoomPosPastLevel(), geroom.c). Other fixed limits
+  left: sparks (prop.c) and beams (gunfx.c) past 32000 are not drawn.
+- **The tank's eye (same report).** GoldenEye's height in the tank is
+  bondview2.c's g_PlayerTankYOffset: hull box + turret box heights - 37 on the
+  ground under it, half crouched (-60 off the standing eye). Measured on the
+  cartridge by boarding Alps' Aston Martin (walk into it, press B:
+  `tools/gefidelity/scratch-gfmods/tankboard_ares.py`, untracked): yoff 7.6,
+  eye 109.45 over the car's origin; ours now 109.5 (was 161.8, a standing
+  eye: the clamp "never under a standing eye"). Runway's tank moves 3.7 down.
+  On the cartridge the car comes up holding the PP7; one A (held 12 frames)
+  empties the hand (the shells).
+- **Not settled: the Aston's shells.** Its launcher node (part 4 under part 3)
+  sits at local y -240 (x 0.108 = 26 under the car's origin, under the road)
+  at a level aim: our shell starts under the road and falls through the
+  level. GoldenEye spawns it at the same node (gun.c gunFireTankShell,
+  render_pos[4]). A Z on the cartridge with the shells in hand traced no
+  gunFireTankShell/explosionCreate in three tries - not known yet whether GF
+  fires them at all.
+- **GoldenEye's camera zoom (F3 20261011-071518, Foundry).** ITEM_CAMERA has
+  WEAPONSTATBITFLAG_DISABLE_CROUCH: aim mode winds camera_zoom (20 at a
+  level's start, 7..60, the sniper's rate). Ours: INVAIMFLAG_MANUALZOOM on the
+  camera's aim and `player->gecamerazoom` in currentPlayerGetGunZoomFov()/
+  ZoomIn/ZoomOut.
+- **Grounds' Aston Martin floats (F3 20261010-230956)**: world diff against
+  the cartridge has every car where GoldenEye puts it (no obj.pos finding) -
+  the float is the hack's model, as the tester says of the original.
+- **Grounds pop-in (F3 20261010-230108, -230442)**: the reporter had Disable
+  Fog on; props are drawn to the level's fog distance as on the cartridge,
+  where the fog hides them. Drawing them farther with fog off is a feature.

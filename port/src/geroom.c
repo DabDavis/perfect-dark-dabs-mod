@@ -809,3 +809,54 @@ void geRoomDoorGivenRooms(struct prop *prop, struct doorobj *door)
 	propRegisterRooms(prop);
 }
 
+
+/**
+ * Whether `pos` is past every room of the level by more than a margin - where
+ * a projectile has left the level. Perfect Dark deletes an airborne
+ * projectile outside a fixed box, x and z within 32000 and y from -20000 to
+ * 32000 (projectileTick()), which every level of its own fits; a converted
+ * level can be wider: Goldfinger 64's Alps runs 233,000 units across, its
+ * road at y -18,500 and x/z past 40,000, so every rocket, the tank's shells
+ * and every gun a dead guard dropped was deleted on its first airborne tick,
+ * never exploding or landing (F3 20261011-062449). The caller keeps the box
+ * and asks this only outside it, so a level inside the box is unchanged.
+ */
+bool geRoomPosPastLevel(struct coord *pos)
+{
+	static s32 stagenum = -1;
+	static struct room *rooms = NULL;
+	static s32 roomcount = -1;
+	static f32 mn[3], mx[3];
+	const f32 margin = 2000.0f;
+
+	if (stagenum != g_Vars.stagenum || rooms != g_Rooms || roomcount != g_Vars.roomcount) {
+		stagenum = g_Vars.stagenum;
+		rooms = g_Rooms;
+		roomcount = g_Vars.roomcount;
+
+		for (s32 k = 0; k < 3; k++) {
+			mn[k] = 1e30f;
+			mx[k] = -1e30f;
+		}
+
+		for (s32 r = 1; g_Rooms && r < g_Vars.roomcount; r++) {
+			for (s32 k = 0; k < 3; k++) {
+				if (g_Rooms[r].bbmin[k] < mn[k]) {
+					mn[k] = g_Rooms[r].bbmin[k];
+				}
+
+				if (g_Rooms[r].bbmax[k] > mx[k]) {
+					mx[k] = g_Rooms[r].bbmax[k];
+				}
+			}
+		}
+	}
+
+	if (mn[0] > mx[0]) {
+		return true;
+	}
+
+	return pos->x < mn[0] - margin || pos->x > mx[0] + margin
+		|| pos->y < mn[1] - margin || pos->y > mx[1] + margin
+		|| pos->z < mn[2] - margin || pos->z > mx[2] + margin;
+}

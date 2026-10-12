@@ -24,6 +24,9 @@
 /** Whether the stage takes its rooms from the tile underfoot. */
 s32 geRoomActive(void);
 
+/** Whether a point is past every room of the level by a margin: a projectile out of the level (a converted level wider than Perfect Dark's box). */
+bool geRoomPosPastLevel(struct coord *pos);
+
 /** Whether a converted stage loads the Community Edition's copies of its files (the HD look with the CE on). */
 s32 geRoomCeData(void);
 
