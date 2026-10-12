@@ -100,14 +100,14 @@
 #
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest tankride),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest tankride gfrespawn),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest tankride}
+CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest tankride gfrespawn}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -1335,6 +1335,106 @@ case_pdguest() {
 		|| fail "$name: $(grep -o "the PC's line.*" "$OUT/stage.log" | head -1)"
 }
 
+# ---------------------------------------------------------------- gfrespawn
+# A conversion's mission whose intro has GoldenEye's watch time (crash
+# 20261012-012711: a Goldfinger 64 co-op host, the guest's sixth death): the
+# new life's walk of the intro stepped over INTROCMD_WATCHTIME by one word,
+# fell out of step, ran past the list's end into the stage's memory beyond -
+# 400 KB and more, live allocations among it - and handed out "kit" from
+# there; an ammo type of 1.7 billion crashed the host. Goldfinger 64's Miami
+# (index 2: watch time 10:00, the list's last command) in co-op with Mission
+# Respawn; the client's player is killed on the host twice, and through gdb
+# each new life must give Miami's kit (the PP7, 94, and its two ammo
+# commands) and nothing else, and must never read the word after the list's
+# end (a read watchpoint there for the length of playerStartNewLife).
+cat > "$OUT/gfrespawn.py" <<'PY'
+import gdb
+def i(e): return int(gdb.parse_and_eval(e))
+def brk(t):
+    gdb.execute("break netScenHostTickEnd if g_NetTick >= %d" % t); gdb.execute("continue"); gdb.execute("delete")
+inf = gdb.selected_inferior()
+def word(a): return int.from_bytes(bytes(inf.read_memory(a, 4)), "little", signed=True)
+LEN = {0: 3, 1: 4, 2: 4, 3: 8, 4: 2, 5: 2, 6: 10, 7: 3, 8: 2, 9: 3, 10: 3, 11: 2}
+def listend():
+    a = i("(long)g_StageSetup.intro")
+    while word(a) != 12:
+        a += 4 * LEN.get(word(a), 1)
+    return a
+kit = []
+past = [0]
+readers = []
+inside = [False]
+watch = []
+class Past(gdb.Breakpoint):
+    def stop(self):
+        if inside[0]:
+            past[0] += 1
+            readers.append("%s@%x" % (gdb.newest_frame().name(), gdb.newest_frame().pc()))
+        return False
+class Kit(gdb.Breakpoint):
+    def stop(self):
+        if self.location == "playerStartNewLife":
+            if i("g_Vars.currentplayernum") == 1:
+                if not watch:
+                    watch.append(Past("*(int *)%d" % (listend() + 4), gdb.BP_WATCHPOINT, gdb.WP_READ, internal=True))
+                inside[0] = True
+                Done(gdb.newest_frame(), internal=True)
+        elif i("g_Vars.currentplayernum") == 1:
+            kit.append("%s(%s)" % (self.location, ",".join(str(i(a)) for a in self.args)))
+        return False
+class Done(gdb.FinishBreakpoint):
+    def stop(self):
+        inside[0] = False
+        return False
+for loc, args in (("playerStartNewLife", []), ("bgunSetAmmoQuantity", ["ammotype", "quantity"]),
+        ("invGiveSingleWeapon", ["weaponnum"]), ("invGiveDoubleWeapon", ["right", "left"])):
+    b = Kit(loc, internal=True); b.args = args
+for n, t in ((1, 900), (2, 2100)):
+    brk(t)
+    del kit[:]
+    del readers[:]
+    past[0] = 0
+    gdb.execute("call (void)setCurrentPlayerNum(1)")
+    gdb.execute("call (void)playerDie(1)")
+    gdb.execute("call (void)setCurrentPlayerNum(0)")
+    print("STAGE gfrespawn: the client's player killed at tick %d (dead %d)" % (i("g_NetTick"), i("g_Vars.players[1]->isdead")))
+    while i("g_Vars.players[1]->isdead") and t < 3400:
+        t += 10
+        brk(t)
+    print("STAGE gfrespawn: new life %d at tick %d (dead %d), kit %s, reads past the list's end %d %s" % (n, i("g_NetTick"), i("g_Vars.players[1]->isdead"), " ".join(kit), past[0], " ".join(readers)))
+PY
+
+case_gfrespawn() {
+	local name=gfrespawn port=$((PORT + 17)) H=$OUT/gfrespawn-host.log C=$OUT/gfrespawn-client.log
+	echo "== $name"
+	game gfrespawn-host 300 '[Mod]\nMapMods=GoldenEye Arenas;Goldfinger 64\nMissionRespawn=1\nMissionLives=0\n' --host "$port" --net-test-host 1 --rng-seed 7 \
+		--net-test-coop 2 --net-test-coop-game gf64 --exit-frame 3900 &
+	local host=$!
+	waitfor "$H" "net: hosting on UDP port\|cannot be played online" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; return; }
+	if grep -q "cannot be played online" "$H"; then
+		echo "skip $name: Goldfinger 64 is not converted here"; kill -TERM $host; wait $host; return
+	fi
+	game gfrespawn-client 290 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join --exit-frame 3700 &
+	local client=$!
+	waitfor "$C" "net: match 1: GO" 150 || echo "     no GO on the client"
+	local hp; hp=$(gamepid gfrespawn-host)
+	[ -n "$hp" ] && timeout 180 gdb -p "$hp" -batch -x "$OUT/gfrespawn.py" 2>/dev/null | grep "^STAGE" | tee -a "$OUT/stage.log" | sed 's/^/     host: /'
+	wait "$client"; local cx=$?
+	[ "$cx" = 143 ] && cx=0
+	wait "$host"; local hx=$?
+	[ "$hx" = 143 ] && hx=0
+	crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
+	crashed "$C" && fail "$name: the client crashed" || { [ "$cx" = 0 ] && pass "$name: client ran to the end" || fail "$name: client exit $cx"; }
+	grep -q "net: co-op: starting Miami (Goldfinger 64, index 2" "$H" && pass "$name: the host started Miami" || fail "$name: the host did not start Miami"
+	local n line
+	for n in 1 2; do
+		line=$(grep -o "STAGE gfrespawn: new life $n .*" "$OUT/stage.log" | tail -1)
+		echo "$line" | grep -q "(dead 0), kit invGiveSingleWeapon(1) invGiveSingleWeapon(1) invGiveSingleWeapon(94) bgunSetAmmoQuantity(1,200) bgunSetAmmoQuantity(2,200) invGiveSingleWeapon(1), reads past the list's end 0 *$" \
+			&& pass "$name: death $n's new life took Miami's kit alone and stopped at the list's end" || fail "$name: death $n: ${line:-not read}"
+	done
+	grep -q "player: stage 0x[0-9a-f]*'s intro has" "$H" && fail "$name: $(grep -o "player: stage.*" "$H" | head -1)" || pass "$name: no intro command refused"
+}
+
 {
 for c in $CASES; do
 	case $c in
@@ -1353,6 +1453,7 @@ for c in $CASES; do
 		gebunker) case_gebunker ;;
 		pdguest) case_pdguest ;;
 		tankride) case_tankride ;;
+		gfrespawn) case_gfrespawn ;;
 		*) fail "unknown case $c" ;;
 	esac
 done
