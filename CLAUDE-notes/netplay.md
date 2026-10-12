@@ -4030,4 +4030,5 @@ sims?".
   with netlagcomptest's on run at 220 ms (`--net-sim 0,110`): every shot capped (rewind 20.00 ticks),
   81.7% of the 82 hits the shooter saw scored; with Net.LagCompMaxMs=300 none capped and 96.0% of 50.
   Raising the default is the owner's call (a cutoff by design: past it a laggy shooter is no longer
-  fully favoured over the victim).
+  fully favoured over the victim). **The owner raised it to 300 (2026-10-12, fix/f3-1012-lagcomp300):
+  the default and Mod.SettingsRevision 2 (main.c), which moves a pd.ini still at 200 to 300 once.**

@@ -61,7 +61,7 @@
  * history: struct netlclife). How far back is bounded by the host's own
  * numbers, never the client's (netLcViewFor): the network's share - the
  * round trip ENet measures and the command's wait in the host's queue - is
- * capped at Net.LagCompMaxMs (200), and an interpolation delay worked out
+ * capped at Net.LagCompMaxMs (300), and an interpolation delay worked out
  * from the host's snapshot rate and the link's variance (at most
  * NETLC_MAXINTERP) comes on top (at a 150 ms round trip the harness
  * measures 17.4 ticks, 290 ms, in all). The host's own player's shots are
@@ -150,7 +150,7 @@ extern struct chrdata *g_CurModelChr;
 void chrHandleJointPositioned(s32 joint, Mtxf *mtx);
 
 s32 g_NetLagComp = 1;
-static s32 s_MaxMs = 200;
+static s32 s_MaxMs = 300;
 static s32 s_LagCompBlasts = 1;  // Net.LagCompBlasts: a guest's blasts where it saw the chrs
 
 PD_CONSTRUCTOR static void netLagCompConfigInit(void)
@@ -158,6 +158,14 @@ PD_CONSTRUCTOR static void netLagCompConfigInit(void)
 	configRegisterInt("Net.LagComp", &g_NetLagComp, 0, 1);
 	configRegisterInt("Net.LagCompMaxMs", &s_MaxMs, 0, 1000);
 	configRegisterInt("Net.LagCompBlasts", &s_LagCompBlasts, 0, 1);
+}
+
+// Mod.SettingsRevision 2 (main.c): a pd.ini still at the old default
+void netLagCompRaiseOldDefault(void)
+{
+	if (s_MaxMs == 200) {
+		s_MaxMs = 300;
+	}
 }
 
 static struct netlcpose *s_Hist = NULL; // [s_HistSlots][NETLC_RING]
@@ -853,8 +861,10 @@ static s32 netLcViewFor(s32 slot, f64 *viewout)
 	// alone (the client's are never trusted; its reported delay is only
 	// logged): the network's share is the round trip ENet measures to that
 	// peer and the command's wait in the queue here, with a little slack,
-	// capped at Net.LagCompMaxMs (200: a worse link is no longer fully
-	// favoured, Overwatch's ping cutoff). The interpolation delay comes on
+	// capped at Net.LagCompMaxMs (300: a worse link is no longer fully
+	// favoured, Overwatch's ping cutoff; 200 until F3 20261012-123437, where
+	// a 220 ms transatlantic link had every shot capped and the host scored
+	// 81.7% of the hits its shooter saw, 96.0% at 300). The interpolation delay comes on
 	// top, as netpuppets.c's sum makes it (2 snapshot intervals, twice the
 	// jitter, 1) at the slower snapshot rate and with the jitter taken from
 	// the round trip's variance, itself never past NETLC_MAXINTERP.
