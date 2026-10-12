@@ -158,6 +158,12 @@
   units of its laid-out frame (`g_TextMaxX`), Create Room fitting its
   column, a conversion's own difficulty names (LtitleE 19-21), the roster's
   checkboxes.
+- **F3 pass 38: the online menus (2026-10-12)** — the section of that
+  name: the Main Menu Chat dead after a long session (the 64 wrapped lines),
+  the Game Lobby's Chat row opening the line, the online profile
+  (`netprofile.c`: player 1 while the online pages are up, kept in pd.ini
+  [Net], the account's name, Copy From Offline Player), the cone's still
+  taken before the menus are drawn.
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -3881,3 +3887,48 @@ Respawn rules and lives).
 - **Left as stock:** the radar shows the players to each other when the room's Radar is on (Perfect
   Dark's counter-op radar); the kill feed names a counter-op's kills; a counter-op waiting for a guard
   is visible as its own character.
+
+## F3 pass 38: the online menus (2026-10-12, no wire change, protocol stays 32)
+
+- **Chat that went quiet for good (F3 20261012-041856)** was the chat windows' wrapped lines: a buffer of
+  64 (`LOBBY_MAXCHATLINES`) filled oldest first that took no more, so once a chat's history (the Main Menu
+  Chat keeps its last 24 lines, pdlobbyd 50) wrapped past 64 lines - a few long lines in the Briefing
+  Room's narrow window - nothing newer was shown, the player's own lines and the "Say:" being typed
+  included, until a restart emptied the client's copy. Fixed with the chat drawing's rewrite in
+  fix/f3-1012-netlobby (9dad1533a: 256 lines, the oldest dropped; "F3 pass 38: the online pages"). Nothing else limits it: pdlobbyd's 6
+  lines per 10 s per account is a "Slow down." in the footer and clears. Reproduce: post long lines to
+  `POST /chat` from other accounts on a local pdlobbyd, then type in the Briefing Room.
+- **The Game Lobby's Chat row** opens the same line Space and T do for a keyboard or mouse press
+  (`netHudLobbyChatOpen()`, nethud.c): a whole chat line, any character. It had pushed the on-screen
+  keyboard, 17 letters of `INPUT_TEXT_OSK` (no commas) in a half-width field (F3 20261012-123906, "small
+  amount of space to type"); a pad's press still gets that keyboard, its field now full width. T and
+  Space themselves were checked working in the Game Lobby before and after a match (a joiner by xdotool
+  on Xvfb); the report's own log has lines with commas sent from the Game Lobby, which only the line takes.
+- **The online profile (netprofile.c; the owner, F3 20261012-115801, with 121828/122036).** Online a seat
+  plays by player 1's config (`netWriteSlotCfg`: character, Control Style, the option bits), which nothing
+  kept between sessions unless a player file was loaded. While the online pages are up - Name Entry's OPEN
+  to its CLOSE; a campaign host's menus without Name Entry are held by the room, and `netLobbyMenuFrame`
+  lets go once no room, no session and no Name Entry hold it - player 1 is the online profile: pd.ini
+  `[Net] PlayerProfile/PlayerBody/PlayerHead/PlayerControlMode/PlayerOptions` over the offline player's
+  config, its name the lobby account's (Player Setup's Name row, Team Control, any list of the setup's
+  players), its fileguid zeroed (an online match's end never saves into the offline player's file). The
+  offline player comes back whole as Name Entry closes. The first time it is the offline player's copy;
+  Name Entry's and the Game Lobby's Player Setup... open `g_NetPlayerSetupMenuDialog`: the name (read only,
+  with a hint), Character, Control, Player Options and **Copy From Offline Player**. A match keeps it:
+  `menuStop()` closes no dialog, the net rules put back what they took. Lobby scripts that skip Name Entry
+  (`--net-lobby-script` without `--net-lobby-menus`) never enter it.
+- **The cone's still (F3 20261012-124052).** The Combat Simulator's root pushed with no background (the
+  menus after a match, the online pages' way back included) asked `menuSetBackground(MENUBG_CONEALPHA)`
+  for a still of the level. The cone is drawn on that very frame (`menuRenderBackgroundLayer2()` for the
+  next background), and `schedConsiderScreenshot()` copies the presented frame (the front buffer): the
+  still held the cone and the online pages' windows, and the Perfect Menu backed out to later blurred
+  them - the "tie-dye". Seen under Vulkan (`gfx_vk_copy_framebuffer` reads the window image shown last);
+  Xvfb's GL front buffer did not show it. The cone's still is taken in the frame's list before the menus
+  now (`menugfxCreateBlurInList()`, as Mods: Camera's is), not while GoldenEye's front hides the level.
+  Offline the same after a Combat Simulator match backed out to the Perfect Menu.
+- **Not reproduced:** the Character page's preview walking right with each pick (F3 20261012-114159):
+  centred online and offline, GL and Vulkan, with the XBLA release and GoldenEye's characters. Valentin's
+  head low on Pelagic II's body (114356) is the head fit, not the menu: `headfitOffsetAcross()` seats a
+  Bean head by `xblaMeshBeanSeatAt(HEADFIT_RIM_HIGH)`, the 0.75 point of its underside ring sorted by
+  height, and CgeheadValentinZ's ring has five of sixteen hits at +152..+162 (the rest -56..-38): the
+  0.75 point is a stray (153), offset -186 on body 128.

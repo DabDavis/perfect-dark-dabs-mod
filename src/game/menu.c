@@ -4285,6 +4285,22 @@ void menuSetBackground(s32 bg)
 
 	if (screenshot && g_MenuData.bg == 0) {
 		g_MenuData.screenshottimer = 1;
+
+#ifndef PLATFORM_N64
+		// The cone's first frame draws it over the level at once (layer 2
+		// of the next background, menuRender()), dialogs and all, and that
+		// presented frame is what schedConsiderScreenshot() copied: the
+		// Combat Simulator's root after a match (the online pages' too)
+		// had a still of the cone, and the Perfect Menu backed out to later
+		// blurred it - the tie-dye behind the Perfect Menu (F3
+		// 20261012-124052). Taken from this frame's level instead, under
+		// the menus (menugfxCaptureBlur()), as Mods: Camera's is; not while
+		// GoldenEye's front hides the level (that waits for a frame of it)
+		if (bg == MENUBG_CONEALPHA && IS8MB() && !gexFrontHidesLevel()) {
+			g_MenuData.screenshottimer = 0;
+			menugfxCreateBlurInList();
+		}
+#endif
 	}
 }
 

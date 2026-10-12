@@ -640,6 +640,26 @@ void netHudLobbyFrame(void)
 	s_LobbyFrame = s_Frame;
 }
 
+/**
+ * The Game Lobby's Chat row chosen by a keyboard or mouse player
+ * (netlobbymenu.c): the line Space and T open, rather than the on-screen
+ * keyboard. 0 when it cannot open now (typing elsewhere).
+ */
+s32 netHudLobbyChatOpen(void)
+{
+	if (s_ChatOpen == CHAT_LOBBY) {
+		return 1;
+	}
+
+	if (s_ChatOpen != CHAT_SHUT || !netLobbyInRoom() || inputIsTextInputActive() || g_MenuKeyboardPlayer >= 0) {
+		return 0;
+	}
+
+	netHudChatStart(CHAT_LOBBY, NULL);
+
+	return 1;
+}
+
 // The Briefing Room is up this frame: Space and the chat key open the main
 // menu's chat line there
 void netHudMainChatFrame(void)
