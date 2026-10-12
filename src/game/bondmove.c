@@ -1893,7 +1893,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							u32 pressed = joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons);
 
 							if (pressed & BUTTON_THIRDPERSON) {
-								g_Vars.currentplayer->thirdperson = !g_Vars.currentplayer->thirdperson;
+								// (online: only where the room allows it)
+								g_Vars.currentplayer->thirdperson = !g_Vars.currentplayer->thirdperson && modIsThirdPersonAllowed();
 							}
 
 							if (pressed & BUTTON_ROLL) {

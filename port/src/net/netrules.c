@@ -99,20 +99,29 @@ static const struct {
 	{ "Mod.GuardWeapons",            NETKEY_SYNC },
 	{ "Mod.MissionRespawn",          NETKEY_SYNC },
 	{ "Mod.MissionLives",            NETKEY_SYNC },
-	// a player's own (protocol 20): how its controls, its gun and its third
-	// person camera behave. The camera's are read inside playerTick, and a
-	// third person shot is fired from the camera (protocol 19's fix)
+	// the host's (pass 37, the owner): Skip Death Screen decides when a
+	// dead player can respawn, so two machines with it set differently
+	// disagreed about a death's timing; third person sees round corners
+	// and over cover, so whether it is allowed (Mod.NetThirdPerson, online
+	// only; stock: first person) and its camera (distance, clearance, side,
+	// height, forward, tether) are the room's, one camera for everybody
+	{ "Mod.SkipDeathScreen",         NETKEY_SYNC },
+	{ "Mod.NetThirdPerson",          NETKEY_SYNC },
+	{ "Mod.ThirdPersonDistance",     NETKEY_SYNC },
+	{ "Mod.ThirdPersonClearance",    NETKEY_SYNC },
+	{ "Mod.ThirdPersonSideways",     NETKEY_SYNC },
+	{ "Mod.ThirdPersonForward",      NETKEY_SYNC },
+	{ "Mod.ThirdPersonHeight",       NETKEY_SYNC },
+	{ "Mod.ThirdPersonTether",       NETKEY_SYNC },
+	// a player's own (protocol 20): how its controls and its gun behave,
+	// read inside playerTick (the host swaps a client's in around its tick,
+	// netPlayersOwnBegin) or through netSlotOwnS32, so the host simulates
+	// the client's seat by them as the client predicts it (Quick Weapon
+	// Swap's skipped animations included). The camera's tilt is the view's
 	{ "Mod.CodAiming",               NETKEY_PLAYER },
 	{ "Mod.CodAimLock",              NETKEY_PLAYER },
 	{ "Mod.AkimboTriggers",          NETKEY_PLAYER },
 	{ "Mod.QuickWeaponSwap",         NETKEY_PLAYER },
-	{ "Mod.SkipDeathScreen",         NETKEY_PLAYER },
-	{ "Mod.ThirdPersonDistance",     NETKEY_PLAYER },
-	{ "Mod.ThirdPersonClearance",    NETKEY_PLAYER },
-	{ "Mod.ThirdPersonSideways",     NETKEY_PLAYER },
-	{ "Mod.ThirdPersonForward",      NETKEY_PLAYER },
-	{ "Mod.ThirdPersonHeight",       NETKEY_PLAYER },
-	{ "Mod.ThirdPersonTether",       NETKEY_PLAYER },
 	{ "Mod.CameraTilt",              NETKEY_PLAYER },
 	{ "Mod.InvertCameraTilt",        NETKEY_PLAYER },
 	{ "Mod.ForwardAndBackTilt",      NETKEY_PLAYER },

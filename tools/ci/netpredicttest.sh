@@ -63,6 +63,18 @@
 #           value and its own by its own, the client its seat by its own, no
 #           "settings changed mid-match" with nothing changed, and the
 #           prediction gated as clean's
+#   skipdeath  Skip Death Screen is the host's (the owner, pass 37: a
+#           desync with it set on one machine only): host 1, client 0; the
+#           host kills the client's seat at tick 600 (--net-test-kill) and the
+#           client presses START from 610. Both must play by the host's 1 and
+#           log the death and the respawn (--net-test-deathlog) within a few
+#           ticks of each other, the respawn soon after the death
+#   views   the host's room has no third person (Mod.NetThirdPerson=0, stock)
+#           and nobody has the free camera online: the client presses V's
+#           button at tick 300 and the Spectator key's at 500; at ticks 400
+#           and 700 (--net-test-viewlog) both machines have it in first
+#           person, no free camera. views3p: the host allows third person:
+#           the same V gives it (both machines), the Spectator key still not
 #
 #   netpredicttest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
@@ -78,7 +90,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpredict-out}; PORT=${PORT:-27300}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-clean lag loss wine sims time hands cheats pitch}
+CASES=${CASES:-clean lag loss wine sims time hands cheats pitch skipdeath views views3p}
 MAXCPM=${MAXCPM:-10}
 FRAMES=${FRAMES:-3000}
 MINMATCH=${MINMATCH:-99}
@@ -397,6 +409,56 @@ run_lp() {
 	wait "$host"
 }
 
+# rules runs: run_rules LABEL PORT HINI CINI SCRIPTLINES HARGS CARGS (the
+# client scripted by SCRIPTLINES, "from to buttons" a line)
+run_rules() {
+	local label=$1 port=$2 hini=$3 cini=$4 lines=$5 hargs=$6 cargs=$7
+	printf '%b' "$lines" | awk 'NF { print $1, $2, $3, 0, 0, 0, 0, 0, 0 }' > "$OUT/$label.script"
+	INI=$hini game "$label-host" 300 --moddir "$MODDIR" --host "$port" --net-test-host 1 --net-test-stage 0x32 --rng-seed 1 --endless \
+		--net-sim 0,38 --exit-frame 1600 $hargs &
+	local host=$!
+	waitfor "$OUT/$label-host.log" "net: hosting on UDP port" 60 || { echo "FAIL: $label host did not start"; kill -TERM $host; exit 2; }
+	INI=$cini game "$label-client" 290 --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join --net-sim 0,38 \
+		--net-test-input "$OUT/$label.script" --exit-frame 1200 $cargs &
+	local client=$!
+	wait "$client"
+	kill -TERM "$host" 2>/dev/null
+	wait "$host"
+}
+
+check_skipdeath() {
+	local H=$OUT/skipdeath-host.log C=$OUT/skipdeath-client.log hd hr cd cr
+	check_run skipdeath || return
+	grep -q "net: rules: Mod.SkipDeathScreen 0 -> 1 (the host's, for the match)" "$C" \
+		&& pass "skipdeath: the client plays the host's Skip Death Screen (1), not its own (0)" || fail "skipdeath: the client never took the host's Skip Death Screen"
+	hd=$(sed -n 's/.*deathlog: slot 1 died at tick \([0-9]*\) (Skip Death Screen in force 1).*/\1/p' "$H" | head -1)
+	hr=$(sed -n 's/.*deathlog: slot 1 respawned at tick \([0-9]*\) (Skip Death Screen in force 1).*/\1/p' "$H" | head -1)
+	cd=$(sed -n 's/.*deathlog: slot 1 died at tick \([0-9]*\) (Skip Death Screen in force 1).*/\1/p' "$C" | head -1)
+	cr=$(sed -n 's/.*deathlog: slot 1 respawned at tick \([0-9]*\) (Skip Death Screen in force 1).*/\1/p' "$C" | head -1)
+	echo "     host: died $hd respawned $hr; client: died $cd respawned $cr"
+	if [ -n "$hd" ] && [ -n "$hr" ] && [ -n "$cd" ] && [ -n "$cr" ] && [ $((hr - hd)) -le 60 ] \
+			&& [ $((cr - hr)) -le 20 ] && [ $((hr - cr)) -le 20 ] && [ $((cd - hd)) -le 20 ] && [ $((hd - cd)) -le 20 ]; then
+		pass "skipdeath: host and client agree on the death and the quick respawn (both by the host's rule)"
+	else
+		fail "skipdeath: the death and respawn ticks disagree or the respawn was slow"
+	fi
+	[ "$(grep -c 'deathlog: slot 1 respawned' "$C")" = 1 ] && pass "skipdeath: one respawn on the client" || fail "skipdeath: $(grep -c 'deathlog: slot 1 respawned' "$C") respawns on the client"
+}
+
+# check_views LABEL GIVEN: third person given (GIVEN at 400) and no free camera at 700, both machines
+check_views() {
+	local label=$1 want=$2 l
+	check_run "$label" || return
+	for l in host client; do
+		grep -q "viewlog: tick 400 slot 1: third person asked $want given $want" "$OUT/$label-$l.log" \
+			&& pass "$label: $l: the client's seat third person $want after V (room allows $([ "$want" = 1 ] && echo it || echo none))" \
+			|| fail "$label: $l: $(grep -o 'viewlog: tick 400 slot 1.*' "$OUT/$label-$l.log")"
+		grep -q "viewlog: tick 700 slot 1: .*free camera 0" "$OUT/$label-$l.log" \
+			&& pass "$label: $l: the Spectator key gave the playing seat no free camera" \
+			|| fail "$label: $l: $(grep -o 'viewlog: tick 700 slot 1.*' "$OUT/$label-$l.log")"
+	done
+}
+
 # the last "local block" line's count NAME ("ammo sets", "inventory changes")
 lpcount() {
 	grep -h "net: local block so far\|net: local block at" "$OUT/$1-client.log" | tail -1 | sed -n "s/.* $2 \([0-9]*\).*/\1/p"
@@ -457,6 +519,12 @@ for c in $CASES; do
 		time)  run_time $((PORT + i)) ;;
 		hands) run_lp hands $((PORT + i)) "[Mod]\nAkimbo=1\n" "[Mod]\nAkimboTriggers=1\nQuickWeaponSwap=1\n" \
 				"--net-test-stage 0x17 --net-sim 0,72 --net-test-give 600,0x6d,-0x08/1200,0x08" "--net-sim 0,72" ;;
+		skipdeath) run_rules skipdeath $((PORT + i)) "[Mod]\nSkipDeathScreen=1\n" "[Mod]\nSkipDeathScreen=0\n" \
+				"$(for t in $(seq 610 2 900); do printf '%d %d 1000\\n' $t $t; done)" "--net-test-kill 1,600 --net-test-deathlog" "--net-test-deathlog" ;;
+		views) run_rules views $((PORT + i)) "[Mod]\nNetThirdPerson=0\n" "[Mod]\n" "300 300 10000000\n500 500 4000000\n" \
+				"--net-test-viewlog 400,700" "--net-test-viewlog 400,700" ;;
+		views3p) run_rules views3p $((PORT + i)) "[Mod]\nNetThirdPerson=1\n" "[Mod]\n" "300 300 10000000\n500 500 4000000\n" \
+				"--net-test-viewlog 400,700" "--net-test-viewlog 400,700" ;;
 		cheats) run_lp cheats $((PORT + i)) "[Mod]\nStartArmed=1\n" "[Mod]\nStartArmed=1\n" \
 				"--net-test-stage 0x32 --mp-weapons 1,4,7,9,10,1 --net-sim 0,38 --net-test-cheats 0x10" "--net-sim 0,38 --net-test-cheats 0x08" ;;
 	esac
@@ -476,6 +544,9 @@ for c in $CASES; do
 			snaps "$c"
 			;;
 		pitch) [ -e "$OUT/pitch-client.log" ] && check_pitch ;;
+		skipdeath) [ -e "$OUT/skipdeath-client.log" ] && check_skipdeath ;;
+		views) [ -e "$OUT/views-client.log" ] && check_views views 0 ;;
+		views3p) [ -e "$OUT/views3p-client.log" ] && check_views views3p 1 ;;
 		time) [ -e "$OUT/time-host.log" ] && check_time ;;
 		hands) [ -e "$OUT/hands-client.log" ] && check_hands ;;
 		cheats) [ -e "$OUT/cheats-client.log" ] && check_cheats ;;

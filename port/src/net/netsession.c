@@ -41,6 +41,7 @@
 #include "game/propobj.h"
 #include "game/setuputils.h"
 #include "game/player.h"
+#include "game/modspectate.h"
 #include "game/playermgr.h"
 #include "game/mpstats.h"
 
@@ -726,9 +727,92 @@ void netTestOwnOptions(void)
 	}
 }
 
+/**
+ * Tests of the host's rules (netpredicttest skipdeath, views):
+ *   --net-test-kill SLOT,TICK   host: that seat's player dies at that tick
+ *   --net-test-deathlog         each death and respawn logged with its tick
+ *                               (the host: every seat; a client: its own)
+ *   --net-test-viewlog T1,T2..  at those ticks each seat's view: third person
+ *                               asked and given, the free camera (modspectate)
+ */
+static s32 s_TestKillSlot = -2; // -2 not read yet, -1 none
+static u32 s_TestKillTick = 0;
+static s32 s_TestDeathLog = 0;
+static u8 s_TestDead[MAX_PLAYERS];
+static u32 s_TestViewAt[8];
+static s32 s_TestViews = 0;
+
+static s32 netSeatPlayer(s32 slot);
+
+static void netTestRulesTick(void)
+{
+	s32 i;
+	s32 j;
+
+	if (s_TestKillSlot == -2) {
+		const char *kill = sysArgGetString("--net-test-kill");
+		const char *views = sysArgGetString("--net-test-viewlog");
+		unsigned int slot = 0;
+		unsigned int tick = 0;
+
+		s_TestKillSlot = kill && sscanf(kill, "%u,%u", &slot, &tick) == 2 ? (s32)slot : -1;
+		s_TestKillTick = tick;
+		s_TestDeathLog = sysArgCheck("--net-test-deathlog");
+
+		while (views && *views && s_TestViews < 8) {
+			s_TestViewAt[s_TestViews++] = (u32)strtoul(views, NULL, 0);
+			views = strchr(views, ',');
+			views = views ? views + 1 : NULL;
+		}
+	}
+
+	if (!s_MatchActive || g_NetTick == 0) {
+		memset(s_TestDead, 0, sizeof(s_TestDead));
+		return;
+	}
+
+	if (g_NetMode == NETMODE_SERVER && s_TestKillSlot >= 0 && g_NetTick == s_TestKillTick) {
+		const s32 pn = netSeatPlayer(s_TestKillSlot);
+
+		if (pn >= 0 && g_Vars.players[pn] && !g_Vars.players[pn]->isdead) {
+			const s32 prev = g_Vars.currentplayernum;
+
+			setCurrentPlayerNum(pn);
+			playerDieByShooter(pn, true);
+			setCurrentPlayerNum(prev);
+			sysLogPrintf(LOG_NOTE, "net: --net-test-kill: slot %d (player %d) killed at tick %u", s_TestKillSlot, pn, g_NetTick);
+		}
+	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		const s32 pn = g_NetMode == NETMODE_CLIENT ? (i == s_ClientSlot ? g_NetLocalSlot : -1) : netSeatPlayer(i);
+		const struct player *p = pn >= 0 && pn < MAX_PLAYERS ? g_Vars.players[pn] : NULL;
+
+		if (!p || !mpIsHumanSlotOn(i)) {
+			continue;
+		}
+
+		if (s_TestDeathLog && (p->isdead != 0) != s_TestDead[i]) {
+			s_TestDead[i] = p->isdead != 0;
+			sysLogPrintf(LOG_NOTE, "net: --net-test-deathlog: slot %d %s at tick %u (Skip Death Screen in force %d)",
+					i, s_TestDead[i] ? "died" : "respawned", g_NetTick, g_ModOptions.skipdeathscreen);
+		}
+
+		for (j = 0; j < s_TestViews; j++) {
+			if (g_NetTick == s_TestViewAt[j]) {
+				sysLogPrintf(LOG_NOTE, "net: --net-test-viewlog: tick %u slot %d: third person asked %d given %d, free camera %d (room allows third person %d)",
+						g_NetTick, i, p->thirdperson, playerIsThirdPerson((struct player *)p), modSpectateIsOnForPlayer(pn),
+						g_ModNetThirdPerson);
+			}
+		}
+	}
+}
+
 void netTestOwnOptionsTick(void)
 {
 	s32 i;
+
+	netTestRulesTick();
 
 	if (s_TestPitch < 0 || g_NetTick != 600 || !s_MatchActive || s_TestPitchLogged == s_MatchIdCur) {
 		return;

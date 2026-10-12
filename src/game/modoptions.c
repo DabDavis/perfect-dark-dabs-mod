@@ -912,6 +912,23 @@ bool modIsMissionRespawnOn(void)
  * stock's, which are part of how those modes end. See the
  * isdead block in playerRenderHud() (player.c).
  */
+/**
+ * Third person online is the room's (Mod.NetThirdPerson, a Room Rule; stock
+ * off, Perfect Dark's first person): it sees round corners and over cover.
+ * Offline it is always the player's (V).
+ */
+s32 g_ModNetThirdPerson = 0;
+
+bool modIsThirdPersonAllowed(void)
+{
+#ifndef PLATFORM_N64
+	if (g_NetMode != NETMODE_NONE) {
+		return g_ModNetThirdPerson != 0;
+	}
+#endif
+	return true;
+}
+
 bool modIsSkipDeathScreenOn(void)
 {
 	return modOwn(&g_ModOptions.skipdeathscreen) != 0 && g_Vars.normmplayerisrunning;
