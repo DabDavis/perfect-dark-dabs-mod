@@ -1763,6 +1763,12 @@ static bool playerWantsThirdPerson(struct player *player)
 	return false;
 #else
 	// GoldenEye's death replay watches the body fall again (gedeathcam.c)
+	// (online, a room without third person never gives it: a request left
+	// over is dropped, modIsThirdPersonAllowed)
+	if (player->thirdperson && !modIsThirdPersonAllowed()) {
+		player->thirdperson = false;
+	}
+
 	return player->thirdperson || geDeathCamWantsBody(player);
 #endif
 }

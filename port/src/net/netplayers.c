@@ -2622,6 +2622,8 @@ void netPlayersTickBegin(void)
 		netPlayersClientSend();
 		netSessionClientCfgTick();
 	}
+
+	netTestOwnOptionsTick();
 }
 
 // After the tick's lvRender, before g_NetTick moves on

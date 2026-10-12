@@ -21,6 +21,7 @@
 #include "mod.h"
 #include "modmode.h"
 #include "lib/main.h"
+#include "game/options.h"
 #include "game/lang.h"
 #include "game/menu.h"
 #include "game/title.h"
@@ -40,6 +41,7 @@
 #include "game/propobj.h"
 #include "game/setuputils.h"
 #include "game/player.h"
+#include "game/modspectate.h"
 #include "game/playermgr.h"
 #include "game/mpstats.h"
 
@@ -704,13 +706,164 @@ void netReadSlotCfg(struct netbuf *b, struct netslotcfg *cfg)
 	netRulesReadPlayerKeys(b, &cfg->own);
 }
 
+/**
+ * --net-test-forward-pitch 0|1 (netpredicttest pitch): this machine's own
+ * Reverse Pitch (OPTION_FORWARDPITCH set is "not reversed") put on its first
+ * player once, before its first SLOTCFG or its first match as the host; and
+ * at tick 600 of a match the log says which value each seat plays by
+ */
+static s32 s_TestPitch = -2; // -2 not read yet, -1 none
+static u32 s_TestPitchLogged = 0; // the match it was logged in
+
+void netTestOwnOptions(void)
+{
+	if (s_TestPitch == -2) {
+		s_TestPitch = sysArgGetInt("--net-test-forward-pitch", -1);
+
+		if (s_TestPitch >= 0) {
+			optionsSetForwardPitch(0, s_TestPitch != 0);
+			sysLogPrintf(LOG_NOTE, "net: --net-test-forward-pitch: this machine's own player 1 forward pitch %d", s_TestPitch != 0);
+		}
+	}
+}
+
+/**
+ * Tests of the host's rules (netpredicttest skipdeath, views):
+ *   --net-test-kill SLOT,TICK   host: that seat's player dies at that tick
+ *   --net-test-deathlog         each death and respawn logged with its tick
+ *                               (the host: every seat; a client: its own)
+ *   --net-test-viewlog T1,T2..  at those ticks each seat's view: third person
+ *                               asked and given, the free camera (modspectate)
+ */
+static s32 s_TestKillSlot = -2; // -2 not read yet, -1 none
+static u32 s_TestKillTick = 0;
+static s32 s_TestDeathLog = 0;
+static u8 s_TestDead[MAX_PLAYERS];
+static u32 s_TestViewAt[8];
+static s32 s_TestViews = 0;
+
+static s32 netSeatPlayer(s32 slot);
+
+static void netTestRulesTick(void)
+{
+	s32 i;
+	s32 j;
+
+	if (s_TestKillSlot == -2) {
+		const char *kill = sysArgGetString("--net-test-kill");
+		const char *views = sysArgGetString("--net-test-viewlog");
+		unsigned int slot = 0;
+		unsigned int tick = 0;
+
+		s_TestKillSlot = kill && sscanf(kill, "%u,%u", &slot, &tick) == 2 ? (s32)slot : -1;
+		s_TestKillTick = tick;
+		s_TestDeathLog = sysArgCheck("--net-test-deathlog");
+
+		while (views && *views && s_TestViews < 8) {
+			s_TestViewAt[s_TestViews++] = (u32)strtoul(views, NULL, 0);
+			views = strchr(views, ',');
+			views = views ? views + 1 : NULL;
+		}
+	}
+
+	if (!s_MatchActive || g_NetTick == 0) {
+		memset(s_TestDead, 0, sizeof(s_TestDead));
+		return;
+	}
+
+	if (g_NetMode == NETMODE_SERVER && s_TestKillSlot >= 0 && g_NetTick == s_TestKillTick) {
+		const s32 pn = netSeatPlayer(s_TestKillSlot);
+
+		if (pn >= 0 && g_Vars.players[pn] && !g_Vars.players[pn]->isdead) {
+			const s32 prev = g_Vars.currentplayernum;
+
+			setCurrentPlayerNum(pn);
+			playerDieByShooter(pn, true);
+			setCurrentPlayerNum(prev);
+			sysLogPrintf(LOG_NOTE, "net: --net-test-kill: slot %d (player %d) killed at tick %u", s_TestKillSlot, pn, g_NetTick);
+		}
+	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		const s32 pn = g_NetMode == NETMODE_CLIENT ? (i == s_ClientSlot ? g_NetLocalSlot : -1) : netSeatPlayer(i);
+		const struct player *p = pn >= 0 && pn < MAX_PLAYERS ? g_Vars.players[pn] : NULL;
+
+		if (!p || !mpIsHumanSlotOn(i)) {
+			continue;
+		}
+
+		if (s_TestDeathLog && (p->isdead != 0) != s_TestDead[i]) {
+			s_TestDead[i] = p->isdead != 0;
+			sysLogPrintf(LOG_NOTE, "net: --net-test-deathlog: slot %d %s at tick %u (Skip Death Screen in force %d)",
+					i, s_TestDead[i] ? "died" : "respawned", g_NetTick, g_ModOptions.skipdeathscreen);
+		}
+
+		for (j = 0; j < s_TestViews; j++) {
+			if (g_NetTick == s_TestViewAt[j]) {
+				sysLogPrintf(LOG_NOTE, "net: --net-test-viewlog: tick %u slot %d: third person asked %d given %d, free camera %d (room allows third person %d)",
+						g_NetTick, i, p->thirdperson, playerIsThirdPerson((struct player *)p), modSpectateIsOnForPlayer(pn),
+						g_ModNetThirdPerson);
+			}
+		}
+	}
+}
+
+void netTestOwnOptionsTick(void)
+{
+	s32 i;
+
+	netTestRulesTick();
+
+	if (s_TestPitch < 0 || g_NetTick != 600 || !s_MatchActive || s_TestPitchLogged == s_MatchIdCur) {
+		return;
+	}
+
+	s_TestPitchLogged = s_MatchIdCur;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (mpIsHumanSlotOn(i)) {
+			sysLogPrintf(LOG_NOTE, "net: --net-test-forward-pitch: tick 600: slot %d (\"%.*s\")%s plays forward pitch %d",
+					i, netNameLen(g_PlayerConfigsArray[i].base.name), g_PlayerConfigsArray[i].base.name,
+					(g_NetMode == NETMODE_CLIENT ? i == s_ClientSlot : i == 0) ? ", this machine's" : "",
+					optionsGetForwardPitch(i) != 0);
+		}
+	}
+}
+
+/**
+ * This machine's own player for its SLOTCFG: its first player's config, but
+ * a client in a match has the host's slot 0 human there (netRulesPut): then
+ * its own seat (its options as RULES carried them back, Control Style as
+ * netPlayersClientMatchStart set it, and what its pause menu changes
+ * there), or watching, its own as saved. Sent from [0], a client's mid-match
+ * SLOTCFG (netSessionClientCfgTick) gave the host the host player's Reverse
+ * Pitch and aim options for this player's seat, while this machine
+ * predicted it by its own (F3 20261011-225920, 20261012-021339).
+ */
+static struct mpplayerconfig *netOwnPlayerConfig(void)
+{
+	struct mpplayerconfig *saved = netRulesOwnPlayer();
+
+	if (g_NetMode == NETMODE_CLIENT && saved) {
+		if (s_MatchActive && !s_Spectating && s_ClientSlot >= 0 && s_ClientSlot < MAX_PLAYERS) {
+			return &g_PlayerConfigsArray[s_ClientSlot];
+		}
+
+		return saved;
+	}
+
+	return &g_PlayerConfigsArray[0];
+}
+
 void netWriteSlotCfg(struct netbuf *b)
 {
 	struct extplayerconfig *ext = &g_PlayerExtCfg[0];
-	struct mpplayerconfig *p = &g_PlayerConfigsArray[0];
+	struct mpplayerconfig *p;
 	f32 sx = 0;
 	f32 sy = 0;
 
+	netTestOwnOptions();
+	p = netOwnPlayerConfig();
 	inputMouseGetSpeed(&sx, &sy);
 
 	netWriteMpChar(b, p->base.mpheadnum, p->base.mpbodynum);
@@ -1509,6 +1662,7 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 		}
 	}
 
+	netTestOwnOptions();
 	netPlayersHostMatchStart();
 
 	for (i = 0; i < NET_MAXPEERS; i++) {

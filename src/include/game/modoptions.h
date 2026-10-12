@@ -480,6 +480,8 @@ bool modIsRunTintOn(void);
 bool modIsRunWalkInOn(void);
 bool modIsMissionRespawnOn(void);
 bool modIsSkipDeathScreenOn(void);
+extern s32 g_ModNetThirdPerson; // Mod.NetThirdPerson: a match online allows third person (a Room Rule)
+bool modIsThirdPersonAllowed(void);
 bool modIsQuickWeaponSwapOn(void);
 s32 modGetMissionLives(void);
 bool modIsTranquilizerEffectOn(void);

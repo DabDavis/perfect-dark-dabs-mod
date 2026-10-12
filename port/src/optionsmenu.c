@@ -7993,8 +7993,11 @@ void optionsMenuInit()
  * match's start, pd.ini is written with the player's own all along (the
  * page's close too: configSave's swap), and leaving the room puts the own
  * back. The next room starts at stock again. A player's own
- * (NETKEY_PLAYER: COD aiming, the third person camera...) and the picture
- * stay in each player's own menu. Mission Respawn and Lives only for a co-op
+ * (NETKEY_PLAYER: COD aiming, Quick Weapon Swap...) and the picture stay in
+ * each player's own menu. Skip Death Screen and Third Person are the room's
+ * (pass 37): a death's timing and a view round corners are the match's; the
+ * third person camera's keys are Room Rules at their stock values (no rows:
+ * one camera for every seat). Mission Respawn and Lives only for a co-op
  * room, GoldenEye's only for a GoldenEye room, Simulant AI only for a match.
  */
 static s32 roomRulesCoop(void)
@@ -8042,6 +8045,22 @@ static MenuItemHandlerResult menuhandlerRoomGeRevision(s32 operation, struct men
 	return operation == MENUOP_CHECKHIDDEN ? !roomRulesGoldenEye() : menuhandlerGePlusRevisionFixes(operation, item, data);
 }
 
+// Third person in the room's matches (Mod.NetThirdPerson; stock off). Its
+// camera is the room's too: the Third Person camera keys are Room Rules at
+// their stock values (netrules.c), one camera for every seat
+static MenuItemHandlerResult menuhandlerRoomThirdPerson(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModNetThirdPerson;
+	case MENUOP_SET:
+		g_ModNetThirdPerson = data->checkbox.value ? 1 : 0;
+		break;
+	}
+
+	return 0;
+}
+
 static MenuDialogHandlerResult menudialogRoomRules(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
 	if (operation == MENUOP_CLOSE) {
@@ -8060,6 +8079,8 @@ static struct menuitem g_NetRoomRulesMenuItems[] = {
 	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Combat Roll", menuhandlerModRoll),
 	ROOMRULE(MENUITEMTYPE_CHECKBOX, "Melee Combos", menuhandlerModMelee),
 	ROOMRULE(MENUITEMTYPE_CHECKBOX, "Flinch When Shot", menuhandlerModFlinch),
+	ROOMRULE(MENUITEMTYPE_CHECKBOX, "Skip Death Screen", menuhandlerModSkipDeathScreen),
+	ROOMRULE(MENUITEMTYPE_CHECKBOX, "Third Person", menuhandlerRoomThirdPerson),
 	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Simulant AI", menuhandlerRoomSimBrain),
 	ROOMRULE_SEPARATOR,
 	ROOMRULE(MENUITEMTYPE_DROPDOWN, "Start Armed", menuhandlerModStartArmed),

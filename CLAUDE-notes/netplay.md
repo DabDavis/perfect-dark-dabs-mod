@@ -3499,3 +3499,43 @@ its team (by `g_MpAllChrConfigPtrs` teams, not the possibly stale
 A free-for-all has no sim pages (no buddies), and the host refuses an order
 there anyway. Packed commands grew from 32 to 36 bytes. Gate:
 `tools/ci/netteamtest.sh` (`--net-test-order`, `--net-test-order-check`).
+
+### A client's own options mid-match (pass 37, F3 20261011-225920 + 20261012-021339)
+
+- **[0] is not the client's own in a match.** netRulesPut puts every slot's
+  human over g_PlayerConfigsArray (name, character, options), so a
+  client's [0] holds the host's slot-0 player. netWriteSlotCfg read [0], and
+  netSessionClientCfgTick's twice-a-second compare saw it "change" at the
+  first tick: the host was sent its own player's options (Reverse Pitch, aim
+  options) for the client's seat and played it by them, while the client
+  predicted by its own (RULES carried its lobby SLOTCFG back into its seat).
+  Measured: 86.56% of blocks matched, 242 corrections a minute with the
+  pitch reversed one way on one side. netOwnPlayerConfig (netsession.c) now
+  sends the seat's config in a match (what its pause menu edits too),
+  a spectator's saved own (netRulesOwnPlayer), else [0]. Wire unchanged.
+- Gate: netpredicttest `pitch` (--net-test-forward-pitch: host 1, client 0;
+  each seat's value logged at tick 600).
+
+### Host rules for the death screen, third person and the free camera (pass 37, the owner)
+
+- **Skip Death Screen is a Room Rule** (NETKEY_SYNC, was a player's own):
+  it decides when a dead player can press START back in, and machines with
+  it set differently disagreed about a death online. Room Rules row "Skip
+  Death Screen"; stock off.
+- **Third person is the room's.** `Mod.NetThirdPerson` (Room Rule "Third
+  Person", stock 0 = Perfect Dark's first person; read online only,
+  `modIsThirdPersonAllowed`): V does nothing and a request left over is
+  dropped (`playerWantsThirdPerson`) in a room without it. The camera's six
+  keys (ThirdPersonDistance, Clearance, Sideways, Forward, Height, Tether)
+  are SYNC too, with no rows, so a room plays them at stock: one camera for
+  every seat (a direct `--host` plays the host's pd.ini values). The tilt
+  keys stay a player's own (view only).
+- **No free camera for a playing seat online** (`modSpectateSetOn` refuses
+  while `g_NetMode` is set; the key, Spectator Start Game, --spectate). A
+  room's watchers keep netspec.c's camera.
+- Still a player's own: CodAiming, CodAimLock, AkimboTriggers,
+  QuickWeaponSwap - read inside playerTick (the host swaps the client's in,
+  netPlayersOwnBegin) or through `netSlotOwnS32`, so the host simulates the
+  seat by the client's value, as the client predicts it.
+- Gates: netpredicttest `skipdeath` (host 1, client 0, `--net-test-kill`,
+  `--net-test-deathlog`), `views` / `views3p` (`--net-test-viewlog`).

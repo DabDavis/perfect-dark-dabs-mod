@@ -162,6 +162,13 @@ void modSpectateSetOn(bool on)
 		return;
 	}
 
+	// Nor online (the owner, pass 37): a playing seat flying through the
+	// walls scouts everyone else. A room's watchers have their own camera
+	// (netspec.c), which is not this.
+	if (on && g_NetMode != NETMODE_NONE) {
+		return;
+	}
+
 	g_ModSpectating[g_Vars.currentplayernum] = on;
 
 	// The spectator wears a different model from the player, so whichever body

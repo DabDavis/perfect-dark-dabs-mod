@@ -545,6 +545,8 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.BlackLevel", &g_ModOptions.blacklevel, MODBLACK_OFF, MODBLACK_MAX);
 	configRegisterInt("Mod.MissionRespawn", &g_ModOptions.missionrespawn, 0, 1);
 	configRegisterInt("Mod.SkipDeathScreen", &g_ModOptions.skipdeathscreen, 0, 1);
+	// online only: whether a match allows third person (a Room Rule, netrules.c)
+	configRegisterInt("Mod.NetThirdPerson", &g_ModNetThirdPerson, 0, 1);
 	configRegisterInt("Mod.SitInChairs", &g_ModOptions.sitinchairs, 0, 1);
 	configRegisterInt("Mod.QuickWeaponSwap", &g_ModOptions.quickweaponswap, 0, 1);
 	configRegisterInt("Mod.MissionLives", &g_ModOptions.missionlives, MODLIVES_UNLIMITED, MODLIVES_MAX);
