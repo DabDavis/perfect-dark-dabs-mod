@@ -923,7 +923,8 @@ s32 g_ModNetThirdPerson = 0;
 bool modIsThirdPersonAllowed(void)
 {
 #ifndef PLATFORM_N64
-	if (g_NetMode != NETMODE_NONE) {
+	// (the clock test is offline, in netplay's loop)
+	if (g_NetMode != NETMODE_NONE && !g_NetClockTest) {
 		return g_ModNetThirdPerson != 0;
 	}
 #endif
