@@ -433,9 +433,15 @@ run() {
 		ge)     runcase ge "${GEMAPS}StartArmed=1\n" "$GEMAPS" "--net-test-map Complex --net-test-ge 0" "" "hats()|hatdrop()" ;;
 		# You Only Live Twice on Facility, and gas let go there (its fog has
 		# the second sky gas fades to); sim 0 and the client's player killed
-		# twice over (three tries, seven seconds apart, for the respawns)
+		# twice over (two tries for the second, seven seconds apart). The gas
+		# goes between the kills: the death takes ~420 ticks to let a START
+		# respawn it, so a kill seven seconds after the first had its attach
+		# stall the host just as that START came, and the dropped catch-up
+		# put the respawn past it ("respawns from START alone" at 1246, the
+		# second kill finding it dead, 1 run in 3 on 2026-10-12, the shipped
+		# build too). Fourteen seconds on, it is up.
 		geyolt) STEPGAP=7 SHOTNOW=1 runcase geyolt "${GEMAPS}StartArmed=1\n" "$GEMAPS" "--net-test-map Facility --net-test-ge 1 --net-test-timelimit 2" \
-				"--net-test-input $OUT/respawn.script" "kill()|kill()|gas()|kill()" ;;
+				"--net-test-input $OUT/respawn.script" "kill()|gas()|kill()|kill()" ;;
 		gegg)   runcase gegg "${GEMAPS}StartArmed=1\n" "$GEMAPS" "--net-test-map Archives --net-test-ge 4" "" ;;
 		# a GoldenEye stage's MUST key that differs: refused at the start, named
 		gelook) runcase gelook "${GEMAPS}XblaMeshes=1\nGeXblaCommunityEditionArt=1\nStartArmed=1\n" "${GEMAPS}XblaMeshes=0\nGeXblaCommunityEditionArt=0\n" \
