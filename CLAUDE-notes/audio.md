@@ -178,3 +178,15 @@ and the ROM's sample table with it, logging the file (crash 20261010-210721,
 mod DamOverture: an offset past the end of its sfxctl). Every bank we have
 passes with output unchanged.
 
+
+## Mute When Unfocused (2026-10-12)
+
+`Audio.MuteWhenUnfocused` (Extended Options > Audio, off by default): while
+the game's window lacks the input focus (`SDL_GetWindowFlags()`, checked each
+buffer in `audioEndFrame()`), the buffer queued for the speakers is silence,
+faded across one buffer each way (`audioApplyGain()`) so it does not click.
+Only the speakers: the game mixes on as before, the queue level and timing do
+not change, and the recorder still gets the sound (`recordPushAudio()` takes
+the unfaded buffer). `--audio-dump` writes what the device got, so a test can
+see it: under `SDL_VIDEODRIVER=offscreen` the window has no focus for its first
+~3 s, and a dump with the option on is silent until then (F3 20261011-072446).

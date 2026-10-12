@@ -32,4 +32,8 @@ s32 audioGetChannels(void);
 s32 audioGetSurroundWanted(void);
 s32 audioGetDeviceChannels(void);
 
+// Audio.MuteWhenUnfocused: nothing reaches the speakers while another window has the focus
+s32 audioGetMuteUnfocused(void);
+void audioSetMuteUnfocused(s32 on);
+
 #endif

@@ -1,6 +1,7 @@
 #include <PR/ultratypes.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <SDL.h>
 #include "platform.h"
 #include "config.h"
@@ -8,6 +9,7 @@
 #include "mixer.h"
 #include "record.h"
 #include "system.h"
+#include "video.h"
 
 static SDL_AudioDeviceID dev;
 static const s16 *nextBuf;
@@ -42,6 +44,20 @@ static s32 surroundLfe = 50; // Audio.SurroundLFE, percent of a gain of 0.5
 static s32 headphoneRoom = 50; // Audio.HeadphoneRoom, percent of a gain of 1.4: the room's reflections in Headphone Surround
 static s32 surroundWanted = 0; // Sound Mode is Surround
 static s32 deviceChannels = 0; // the default device's own, 0 when SDL cannot say
+
+/**
+ * Mute When Unfocused (Audio.MuteWhenUnfocused, Extended Options > Audio):
+ * while another window has the focus, what is queued for the speakers is
+ * silence - faded across a buffer either way, so it does not click. The game
+ * mixes on as before (the queue, the music, timing and netplay's sounds are
+ * untouched), and a recording keeps the sound: only the speakers go quiet.
+ * A tester on two monitors wanted the game silent while working in another
+ * window, without backing out to the audio menu (F3 20261011-072446).
+ */
+static s32 muteUnfocused = 0;
+static f32 outGain = 1.0f; // the gain the last buffer queued ended at: 1 heard, 0 muted
+static s16 *gainBuf = NULL;
+static u32 gainBufSize = 0;
 
 static s16 *wideBuf = NULL; // a stereo buffer made 5.1
 static s16 *recBuf = NULL; // and the stereo the recorder gets for it
@@ -286,6 +302,66 @@ static void audioWiden(void)
 	}
 }
 
+// what the speakers should get now: 0 while muted for the focus, else 1
+static f32 audioWantedGain(void)
+{
+	SDL_Window *wnd;
+
+	if (!muteUnfocused) {
+		return 1.0f;
+	}
+
+	wnd = videoGetWindowHandle();
+
+	return (wnd && !(SDL_GetWindowFlags(wnd) & SDL_WINDOW_INPUT_FOCUS)) ? 0.0f : 1.0f;
+}
+
+/**
+ * `buf` (`frames` of `nch` channels) faded from where the last buffer ended to
+ * `to` across it. What to queue: `buf` itself when it is heard as it is.
+ */
+static const void *audioApplyGain(const s16 *buf, u32 frames, s32 nch, f32 to)
+{
+	const f32 from = outGain;
+	const u32 bytes = frames * nch * sizeof(s16);
+
+	outGain = to;
+
+	if (from == 1.0f && to == 1.0f) {
+		return buf;
+	}
+
+	if (bytes > gainBufSize) {
+		gainBuf = realloc(gainBuf, bytes);
+		gainBufSize = bytes;
+	}
+
+	if (from == 0.0f && to == 0.0f) {
+		memset(gainBuf, 0, bytes);
+		return gainBuf;
+	}
+
+	for (u32 f = 0; f < frames; ++f) {
+		const f32 g = from + (to - from) * (f32)(f + 1) / (f32)frames;
+
+		for (s32 c = 0; c < nch; ++c) {
+			gainBuf[f * nch + c] = (s16)(buf[f * nch + c] * g);
+		}
+	}
+
+	return gainBuf;
+}
+
+s32 audioGetMuteUnfocused(void)
+{
+	return muteUnfocused;
+}
+
+void audioSetMuteUnfocused(s32 on)
+{
+	muteUnfocused = on ? 1 : 0;
+}
+
 void audioEndFrame(void)
 {
 	if (nextBuf && nextSize) {
@@ -300,6 +376,9 @@ void audioEndFrame(void)
 				outSize = nextSize * 3;
 				rec = recBuf;
 			}
+
+			// the speakers only: the recorder below still gets rec
+			out = audioApplyGain(out, nextSize / 4, channels, audioWantedGain());
 
 			SDL_QueueAudio(dev, out, outSize);
 			queuedTotal += nextSize;
@@ -330,4 +409,5 @@ PD_CONSTRUCTOR static void audioConfigInit(void)
 	configRegisterInt("Audio.SurroundOutput", &surroundOutput, AUDIO_SURROUND_AUTO, AUDIO_SURROUND_HEADPHONES);
 	configRegisterInt("Audio.SurroundLFE", &surroundLfe, 0, 100);
 	configRegisterInt("Audio.HeadphoneRoom", &headphoneRoom, 0, 100);
+	configRegisterInt("Audio.MuteWhenUnfocused", &muteUnfocused, 0, 1);
 }

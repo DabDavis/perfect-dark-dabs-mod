@@ -1749,6 +1749,19 @@ static MenuItemHandlerResult menuhandlerDisableMpDeathMusic(s32 operation, struc
 	return 0;
 }
 
+static MenuItemHandlerResult menuhandlerMuteUnfocused(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return audioGetMuteUnfocused();
+	case MENUOP_SET:
+		audioSetMuteUnfocused(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
+
 /**
  * Surround: the game's own Sound Mode picks it, these say what it comes out as
  * (port/src/audio.c). The two labels say what is playing now and what the
@@ -1849,6 +1862,14 @@ struct menuitem g_ExtendedAudioMenuItems[] = {
 		(uintptr_t)"Disable MP Death Music",
 		0,
 		menuhandlerDisableMpDeathMusic,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Mute When Unfocused",
+		0,
+		menuhandlerMuteUnfocused,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
