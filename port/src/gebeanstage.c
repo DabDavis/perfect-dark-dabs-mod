@@ -5705,7 +5705,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 23
+#define HDCACHE_VERSION 24
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
