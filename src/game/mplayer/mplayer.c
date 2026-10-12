@@ -46,6 +46,8 @@
 #include "modborrow.h"
 #include "modloader.h"
 #include "gedeathcam.h"
+#include "gehud.h"
+#include "gewatch.h"
 #include "langpack.h"
 #ifndef PLATFORM_N64
 #include "net/net.h"
@@ -1855,6 +1857,24 @@ void mpSetPaused(u8 mode)
 	g_MpSetup.paused = mode;
 }
 
+#ifndef PLATFORM_N64
+/** A line of mpRenderModalText()'s in GoldenEye's font, centred across the view at y. */
+static Gfx *mpRenderGeModalText(Gfx *gdl, const char *text, s32 y, s32 *height)
+{
+	const s32 scalex = g_ScaleX > 0 ? g_ScaleX : 1;
+	s32 w;
+	s32 h;
+
+	geHudTextMeasure(text, &w, &h);
+
+	if (height) {
+		*height = h;
+	}
+
+	return geHudText(gdl, text, (viGetViewLeft() + viGetViewWidth() / 2) / scalex - w / 2, y - h / 2, 0x00ff00b0);
+}
+#endif
+
 /**
  * Render "Paused" in the middle of the viewport if paused,
  * or "Press START" if player has finished their death animation.
@@ -1879,6 +1899,22 @@ Gfx *mpRenderModalText(Gfx *gdl)
 
 	if (g_NetMode == NETMODE_CLIENT && netSpecOn()) return netSpecRenderText(gdl); // netplay: a spectator's keys, not the camera player's prompt
 	if (g_NetMode != NETMODE_NONE && netSpecDeadOn() && g_MpSetup.paused == MPPAUSEMODE_UNPAUSED) return netSpecRenderText(gdl); // netplay: a dead co-op player's, watching (netspec.c)
+
+#ifndef PLATFORM_N64
+	// A GoldenEye match says both in GoldenEye's words and font, green in the
+	// middle of the view as mpmenu.c draws its "press start"; the pauser's own
+	// overlay already has PAUSED for its title (F3 20261011-052854)
+	if (g_MpSetup.paused == MPPAUSEMODE_PAUSED && geHudActive() && geWatchMpModalString(true)) {
+		if (!geWatchMpOverlayOn()) {
+			gdl = mpRenderGeModalText(gdl, geWatchMpModalString(true), viGetViewTop() + viGetViewHeight() / 2, NULL);
+		}
+
+#if VERSION >= VERSION_JPN_FINAL
+		g_ScaleX = 1;
+#endif
+		return gdl;
+	}
+#endif
 
 	if (g_MpSetup.paused == MPPAUSEMODE_PAUSED) {
 		s32 red = (s32) ((1.0f - g_20SecIntervalFrac) * 20.0f * 255.0f) % 255;
@@ -1937,6 +1973,26 @@ Gfx *mpRenderModalText(Gfx *gdl)
 			&& !(g_Vars.coopplayernum >= 0 && (coopAllDead() || !g_Vars.currentplayer->coopcanrestart || g_InCutscene))
 			&& !(g_Vars.antiplayernum >= 0 && ((g_Vars.currentplayer != g_Vars.anti || g_InCutscene)))
 			&& g_NumReasonsToEndMpMatch == 0) {
+#ifndef PLATFORM_N64
+		if (geHudActive() && geWatchMpModalString(false)) {
+			s32 h = 0;
+
+			gdl = mpRenderGeModalText(gdl, geWatchMpModalString(false), viGetViewTop() + viGetViewHeight() / 2, &h);
+
+			if (g_Vars.currentplayer->deadtimer > 0) {
+				sprintf(text, "%d\n", (g_Vars.currentplayer->deadtimer + TICKS(60) - 1) / TICKS(60));
+				gdl = mpRenderGeModalText(gdl, text, viGetViewTop() + viGetViewHeight() / 2 + h + 2, NULL);
+			}
+
+			g_Menus[g_Vars.currentplayerstats->mpindex].openinhibit = 10;
+
+#if VERSION >= VERSION_JPN_FINAL
+			g_ScaleX = 1;
+#endif
+			return gdl;
+		}
+#endif
+
 		// Render "Press START" text
 		gdl = text0f153628(gdl);
 

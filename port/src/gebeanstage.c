@@ -4327,6 +4327,18 @@ static s32 fillDoorReveals(struct collect *c, const struct doorbox *boxes, s32 n
 		const struct doorbox *b = &boxes[i];
 		const s32 *near = &nearby[b->first];
 		const s32 numnear = b->numnear;
+		const f32 across = MIN(b->half[(b->thin + 1) % 3], b->half[(b->thin + 2) % 3]);
+
+		// A reveal is the depth of a wall a door stands in. A block as thick
+		// as it is wide - Temple's sliding stone, 312 x 312 x 644 - is no door
+		// in a wall: the strips ran 157 units from the corridor's walls back to
+		// its middle, a band of smeared wall standing in the corridor in front
+		// of it and left there when it slid away (F3 20261011-053059)
+		if (b->half[b->thin] * 2.0f > across) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: door at %.0f %.0f %.0f is a block (%.0f x %.0f x %.0f), no reveals",
+					b->mid[0], b->mid[1], b->mid[2], b->half[0] * 2.0f, b->half[1] * 2.0f, b->half[2] * 2.0f);
+			continue;
+		}
 
 		for (s32 q = 0; q < numnear; q++) {
 			struct stri from;

@@ -8917,6 +8917,13 @@ static const char *gebeanPartsNote(s32 numparts, s32 numverts)
  *   own, which the "opaque black is no colour at all" rule below turned white;
  *   black was meant, and the Community Edition's dark grey keeps them dark
  *   ("Tweak wooden table prop vertex colors").
+ * - cryptdoor1b: its two end faces are baked dark (10% and 35%) for Egyptian,
+ *   where the block sits in the wall and they are never seen. Temple's six
+ *   doors are the same model squashed across that axis, so those ends are
+ *   the doors' big faces - near black on one side and dim on the other ("lit
+ *   wrong on certain sides", F3 20261011-053330). GoldenEye's own lights them
+ *   as it does the block's front and back (an average of 0x48 and 0x60 against
+ *   the front's 0x3a and 0x5c); they take the release's front's mean colour.
  */
 static const struct {
 	const char *source;
@@ -8931,6 +8938,8 @@ static const struct {
 	{ "new/prop/doorprison1", 0, 8, 9, 0xffffffff, 0xff4a4a4a },
 	{ "new/prop/doorprison1", 0, 10, 11, 0xffffffff, 0xff666666 },
 	{ "new/prop/woodentable1", 0, 0, 67, 0xff000000, 0xff292929 },
+	{ "new/prop/cryptdoor1b", 0, 12, 15, 0xff584a3b, 0xffab9173 },
+	{ "new/prop/cryptdoor1b", 0, 20, 23, 0xff191510, 0xffab9173 },
 };
 
 /**

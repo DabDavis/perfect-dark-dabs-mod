@@ -356,7 +356,11 @@ void traceReportTick(void)
 	} else if (STAGE_IS_LEVEL(g_Vars.stagenum)
 			&& pl && pl->prop
 			&& !g_Vars.in_cutscene
-			&& g_Menus[menu].openinhibit == 0
+			// a match's "Press START" holds the inhibit up every frame the
+			// player is dead, which kept the report from opening until they
+			// came back (F3 20261011-052854); it is there for Start, not F3,
+			// and the respawn waits for the report (player.c)
+			&& (g_Menus[menu].openinhibit == 0 || (g_Vars.mplayerisrunning && pl->isdead))
 			&& pl->pausemode == PAUSEMODE_UNPAUSED) {
 		// Opened the way Start opens this mode's own pause menu (bondmove.c).
 		// A match is g_Vars.mplayerisrunning whatever PLAYERCOUNT() says: the

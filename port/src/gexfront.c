@@ -2096,14 +2096,11 @@ static void frontSelectRow(s32 row)
 		break;
 	case ROW_LEVEL:
 		frontBuildLevels();
-		g_Front.levelpage = 0;
 
-		// the page the chosen arena is on
-		for (s32 i = 0; i < g_Front.numlevels; i++) {
-			if (g_Front.levels[i] == g_MpSetup.stagenum) {
-				g_Front.levelpage = i / LEVELS_PER_PAGE;
-			}
-		}
+		// always the first page - Random and GoldenEye's own arenas - as the
+		// cartridge's one page is (F3 20261011-052353: it opened on the page
+		// of the arena chosen last, the missions' page)
+		g_Front.levelpage = 0;
 
 		g_Front.screen = SCREEN_LEVEL;
 		break;
