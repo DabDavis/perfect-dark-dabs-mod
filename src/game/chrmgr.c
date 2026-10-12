@@ -8,6 +8,7 @@
 #include "data.h"
 #include "types.h"
 #ifndef PLATFORM_N64
+#include <string.h>
 #include "video.h"
 #endif
 
@@ -56,6 +57,22 @@ void chrmgrConfigure(s32 numchrs)
 
 	g_NumChrSlots = PLAYERCOUNT() + numchrs + 10;
 	g_ChrSlots = mempAlloc(ALIGN16(g_NumChrSlots * sizeof(struct chrdata)), MEMPOOL_STAGE);
+
+#ifndef PLATFORM_N64
+	// Zeroed, as the stage pool's untouched memory is on a first load. A chr
+	// made by chrInit() keeps every field nobody sets after it: the setup
+	// file's spawn sets yvisang and myspecial (bodyAllocateChr()), but
+	// chrSpawnAtCoord() and the mod's spawner (modalarm.c) do not, nor does
+	// anything set the player's chr's flags2. The pool is not cleared between
+	// stage loads, so on any stage after the first a chr in a slot nothing had
+	// used yet read the last stage's leftovers there - bytes of old pointers,
+	// which differ from run to run with address randomisation. A walk-in guard
+	// with a yvisang of 2 instead of 0 took the other branch of the AI's
+	// vertical view check (aiIfCheckFovWithTarget()), and the replay test's
+	// Randomizer run, which loads G5 twice, parted from itself at frame ~631
+	// (F3 pass 38).
+	memset(g_ChrSlots, 0, ALIGN16(g_NumChrSlots * sizeof(struct chrdata)));
+#endif
 
 	for (i = 0; i < g_NumChrSlots; i++) {
 		g_ChrSlots[i].chrnum = -1;
