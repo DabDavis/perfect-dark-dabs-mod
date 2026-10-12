@@ -440,6 +440,7 @@ struct xblameshbuilt {
 	s8 beanspentgroup[64]; // and that group (gebeanmats.spent)
 	s32 beanhead;      // the mesh is a head's (gebeanmats.head)
 	s32 beanneckback;  // and its palette entry 1 is the joint above its own (gebeanmats.neckback)
+	s32 beanownface;   // a head drawn from Bean's N64-look original in the HD look (gebeanmats.ownface)
 	f32 beanseat[GEBEAN_SEAT_SAMPLES]; // a head's underside or a body's collar round the neck (gebeanmats.seat)
 	u32 beanseathit;
 	f32 beanneckshift[3]; // a body's own neck joint from the model's (gebeanmats.neckshift)
@@ -7132,6 +7133,7 @@ static struct xblameshbuilt *xblaMeshBuildBeanOnce(const struct xblameshentry *e
 
 	m->beanhead = bmats->head;
 	m->beanneckback = bmats->neckback;
+	m->beanownface = bmats->ownface;
 	memcpy(m->beanseat, bmats->seat, sizeof(m->beanseat));
 	m->beanseathit = bmats->seathit;
 	memcpy(m->beanneckshift, bmats->neckshift, sizeof(m->beanneckshift));
@@ -9431,12 +9433,17 @@ static s32 xblaMeshHeadTubeOn(struct model *model, const struct xblameshbuilt *h
 }
 
 /**
- * Whether the head grafted on this body is one of the release's head files
- * whose neck reaches down into the collar on the back (gebean.c's neckback),
- * which the body's own neck skin below the cut stands out through
- * (gebeanmats.noskin).
+ * Whether the head grafted on this body brings a neck that goes down into the
+ * collar, which the body's own neck skin below the cut stands out through
+ * (gebeanmats.noskin): one of the release's head files, whose neck reaches
+ * down into it on the back (gebean.c's neckback), or GoldenEye's own face
+ * drawn from Bean's N64-look original (gebeanmats.ownface), with the neck made
+ * under its jaw drawn on this body. Under Doak's the ring stood round that
+ * neck in pale teeth at the nape and the sides (F3 20261012-041514). Not a
+ * Bond head cut off his own collar, under which the ring closes his throat
+ * (gebeanRowKeepsHood()).
  */
-static s32 xblaMeshHeadIsNeckBack(struct model *model)
+static s32 xblaMeshHeadNeckInCollar(struct model *model)
 {
 	struct modelnode *spot = model && model->definition ? modelGetPart(model->definition, MODELPART_CHR_HEADSPOT) : NULL;
 	union modelrwdata *rw = spot ? modelGetNodeRwData(model, spot) : NULL;
@@ -9449,7 +9456,19 @@ static s32 xblaMeshHeadIsNeckBack(struct model *model)
 		if (e && e->node == node && e->modeldef == head && !e->suppress && e->beanrow >= 0) {
 			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !xblaMeshGetEnabled());
 
-			return m && m->beanhead && m->beanneckback;
+			if (!m || !m->beanhead || !(m->beanneckback || m->beanownface)) {
+				return 0;
+			}
+
+			if (m->beanneckback) {
+				return 1;
+			}
+
+			// the made neck is on the list holding the face: the walk goes on
+			// to that one
+			if (e->packpart < 64 && m->beanneckof[e->packpart] >= 0) {
+				return xblaMeshHeadNeckWanted(model) && xblaMeshHeadTubeOn(model, m);
+			}
 		}
 
 		if (node->child) {
@@ -9464,6 +9483,60 @@ static s32 xblaMeshHeadIsNeckBack(struct model *model)
 	}
 
 	return 0;
+}
+
+/** Whether the head grafted on this chr's body is GoldenEye's own face from Bean's original (gebeanmats.ownface). */
+static s32 xblaMeshHeadIsOwnFace(struct model *model)
+{
+	if (!xblaMeshGetEnabled()) {
+		return 0;
+	}
+
+	struct modelnode *spot = model && model->definition && model->definition->skel == &g_SkelChr
+		? modelGetPart(model->definition, MODELPART_CHR_HEADSPOT) : NULL;
+	union modelrwdata *rw = spot && (spot->type & 0xff) == MODELNODETYPE_HEADSPOT ? modelGetNodeRwData(model, spot) : NULL;
+	struct modeldef *head = rw ? rw->headspot.headmodeldef : NULL;
+	struct modelnode *node = head ? head->rootnode : NULL;
+
+	for (s32 walked = 0; node && walked < 256; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == head && !e->suppress && e->beanrow >= 0) {
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, 0);
+
+			return m && m->beanhead && m->beanownface;
+		}
+
+		if (node->child) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Whether a model is the hat a chr wears on GoldenEye's own face drawn from
+ * Bean's N64-look original in the HD look (gebeanmats.ownface): GoldenEye's
+ * own hat then, drawn and shot as the N64 look has it, where GoldenEye's
+ * table sizes it to that very head (chrRender(); xblaMeshHatSeat() leaves
+ * such a head to the table). The release's hat is cut for 4J's heads: on the
+ * N64 one, by the table, it sat behind the crown and the hair stood up
+ * through its front (Doak's head on a Facility guard's side cap).
+ */
+static s32 xblaMeshIsOwnFaceHat(struct model *model)
+{
+	// A model hung on another is always an object's (hatApplyToChr(), a held
+	// gun, an embedment), so its obj is set; the hat hangs on the chr's model
+	struct model *chrmodel = model ? model->attachedtomodel : NULL;
+
+	return chrmodel && model->obj && model->obj->type == OBJTYPE_HAT && xblaMeshHeadIsOwnFace(chrmodel);
 }
 
 static s32 xblaMeshHeadBringsNeck(struct model *model)
@@ -11692,6 +11765,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		return 0;
 	}
 
+	// (only a prop hung on another model can be a hat)
+	if (model && model->attachedtomodel && xblaMeshIsOwnFaceHat(model)) {
+		return 0;
+	}
+
 	e = xblaMeshSlotFor(node);
 
 	if (!e || e->node != node || !e->modeldef) {
@@ -11927,7 +12005,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			part = (u16)m->beanbare[part];
 		} else if (!m->beanhead && part < 64 && m->beannoskin[part] >= 0
 				&& part < m->numgroups && !(m->groupabsent & (1ull << part))
-				&& xblaMeshHeadIsNeckBack(model)) {
+				&& xblaMeshHeadNeckInCollar(model)) {
 			// A guard's body without the skin of its own neck below the cut,
 			// under a head file whose neck goes down into the collar there -
 			// and without the rest of the body file's head section, which the
@@ -13348,7 +13426,8 @@ s32 xblaMeshModelDrawsBean(struct model *model)
 	const s32 look = !xblaMeshGetEnabled();
 	s32 n;
 
-	if (!model || !model->definition || !g_XblaMeshNumNodes || !gebeanGetEnabled() || !beanBuilt[look]) {
+	if (!model || !model->definition || !g_XblaMeshNumNodes || !gebeanGetEnabled() || !beanBuilt[look]
+			|| (model->attachedtomodel && xblaMeshIsOwnFaceHat(model))) {
 		return 0;
 	}
 
@@ -14732,6 +14811,14 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 	if (!head || !hat || !head->beanhead || hat->beanhead || !head->bindpos || !head->bones
 			|| !head->weights || !head->invbind || !hat->vertices || hat->numvertices <= 0
 			|| head->nummatrices > XBLAMESH_MAXMTX || !chrmodel->matrices || !hatmodel->matrices) {
+		return 0;
+	}
+
+	// GoldenEye's own face from Bean's N64-look original (gebeanmats.ownface)
+	// is the N64 head, which GoldenEye's table sizes the hat to: measured
+	// here it read 83 of "hair" through a side cap and floated it over the
+	// head at the largest size (Doak's head on a Facility guard)
+	if (head->beanownface) {
 		return 0;
 	}
 
