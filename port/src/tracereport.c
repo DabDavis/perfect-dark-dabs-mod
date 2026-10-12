@@ -315,6 +315,16 @@ void traceReportTick(void)
 	if (g_NetMode != NETMODE_NONE && g_NetLocalSlot >= 0 && g_NetLocalSlot < MAX_PLAYERS && g_Vars.players[g_NetLocalSlot]) {
 		pnum = g_NetLocalSlot;
 		menu = g_Vars.playerstats[pnum].mpindex;
+
+		// A stage that is no match keeps MPINDEX_SOLO (MAX_PLAYERS) there
+		// (lv.c): the online pages over Carrington's backdrop, a co-op
+		// mission's first player. Its menus are menu 0's, as offline;
+		// g_Menus[MAX_PLAYERS] is past the array, so F3 in the pregame
+		// lobby found no menu up there, waited, and opened in the next
+		// match instead (F3 20261012-022553)
+		if (menu < 0 || menu >= MAX_PLAYERS) {
+			menu = 0;
+		}
 	}
 
 	struct player *pl = pnum >= 0 && pnum < MAX_PLAYERS && g_Vars.players[pnum] ? g_Vars.players[pnum] : g_Vars.currentplayer;
