@@ -31,6 +31,42 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 60 2026-10-12
+Automatic guns (yours, guards' and simulants') no longer go quiet in a firefight: their ricochets no longer crowd out the gunfire (thanks dblaney1)
+Randomizer: an arena's music plays as soon as you land, without pausing first (thanks Odeyseis and savantique)
+Recording: the ffmpeg download works again on Windows; the old download link had been taken down (thanks Odeyseis)
+Extended Options > Audio > Mute When Unfocused: the game goes quiet while another window has the focus (thanks Dyldan)
+A mod with a damaged sound bank no longer crashes the game at startup; it plays with the original sounds instead
+Fixed a rare crash when GoldenEye's death music started in a big match
+All in One Mod: its Combat Simulator arenas show their real names, and the ones that dropped you out of the level (dataDyne Central, Air Base, Crash Site and others) now start you on the floor (thanks Brandon)
+A rare "Unknown GBI opcode" graphics error no longer closes the game
+Above 60 FPS at rates such as 73, the shotgun's recoil and the sniper rifle's reload no longer make Joanna's arm twitch; HUD messages and escalators move evenly too (thanks savantique)
+Mission Respawn: dying with nothing under you brings you back where you last stood, instead of over and over at the bottom of the level (thanks ElmoBear)
+Combat Simulator: turning a PerfectSim's or DarkSim's Accuracy and Reaction down now makes it aim worse and fire later (thanks Odeyseis and FroexiaSim)
+TAA: characters moving with the camera no longer leave a fading trail, most visible with HD texture packs (thanks Odeyseis)
+Online: fixed a crash at the start of a co-op mission (seen on GoldenEye's Bunker)
+Online: Bond holds his starting gun in GoldenEye's opening swirl again (thanks dab)
+Online: the Room Preview shows the number of simulants instead of ".." (thanks Shockwave S08)
+Online: Name Entry and the Game Lobby have Player Setup, to pick your character and controls (Reverse Pitch for an inverted look) (thanks dark reyn)
+Online: players standing on top of GoldenEye's tank ride along as it drives and turns, and can climb onto a tank that is already moving (thanks dab)
+Goldfinger 64 Cartel: no more getting stuck in a silo doorway walking out of the silo (thanks Odeyseis)
+Goldfinger 64 Alps: rockets explode, dead guards drop their guns, and Bond sits inside the Aston Martin as on the cartridge
+GoldenEye and Goldfinger 64: the camera gadget zooms in and out while aiming, as on the cartridge (thanks Dyldan)
+With Disable Fog on, GoldenEye, Goldfinger 64 and TND64 levels draw everything in view, so trees and cars on Grounds no longer pop in (thanks Odeyseis)
+GoldenEye multiplayer: the Level page opens on its first page (thanks Shockwave S08)
+GoldenEye multiplayer: PAUSED and press start in GoldenEye's own words and font, and Report a Problem (F3) opens while you are dead (thanks Shockwave S08)
+GoldenEye multiplayer: no more asking to save a player profile after a match (thanks Shockwave S08)
+GoldenEye multiplayer: the SCORES page counts kills (thanks Shockwave S08)
+GoldenEye Temple with the XBLA look: no streaked panel by the sliding stone, and the doors are lit on every side (thanks Shockwave S08)
+Randomizer: no more landing in a room you cannot walk out of (Carrington's firing range) or inside furniture such as the Institute's sofa (thanks Odeyseis)
+Randomizer: Statue Park's gates unlock with the room, so you can leave once the objective is done (thanks Odeyseis)
+Randomizer: Skedars come after you instead of standing where they appeared (thanks Odeyseis)
+Randomizer: you no longer lose your weapons when a dark room moves your landing (thanks Odeyseis)
+Fixed a crash when a GoldenEye gun ran dry in a Perfect Dark level
+Folder screens: letters no longer turn into other letters after switching between the GoldenEye and Goldfinger 64 folders (thanks Dyldan)
+GoldenEye Egyptian: with Infinite Ammo you can take the golden bullets from the Golden Gun's case while the gun reloads, as on the cartridge (thanks Casey)
+GoldenEye missions: guards take GoldenEye's own routes; on Archives the outdoor guards come through the left door (thanks Casey)
+
 notes 59 2026-10-11
 Online: the Main Menu Chat shows only what players say; a message about a join or the lobby shows along the bottom of the Briefing Room instead (thanks dab)
 
