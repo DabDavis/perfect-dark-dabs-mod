@@ -359,6 +359,8 @@ BUILD_RE = re.compile(r"^[A-Za-z0-9._+-]{1,40}\Z")
 RULE_KEY_RE = re.compile(r"^[a-z0-9_]{1,24}\Z")
 
 ROOM_NAME_MAX = 32
+# how long a stop waits for the HTTP connections to end (Lobby.close_server())
+STOP_WAIT = 5
 PASSWORD_MAX = 16
 CHAT_MAX = 120
 # The name the server's own chat lines are said under. They carry "system":
@@ -928,13 +930,28 @@ class Lobby:
             self.close_relay(r, "lobby stopping")
         if self.udp:
             self.udp.close()
-        if self.http_server:
-            self.http_server.close()
-            await self.http_server.wait_closed()
-        if self.admin_server:
-            self.admin_server.close()
-            await self.admin_server.wait_closed()
+        for server in (self.http_server, self.admin_server):
+            if server:
+                await self.close_server(server)
         self.executor.shutdown(wait=False)
+
+    @staticmethod
+    async def close_server(server):
+        """Since Python 3.12 wait_closed() waits for every connection the
+        server has, and a kept-alive one (nginx's upstream, a game's poll)
+        never ends by itself: systemd's stop waited out its 90 s for SIGKILL,
+        and the old process served on meanwhile - a room launched a match in
+        that minute and lost it to the kill (2026-10-12 03:11). The
+        connections are ended (close_clients(), 3.13), and the wait is a few
+        seconds at most."""
+        server.close()
+        close_clients = getattr(server, "close_clients", None)
+        if close_clients:
+            close_clients()
+        try:
+            await asyncio.wait_for(server.wait_closed(), STOP_WAIT)
+        except asyncio.TimeoutError:
+            log("stopping: connections still open after %d s; left to the exit" % STOP_WAIT)
 
     async def announce_shutdown(self):
         """Stopping: the rooms are told (their games show it in the match's

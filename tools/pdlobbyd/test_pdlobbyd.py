@@ -2029,6 +2029,22 @@ class BuildTests(unittest.TestCase):
 
 
 
+
+class StopTests(unittest.TestCase):
+    def test_stop_with_a_kept_alive_connection(self):
+        # nginx keeps its upstream connections alive: a stop has to end them
+        # rather than wait for them (Python 3.12's wait_closed() would wait
+        # for good, and systemd SIGKILLed the lobby 90 s on)
+        srv = LobbyThread()
+        conn = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=10)
+        conn.request("GET", "/ping", headers={"X-Real-IP": "10.0.0.1"})
+        self.assertEqual(conn.getresponse().status, 200)
+        t0 = time.monotonic()
+        srv.stop()
+        self.assertLess(time.monotonic() - t0, L.STOP_WAIT + 2)
+        conn.close()
+
+
 # ------------------------------------------------------------------ names
 
 # Spellings the filter must refuse and real names (testers', rooms', places',
