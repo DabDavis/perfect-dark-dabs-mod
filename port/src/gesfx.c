@@ -593,7 +593,7 @@ s32 geSfxPickup(s32 pdsound, struct prop *prop)
 	s32 id;
 
 	switch (pdsound) {
-	case SFX_PICKUP_SHIELD:  id = 81;  break; // ARMOUR_COLLECT_SFX
+	case GESFX_PICKUP_ARMOUR: id = 81; break; // ARMOUR_COLLECT_SFX
 	case SFX_PICKUP_KEYCARD: id = 229; break; // KEYCARD_SFX
 	case SFX_PICKUP_GUN:     id = 232; break;
 	case SFX_PICKUP_KNIFE:   id = 233; break;
@@ -615,6 +615,11 @@ s32 geSfxPickup(s32 pdsound, struct prop *prop)
 	}
 
 	return 1;
+}
+
+s32 geSfxShieldPickupSound(struct defaultobj *obj)
+{
+	return obj && obj->modelnum == MODEL_BODYARMOUR ? GESFX_PICKUP_ARMOUR : SFX_PICKUP_SHIELD;
 }
 
 /* ------------------------------------------------------------------------ */

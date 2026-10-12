@@ -141,6 +141,22 @@ s32 geSfxDoor(s32 moment, s32 soundtype, struct prop *prop);
 // as the player's own with none. 1 when it was played, 0 for Perfect Dark's.
 s32 geSfxPickup(s32 pdsound, struct prop *prop);
 
+// The pickup sound of GoldenEye's body armour - a converted level's shield
+// object, in MODEL_BODYARMOUR - which geSfxPickup() plays as GoldenEye's:
+// Perfect Dark's shield's own number with a bit sndStart() never reads (a
+// sound that is not an MP3 plays by its id field alone), so it is still that
+// sound wherever geSfxPickup() does not answer for it, and it reaches a
+// client as it is (netevents.c's E8). Perfect Dark's own shield, which a
+// Perfect Dark weapon set lays on a converted level beside the level's
+// armour, keeps SFX_PICKUP_SHIELD and its own sound (F3 20261012-123523).
+// Needs sfx.h (constants.h).
+#define GESFX_PICKUP_ARMOUR (SFX_PICKUP_SHIELD | 0x2000)
+
+// The pickup sound for a shield object: GESFX_PICKUP_ARMOUR for GoldenEye's
+// body armour, SFX_PICKUP_SHIELD for Perfect Dark's shield
+struct defaultobj;
+s32 geSfxShieldPickupSound(struct defaultobj *obj);
+
 // Whether a chr's shot of this gun is GoldenEye's rocket launch on a converted
 // level: no shot sound of its own, and the launch heard at full wherever he
 // is (geSfxPlay(GESFX_ROCKET_LAUNCH)), as GoldenEye's guard plays it.
