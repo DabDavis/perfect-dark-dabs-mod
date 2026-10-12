@@ -333,6 +333,7 @@ s32 func0f08e5a8(RoomNum *rooms, struct screenbox *box);
 f32 objCalculateFadeDistOpacityFrac(struct prop *prop, f32 modelscale);
 bool posIsInObjFadeDistance(struct coord *coord, f32 modelscale);
 bool posIsInObjFadeDistanceOwn(struct coord *coord, f32 modelscale);
+bool objDrawnPastPortals(void);
 bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3);
 bool posIsInDrawDistance(struct coord *arg);
 void doorCreateSparks(struct doorobj *door);

@@ -22562,6 +22562,28 @@ bool posIsInObjFadeDistance(struct coord *pos, f32 modelscale)
 	return result;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Disable Fog on a converted level (GoldenEye, Goldfinger 64, TND64):
+ * GoldenEye's portal walk is the cartridge's, made for a level under its fog,
+ * and on an open level it leaves out rooms whose portals a nearer room's box
+ * hides though what stands in them - a tree, a car - rises over that room's
+ * ground into view. Under the fog they were never seen; with it off they
+ * popped in as the walk reached their rooms (Goldfinger 64's Grounds, F3
+ * 20261010-230108, -230442). A chr or object in view is then drawn whatever
+ * room it is in, and Perfect Dark's 32000 cut (the N64's matrix range) is
+ * lifted; the depth buffer hides what is behind a wall. Drawing only: a chr
+ * no room of whose is on screen is past the level's fog for the AI and the
+ * cap of 30 (CHRH2FLAG_PASTLEVELFOG, chr.c).
+ */
+bool objDrawnPastPortals(void)
+{
+	return modIsFogDisabled() && geRoomActive()
+		&& g_Vars.currentplayer->visionmode != VISIONMODE_XRAY
+		&& g_Vars.currentplayer->projectionmtx != NULL;
+}
+#endif
+
 bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 {
 	RoomNum *rooms;
@@ -22604,7 +22626,11 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 					f32 ydiff = pos->y - campos->y;
 					f32 zdiff = pos->z - campos->z;
 
-					if (xdiff * xdiff + ydiff * ydiff + zdiff * zdiff > 32000 * 32000) {
+					if (xdiff * xdiff + ydiff * ydiff + zdiff * zdiff > 32000 * 32000
+#ifndef PLATFORM_N64
+							&& !objDrawnPastPortals()
+#endif
+							) {
 						result = false;
 					}
 				}
@@ -22617,6 +22643,21 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 		roomnum = *rooms;
 		result = false;
 	}
+
+#ifndef PLATFORM_N64
+	// With the fog off a converted level draws what is in view whether or
+	// not GoldenEye's portal walk reached its room (objDrawnPastPortals())
+	if (!result && objDrawnPastPortals() && (!arg3 || posIsInObjFadeDistance(pos, arg2))) {
+		struct drawslot slot;
+
+		slot.box.xmin = g_Vars.currentplayer->screenxminf;
+		slot.box.ymin = g_Vars.currentplayer->screenyminf;
+		slot.box.xmax = g_Vars.currentplayer->screenxmaxf;
+		slot.box.ymax = g_Vars.currentplayer->screenymaxf;
+
+		result = camIsPosInScreenBox(pos, arg2, &slot);
+	}
+#endif
 
 	return result;
 }

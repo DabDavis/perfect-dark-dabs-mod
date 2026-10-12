@@ -3285,6 +3285,24 @@ s32 chrTick(struct prop *prop)
 		chr->hidden2 |= CHRH2FLAG_PASTLEVELFOG;
 	}
 
+	// ...and so is one drawn only because the fog is off on a converted level
+	// and in view, in a room the portal walk did not reach (objDrawnPastPortals())
+	if (needsupdate && objDrawnPastPortals()) {
+		bool walked = false;
+
+		for (s32 i = 0; prop->rooms[i] != -1; i++) {
+			if (xblaStageDrawsEveryRoom() ? bgRoomIsPortalVisible(prop->rooms[i])
+					: (g_Rooms[prop->rooms[i]].flags & ROOMFLAG_ONSCREEN) != 0) {
+				walked = true;
+				break;
+			}
+		}
+
+		if (!walked) {
+			chr->hidden2 |= CHRH2FLAG_PASTLEVELFOG;
+		}
+	}
+
 	if (needsupdate && !modIsFogDisabled() && xblaStageDrawsEveryRoom()
 			&& (!envIsPosInFogMaxDistance(&prop->pos, modelGetEffectiveScale(model))
 				|| !posIsInObjFadeDistanceOwn(&prop->pos, modelGetEffectiveScale(model))
