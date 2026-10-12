@@ -57,6 +57,7 @@
 #include "langpack.h"
 #include "simbrain.h"
 #include "audio.h"
+#include "killfeed.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -2766,16 +2767,17 @@ struct modpreset {
 	s32 glassseethrough;
 	s32 decalclip;
 	s32 sitinchairs;
+	s32 killfeed;
 };
 
 #define MODPRESET_CUSTOM 0
 
 static const struct modpreset g_ModPresets[] = {
-	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          ghost            splits  xblacut  glareclip  quickswap  nofog  glass  decal  sit
-	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,               0,      0,       0,         0,         0,     0,     0,     0     },
-	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_OFF,    true,   true,    false,     false,     false, 0,     true,  false },
-	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, MODGHOST_OFF,    true,   true,    true,      true,      false, 50,    true,  true  },
-	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_RACE,   true,   true,    false,     false,     false, 0,     true,  false },
+	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          ghost            splits  xblacut  glareclip  quickswap  nofog  glass  decal  sit    feed
+	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,               0,      0,       0,         0,         0,     0,     0,     0,     0              },
+	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_OFF,    true,   true,    false,     false,     false, 0,     true,  false, KILLFEED_AUTO },
+	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, MODGHOST_OFF,    true,   true,    true,      true,      false, 50,    true,  true,  KILLFEED_ON   },
+	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_RACE,   true,   true,    false,     false,     false, 0,     true,  false, KILLFEED_AUTO },
 };
 
 static void menuhandlerModPresetApply(const struct modpreset *preset)
@@ -2810,6 +2812,7 @@ static void menuhandlerModPresetApply(const struct modpreset *preset)
 	g_ModOptions.glassseethrough = preset->glassseethrough;
 	g_ModOptions.decalclip = preset->decalclip;
 	g_ModOptions.sitinchairs = preset->sitinchairs;
+	g_ModOptions.killfeed = preset->killfeed;
 
 	// The ways of playing, off in every preset.
 	g_ModOptions.spawnweapon = SPAWNWEAPON_OFF;
@@ -2853,6 +2856,7 @@ static bool menuhandlerModPresetMatches(const struct modpreset *preset)
 		&& g_ModOptions.glassseethrough == preset->glassseethrough
 		&& g_ModOptions.decalclip == preset->decalclip
 		&& g_ModOptions.sitinchairs == preset->sitinchairs
+		&& g_ModOptions.killfeed == preset->killfeed
 		&& g_ModOptions.spawnweapon == SPAWNWEAPON_OFF
 		&& g_ModOptions.guardsalerted == MODALARM_OFF
 		&& g_ModOptions.akimbo == MODAKIMBO_OFF
@@ -2949,6 +2953,8 @@ static void modEnhancementsCapture(struct modpreset *preset, s32 *extra)
 	preset->nofog = g_ModOptions.nofog;
 	preset->glassseethrough = g_ModOptions.glassseethrough;
 	preset->decalclip = g_ModOptions.decalclip;
+	preset->sitinchairs = g_ModOptions.sitinchairs;
+	preset->killfeed = g_ModOptions.killfeed;
 
 	extra[MODENHANCE_EXTRA_SPAWNWEAPON] = g_ModOptions.spawnweapon;
 	extra[MODENHANCE_EXTRA_GUARDSALERTED] = g_ModOptions.guardsalerted;
@@ -3009,6 +3015,16 @@ void modEnhancementsSetOn(s32 on)
 		}
 
 		g_ModEnhancementsSaved[0] = '\0';
+
+		// A note from before the kill feed (one field fewer, the last of
+		// the preset's): the feed's default where it goes, the rest moved up
+		if (version == MODENHANCE_SAVED_VERSION && count == (s32)ARRAYCOUNT(values) - 1) {
+			const s32 at = offsetof(struct modpreset, killfeed) / sizeof(s32) - offsetof(struct modpreset, jumpheight) / sizeof(s32);
+
+			memmove(&values[at + 1], &values[at], (count - at) * sizeof(values[0]));
+			values[at] = KILLFEED_AUTO;
+			count++;
+		}
 
 		// A note this build cannot read (a different field count) is dropped
 		// rather than half applied: the settings stay Vanilla.
@@ -3889,6 +3905,41 @@ static MenuItemHandlerResult menuhandlerModVividColours(s32 operation, struct me
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = g_ModOptions.vividcolours;
+	}
+
+	return 0;
+}
+
+/**
+ * Kill Feed: "Killer [Weapon] Victim" at a match's top right (killfeed.c).
+ * Online Only is Mod.KillFeed's -1, the default: on in an online match, off
+ * in one played here, as every addition is off offline unless chosen.
+ */
+static MenuItemHandlerResult menuhandlerModKillFeed(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "Online Only", "On" };
+	static const s32 values[] = { KILLFEED_OFF, KILLFEED_AUTO, KILLFEED_ON };
+	s32 i;
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		if (data->dropdown.value < ARRAYCOUNT(values)) {
+			g_ModOptions.killfeed = values[data->dropdown.value];
+		}
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = 1;
+
+		for (i = 0; i < (s32)ARRAYCOUNT(values); i++) {
+			if (g_ModOptions.killfeed == values[i]) {
+				data->dropdown.value = i;
+			}
+		}
 	}
 
 	return 0;
@@ -5521,6 +5572,14 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 		(uintptr_t)"Clip Decals at Edges",
 		0,
 		menuhandlerModDecalClip,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Kill Feed",
+		0,
+		menuhandlerModKillFeed,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

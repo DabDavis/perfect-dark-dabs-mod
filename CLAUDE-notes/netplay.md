@@ -3651,3 +3651,14 @@ faults, one per seat:
 (a script line's first match wins: lines must not overlap) and reads both
 machines through gdb. In CONTROLMODE_PC the CamSpy flies forward on the right
 stick (`rsy`); the left stick's `sy` lifts it.
+
+## The kill feed online (protocol 31, 2026-10-12)
+
+`killfeed.c` lists every kill of a match ("Killer [Weapon] Victim") on every machine. A client sees all of them
+because it already replays every death the host counts: DEATH (E6, reliable and ordered) is sent to everyone and
+applied through `mpstatsRecordDeath()`, where the feed's line is made on every machine alike. DEATH had no weapon,
+and a client cannot work it out (its `chrDamage()` returns at once), so DEATH ends in a u8 weapon now, from
+`killfeedDeathWeapon()` on the host: the weapon of the victim's latest hit, noted in `chrDamage()` (an
+explosion's from what made it, a projectile named by its launcher, a GoldenEye gun by itself); 0xfe an explosion
+nothing named, 0xff none. The client hands it to the replay through `killfeedSetWireWeapon()`. Tested in
+`neteventtest.sh` (`--killfeed-log` on both machines: the client's list equals the host's, sims' kills among it).

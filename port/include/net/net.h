@@ -360,6 +360,7 @@ const char *netHudChatKeyName(void); // "T", or "T or Space"
 // match's and the spectators; its k-th row (the seats played or kept, then
 // the spectators), name and ping as shown; 0 past the last
 void netHudCounts(s32 *in, s32 *of, s32 *specs);
+s32 netHudPanelUp(void);       // the players panel (hold P) is up: killfeed.c keeps out of it
 s32 netHudPlayerRow(s32 k, char *name, s32 namesize, char *value, s32 valuesize);
 
 /**

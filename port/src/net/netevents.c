@@ -30,6 +30,7 @@
 #include "net/netsnap.h"
 #include "net/nettransport.h"
 #include "netint.h"
+#include "killfeed.h"
 
 /**
  * Events: the reliable, tick-stamped channel (PLANS/netplay/spec-entities.md
@@ -870,7 +871,7 @@ s32 netEvRecordDeath(s32 aplayernum, s32 vplayernum)
 		}
 
 		if (s_Log) {
-			snprintf(s_Detail, sizeof(s_Detail), "attacker %d victim %d", a, v);
+			snprintf(s_Detail, sizeof(s_Detail), "attacker %d victim %d weapon %d", a, v, killfeedDeathWeapon(aplayernum, vplayernum));
 		}
 
 		netEvBegin(&b, NETEV_DEATH);
@@ -878,6 +879,7 @@ s32 netEvRecordDeath(s32 aplayernum, s32 vplayernum)
 		netBufWriteS8(&b, (s8)v);
 		netBufWriteS8(&b, (s8)(aplayernum < 0 ? -1 : a < 0 ? -2 : 0)); // an attacker outside the match (a guard)
 		netBufWriteS8(&b, (s8)(vplayernum < 0 ? -1 : v < 0 ? -2 : 0));
+		netBufWriteU8(&b, killfeedDeathWeapon(aplayernum, vplayernum)); // 31: the kill feed's weapon
 		netEvEnd(&b, NETEV_DEATH, -1, -1);
 		return 0;
 	}
@@ -1655,6 +1657,7 @@ static s32 netEvParse(struct netbuf *b, struct netevc *e)
 		e->b = netBufReadS8(b);
 		e->i[0] = netBufReadS8(b);
 		e->i[1] = netBufReadS8(b);
+		e->i[2] = netBufReadU8(b); // the weapon (KILLFEED_WEAPON_* past the weapons)
 
 		if (e->a < -1 || e->a >= MAX_MPCHRS || e->b < -1 || e->b >= MAX_MPCHRS) {
 			return 0;
@@ -2368,9 +2371,11 @@ static void netEvApply(struct netevc *e, f64 rt)
 
 		// the host's hudmsgs for this machine's player come as their own events
 		s_SuppressHud = 1;
+		killfeedSetWireWeapon(e->i[2]);
 		mpstatsRecordDeath(e->i[0] == -1 ? -1 : a, e->i[1] == -1 ? -1 : v);
+		killfeedSetWireWeapon(-1);
 		s_SuppressHud = 0;
-		snprintf(extra, sizeof(extra), "attacker %d (mp %d) victim %d (mp %d)", e->a, a, e->b, v);
+		snprintf(extra, sizeof(extra), "attacker %d (mp %d) victim %d (mp %d) weapon %d", e->a, a, e->b, v, e->i[2]);
 		break;
 	}
 	case NETEV_HUDMSG:

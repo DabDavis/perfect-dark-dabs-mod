@@ -143,6 +143,7 @@
 #include "game/camera.h"
 #include "gbiex.h"
 #include "hdpreload.h"
+#include "killfeed.h"
 #endif
 
 extern s32 g_ExitFrame;
@@ -2043,6 +2044,11 @@ Gfx *lvRender(Gfx *gdl)
 				}
 
 				gdl = skyRenderOverexposure(gdl);
+#ifndef PLATFORM_N64
+				if (g_Vars.normmplayerisrunning) {
+					gdl = killfeedRender(gdl); // "Killer [Weapon] Victim" at the top right
+				}
+#endif
 				gdl = amRender(gdl);
 				mtx00016748(1);
 

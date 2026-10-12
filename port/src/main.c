@@ -548,6 +548,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	// online only: whether a match allows third person (a Room Rule, netrules.c)
 	configRegisterInt("Mod.NetThirdPerson", &g_ModNetThirdPerson, 0, 1);
 	configRegisterInt("Mod.SitInChairs", &g_ModOptions.sitinchairs, 0, 1);
+	configRegisterInt("Mod.KillFeed", &g_ModOptions.killfeed, -1, 1); // -1 on online only, 0 off, 1 on (killfeed.c)
 	configRegisterInt("Mod.QuickWeaponSwap", &g_ModOptions.quickweaponswap, 0, 1);
 	configRegisterInt("Mod.MissionLives", &g_ModOptions.missionlives, MODLIVES_UNLIMITED, MODLIVES_MAX);
 	configRegisterInt("Mod.SpectateStart", &g_ModSpectateStart, 0, 1);

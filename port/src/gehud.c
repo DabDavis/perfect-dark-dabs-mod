@@ -1258,6 +1258,79 @@ static Gfx *hudFillBox(Gfx *gdl, f32 x1, f32 y1, f32 x2, f32 y2, u32 colour)
 }
 
 /**
+ * The kill feed (killfeed.c) on GoldenEye's levels: its lines in Bank Gothic,
+ * outlined as GoldenEye's HUD text is (hudStringOutlined()), right-aligned to
+ * the frame's right edge less the radar's margin and started under the radar's
+ * disc (its centre 0x1a down, 16 units across), each on a box.
+ */
+Gfx *geHudRenderFeed(Gfx *gdl, const struct gehudfeedline *lines, s32 n, s32 noradar, f32 scale)
+{
+	struct hudframe f;
+	s32 height;
+	s32 dummy;
+	s32 x2;
+	s32 y;
+	s32 i, j;
+
+	hudFrame(&f);
+
+	// a line's height: the measure takes it from a newline (hudInteger())
+	gexFrontTextMeasure(1, "Ay\n", &dummy, &height);
+
+	// hudFillBox()'s scale is the radar's
+	g_Hud.radarsx = f.sx;
+	g_Hud.radarsy = f.sy;
+
+	y = noradar ? 10 : 0x1a + 16 + 6;
+
+	// scaled about the top right corner of the first box, in the frame
+	// buffer's pixels (G_SETRECTSCALE_EXT, killfeed.c); a corner past the
+	// point's reach (12 signed bits of quarter units) is scaled about the
+	// furthest point and laid out further right to end in the same place
+	{
+		const f32 rpx = viGetViewLeft() + (f.width - 7) * f.sx;
+		const f32 px = rpx < 508.0f ? rpx : 508.0f;
+		const f32 py = viGetViewTop() + (y - 1) * f.sy;
+
+		x2 = (s32)((px + (rpx - px) / scale - viGetViewLeft()) / f.sx + 0.5f) - 3;
+		gDPSetRectScaleEXT(gdl++, scale, px, py);
+	}
+
+	for (i = 0; i < n; i++) {
+		s32 widths[4];
+		s32 width = 0;
+		s32 x;
+
+		for (j = 0; j < lines[i].n && j < 4; j++) {
+			s32 w, h;
+
+			gexFrontTextMeasure(1, lines[i].text[j], &w, &h);
+			widths[j] = w;
+			width += w;
+		}
+
+		gdl = hudFillBox(gdl, x2 - width - 3, y - 1, x2 + 3, y + height + 1, lines[i].box);
+		gdl = gexFrontTextSetup(gdl);
+
+		x = x2 - width;
+
+		for (j = 0; j < lines[i].n && j < 4; j++) {
+			const u32 alpha = lines[i].colour[j] & 0xff;
+
+			gdl = hudStringOutlined(gdl, 1, lines[i].text[j], x, 1, y, 1, 1,
+					(COL_OUTLINE & 0xffffff00) | (alpha * 0x80 / 0xff), lines[i].colour[j]);
+			x += widths[j];
+		}
+
+		y += height + 3;
+	}
+
+	gDPSetRectScaleEXT(gdl++, 1.0f, 0, 0);
+
+	return hudEnd(gdl);
+}
+
+/**
  * A blip `dx`, `dy` from the middle: four units of black at 0x40 with two of
  * the colour inside it, brighter in range than held at the rim. GoldenEye's
  * blips are yellow and its own player white; a colour of Perfect Dark's that

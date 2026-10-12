@@ -191,7 +191,8 @@
 //    the turn in 256ths, the elevation in half degrees), and a client makes
 //    a DYNOBJ autogun (the thrown laptop) it had left out; the local-player
 //    block's byte 202 (was 0) holds the player's cloaks on (NETLPDEV_*: the
-//    RC-P120's, the Cloaking Device), the host's word over the client's
+//    RC-P120's, the Cloaking Device), the host's word over the client's;
+//    and DEATH ends in a u8 weapon (the kill feed, killfeed.c)
 #define NET_PROTOCOL_VERSION 31
 
 #define NETMSG_CONNECT    1
@@ -995,7 +996,9 @@
  *   8 GLASS      (E5, glassDestroy)       REF obj
  *   9 DEATH      (E6, mpstatsRecordDeath) s8 attacker, s8 victim (mpchr slots:
  *                players 0-11, sims 12+, -1 none), s8 attacker given (-1 none,
- *                -2 outside the match), s8 victim given (the same)
+ *                -2 outside the match), s8 victim given (the same),
+ *                31) u8 weapon (the kill feed's: a weapon number, 0xfe an
+ *                explosion nothing named, 0xff none; killfeed.c)
  *  10 HUDMSG     (E7, hudmsgCreateFromArgs; only to the player's machine)
  *                str(255) text, u8 type (<= 11), s32 conf00, conf01, conf02,
  *                u32 textcolour, glowcolour, alignh, s32 conf16, u32 alignv,

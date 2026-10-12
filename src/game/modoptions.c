@@ -93,6 +93,7 @@ struct modoptions g_ModOptions = {
 	false,                    // sitinchairs: stock's chairs are furniture
 	false,                    // muzzleflashlight: on GoldenEye's levels, off until it is lit per pixel (user, F3 20260929-045427)
 	false,                    // geroomdim: GoldenEye darkens only the fixture shot, never the room (F3 20260930-225233)
+	-1,                       // killfeed: KILLFEED_AUTO, on online and off offline (vanilla defaults, owner 2026-10-12)
 };
 
 /**

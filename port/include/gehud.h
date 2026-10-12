@@ -32,6 +32,19 @@ s32 geHudOwnsWeapon(void);
 void geHudTextMeasure(const char *text, s32 *width, s32 *height);
 Gfx *geHudText(Gfx *gdl, const char *text, s32 x, s32 y, u32 colour);
 
+// The kill feed's lines (killfeed.c) in GoldenEye's HUD font at the view's
+// top right, under the radar (at the top with none), oldest first: each line
+// up to four pieces of text in their colours, right-aligned on a box; drawn
+// `scale` times its glyphs' size about its top right corner
+struct gehudfeedline {
+	const char *text[4];
+	u32 colour[4];
+	s32 n;
+	u32 box;
+};
+
+Gfx *geHudRenderFeed(Gfx *gdl, const struct gehudfeedline *lines, s32 n, s32 noradar, f32 scale);
+
 // A string of GoldenEye's pickups' bank (LpropobjE) by its slot, or NULL.
 const char *geHudPropobjString(s32 slot);
 

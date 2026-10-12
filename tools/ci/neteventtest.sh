@@ -23,6 +23,9 @@
 #     front of it: the host registers the hit (a chrdamage with the client's
 #     player the attacker) and the client gets that hit event and at least
 #     one hudmsg the host made for its player;
+#   - the kill feed (killfeed.c): the client lists every kill the host
+#     does, in order, with the same weapon - kills its own player had no
+#     part in among them (sims on sims), named by the weapon DEATH carries;
 #   - audio: the client's mixed output (SDL's disk driver, music volume 0)
 #     against the times it applied shot sounds: its loud onsets follow them
 #     (correlation over 100 ms bins at the best lag).
@@ -181,11 +184,11 @@ run() {
 	local frames=8200
 	game host 420 0 --moddir "$MODDIR" --host "$PORT" --net-test-host 1 --net-test-stage 0x32 \
 		--net-test-sims 8 --rng-seed 1 --mp-weapons 10,4,7,9,28,1 --net-test-timelimit 2 --net-test-scorelimit 100 --net-test-teamscorelimit 400 \
-		--net-test-input "$OUT/host.script" --net-event-log "$OUT/host.events" --exit-frame $((frames + 200)) &
+		--net-test-input "$OUT/host.script" --net-event-log "$OUT/host.events" --killfeed-log --exit-frame $((frames + 200)) &
 	local host=$!
 	waitfor "$OUT/host.log" "net: hosting on UDP port" 60 || { echo "FAIL: host did not start"; kill -TERM $host; exit 2; }
 	game client 410 1 --moddir "$MODDIR" --connect "127.0.0.1:$PORT" --net-test-join \
-		--net-test-input "$OUT/client.script" --net-event-log "$OUT/client.events" --exit-frame "$frames" ${CLIENTARGS:-} &
+		--net-test-input "$OUT/client.script" --net-event-log "$OUT/client.events" --killfeed-log --exit-frame "$frames" ${CLIENTARGS:-} &
 	local client=$!
 	local hp cp n
 	waitfor "$OUT/client.log" "net: accepted by" 60
@@ -338,6 +341,40 @@ if hud:
 else:
     bad("no hudmsg came for the client's player")
 sys.exit(st)
+PY
+
+# the kill feed: every kill the host saw, listed on the client the same, in
+# order and with its weapon; one at least between two others (sims) with a
+# weapon named, which the client only knows from DEATH's weapon byte
+python3 - "$OUT/host.log" "$OUT/client.log" <<'PY' || status=1
+import sys, re
+hl, cl = sys.argv[1:3]
+pat = re.compile(r"killfeed: (.*?) \((?:attacker (-?\d+) )?victim (-?\d+)(?: weapon (\d+))?, frame -?\d+\)")
+def feed(path):
+    out = []
+    for l in open(path, errors="replace"):
+        m = pat.search(l)
+        if m: out.append((m.group(1), int(m.group(2)) if m.group(2) else -1, int(m.group(3))))
+    return out
+slot = None
+for l in open(cl, errors="replace"):
+    m = re.search(r"into slot (\d+)", l)
+    if m: slot = int(m.group(1)); break
+H, C = feed(hl), feed(cl)
+n = min(len(H), len(C))
+same = sum(1 for a, b in zip(H, C) if a == b)
+others = [c for c in C if c[1] >= 0 and c[1] != slot and c[2] != slot and "[" in c[0] and "[]" not in c[0]]
+if H and len(C) >= len(H) * 0.9 and same == n:
+    print(f"ok   kill feed: the client listed {len(C)} of the host's {len(H)} kills, every one the same (killer, weapon, victim)")
+else:
+    print(f"FAIL kill feed: host {len(H)} lines, client {len(C)}, {same} of the first {n} the same")
+    for a, b in list(zip(H, C))[:40]:
+        if a != b: print(f"     host {a} client {b}"); break
+    sys.exit(1)
+if others:
+    print(f"ok   kill feed: {len(others)} kills the client's player (slot {slot}) had no part in, weapon named, e.g. \"{others[0][0]}\"")
+else:
+    print("FAIL kill feed: no kill between others with a weapon on the client"); sys.exit(1)
 PY
 
 # audio: the shot sounds the client applied, each at the audio frame it was
