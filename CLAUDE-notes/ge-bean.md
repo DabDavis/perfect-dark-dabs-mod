@@ -15178,3 +15178,41 @@ machine's own picture. Shots: `~/wt/f3-1010c-gehd-run/shots/art-toggle.png`, `do
   - **Janus outrunning Bond to the Caverns lift** (F3 20261011-185035): the list's commands convert as GoldenEye
     has them (RunToPad -> JOG, SprintToPad -> RUN); a chr's ground speed on those (AI off) measures alike on the
     native port and ours (run ~4-5 a tick both). Not measured: the ending itself on the cartridge.
+
+## Bunker's sky: the dome painted over its own clouds (38th F3 pass, 2026-10-12, fix/f3-1012-gerender)
+
+F3 20261012-123659 (dab, online client, Vulkan, the GoldenEye Arenas map "Bunker 1", HD): looking up from the
+yard (room 30), a spiral of blue triangles over the clouds. Offline it is the same on both renderers
+(`--boot-stage 0x12`, the report's camera); the N64 look has GoldenEye's plain navy there. Not the Community
+Edition's dome (`'gebeansky.c'::sky.numlists = 0` left it all), the **backdrop** (`'gebeanstage.c'::numBackdrop
+= 0` took it all away): both Bunkers' level files carry a sky dome (2450 triangles, opaque - its picture is
+`Level3_Rooftops_Skydome:levelzerosky`, Perfect Dark Zero's, a placeholder like the release's skydomes) and a
+cloud cap hung inside it (950, every one in the blended pass), and 9b54c1a33 takes both as the backdrop. The
+backdrop has no depth test and is drawn furthest triangle first by its middle; the two shells are only ~300 apart
+at the top and their triangles ~2000 across, so from an eye off the level's centre a dome triangle's middle is
+often nearer than that of the cap triangle under it, and the dome was painted over the clouds in rings.
+
+`backdropPrepare()` (both load paths) puts a picture all of whose backdrop triangles are blended in a layer of its
+own, drawn after the rest - the release's blended pass after its opaque one, which its depth buffer then keeps in
+front. Only the Bunkers' caps are such pictures (per level: Dam's panorama 32 of 64 blended and its far
+mountains 0, Runway's 36 of 60, both Surfaces' 32 of 64, Cradle's cliffs 0), and their spawn views are
+pixel-identical before and after. Draw-time only: no HDCACHE bump (`blend` is in the cache already).
+
+Bean in Xenia (the CE, `pair_scene.py` at Bunker 1's pad 99, theta 22.4, verta 65.9) draws the same dome and cap
+with the same clouds where ours now stand, without the spiral - but nearly black (nothing over 21 of 255):
+the CE's default.xex adds a fog row for Bunker 1, which the CE table above leaves out as GoldenEye draws the level
+fogless. The level's opaque dome also hides the CE's own skydome for both Bunkers (`bunker2` is a CE picture),
+as it did before this. Probe: a gdb Python dump of each level's backdrop pictures (triangles, blended, alpha,
+reach, distance) from `'gebeanstage.c'::backdrop[]`.
+
+**Archives, "room geometry texture flickering - while against the wall" (F3 20261012-160401, Windows, Intel HD
+Graphics 530, OpenGL, HD): needinfo.** Not reproduced on the RX 580 at the report's camera (Archives mission
+0x65, room 14, the interrogation room by the bricked window; 1366x768) in either renderer, held still or
+drifting: the view matches the tester's shot, and the N64 look has the same corner. Ruled out there: coplanar
+layers (a probe build drawing opaque with `GL_LEQUAL` for `GL_LESS` changed 2 pixels: no two rooms' surfaces at one
+depth), the near plane (nothing within 45 units of the eye; raising it to 45 changed nothing), depth precision
+(24-bit, near 10, far raised to 9606, the nearest walls 45+ away). Worth knowing for the next near-plane question:
+nothing is cut by the near plane here - both renderers clamp depth and the CPU path cuts only at the eye's own
+plane, as the RSP does - so whatever comes nearer than it is drawn at depth 0, where the first drawn wins: a near
+plane raised past 100 (`call viSetZRange(...)` from gdb) hid the pipe by the wall, 100-120 from the eye, behind
+the wall it stands on. A protrusion the player can get within 10 units of would do that in play.
