@@ -601,6 +601,42 @@ f32 playerChooseGeneralSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *
 	return playerChooseSpawnLocation(chrradius, pos, rooms, prop, g_SpawnPoints, g_NumSpawnPoints);
 }
 
+#ifndef PLATFORM_N64
+static s32 introend = INTROCMD_END;
+
+static void playerIntroKitBad(s32 *cmd, const char *what)
+{
+	static s32 logged = 0;
+
+	if (!logged) {
+		logged = 1;
+		sysLogPrintf(LOG_WARNING, "player: stage 0x%x's intro has %s (%d %d %d %d) at a new life: left out",
+				g_Vars.stagenum, what, cmd[0], cmd[1], cmd[2], cmd[3]);
+	}
+}
+
+/**
+ * A new life's intro kit command: a weapon or ammo type the tables have, so a
+ * bad list is refused rather than indexing g_Weapons or g_AmmoTypes with it.
+ */
+static bool playerIntroKitOk(s32 *cmd)
+{
+	bool ok;
+
+	if (cmd[0] == INTROCMD_WEAPON) {
+		ok = cmd[1] >= 0 && cmd[1] < NUM_WEAPONS && cmd[2] < NUM_WEAPONS;
+	} else {
+		ok = cmd[1] >= 0 && cmd[1] < ARRAYCOUNT(g_Vars.currentplayer->ammoheldarr);
+	}
+
+	if (!ok) {
+		playerIntroKitBad(cmd, cmd[0] == INTROCMD_WEAPON ? "a weapon out of range" : "an ammo type out of range");
+	}
+
+	return ok;
+}
+#endif
+
 void playerStartNewLife(void)
 {
 	struct coord pos = {0, 0, 0};
@@ -783,9 +819,11 @@ void playerStartNewLife(void)
 					cmd += 2;
 					break;
 				case INTROCMD_WEAPON:
-					if (cmd[3] == 0 && !MODRUN_SKIPS_MAP_KIT()) {
 #ifndef PLATFORM_N64
+					if (cmd[3] == 0 && !MODRUN_SKIPS_MAP_KIT() && playerIntroKitOk(cmd)) {
 						g_InvIntroGive = true;
+#else
+					if (cmd[3] == 0 && !MODRUN_SKIPS_MAP_KIT()) {
 #endif
 						if (cmd[2] >= 0) {
 							invGiveDoubleWeapon(cmd[1], cmd[2]);
@@ -799,7 +837,11 @@ void playerStartNewLife(void)
 					cmd += 4;
 					break;
 				case INTROCMD_AMMO:
+#ifndef PLATFORM_N64
+					if (cmd[3] == 0 && !MODRUN_SKIPS_MAP_KIT() && playerIntroKitOk(cmd)) {
+#else
 					if (cmd[3] == 0 && !MODRUN_SKIPS_MAP_KIT()) {
+#endif
 						bgunSetAmmoQuantity(cmd[1], cmd[2]);
 					}
 					cmd += 4;
@@ -816,9 +858,30 @@ void playerStartNewLife(void)
 				case INTROCMD_6:
 					cmd += 10;
 					break;
+#ifndef PLATFORM_N64
+				// GoldenEye's watch time and credits, as playerReset() steps
+				// over them. Stepped over one word, a converted mission's
+				// watch time put the walk out of step: it ran past the list's
+				// end into whatever followed it in the stage's memory and
+				// handed out "kit" from there - a Goldfinger 64 mission's
+				// co-op respawn set an ammo type of 1.7 billion and crashed
+				// the host (crash 20261012-012711)
+				case INTROCMD_WATCHTIME:
+					cmd += 3;
+					break;
+				case INTROCMD_CREDITOFFSET:
+					cmd += 2;
+					break;
+				default:
+					// a command no list has: nothing past it can be trusted
+					playerIntroKitBad(cmd, "an unknown command");
+					cmd = &introend;
+					break;
+#else
 				default:
 					cmd++;
 					break;
+#endif
 				}
 			}
 		}

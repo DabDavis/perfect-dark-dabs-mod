@@ -1146,3 +1146,22 @@ GoldenEye's knife (it is thrown as slot 186, which is the arena's there).
   -> 3.55 ms; GE Facility's spawn 0.72 -> 1.08 ms (props behind walls,
   hidden by depth: the picture identical). Perfect Dark's stages are left
   alone: their walk is the snake, whose portals bound what they draw.
+
+- **Respawn walk of the intro and the watch time** (crash 20261012-012711, a
+  co-op host on a Goldfinger 64 mission, the guest's sixth death):
+  `playerStartNewLife()` walked the intro with no case for
+  `INTROCMD_WATCHTIME` (7, three words) or `INTROCMD_CREDITOFFSET` (8), so it
+  stepped one word and read the hour as a command. On 12 of Goldfinger 64's
+  20 missions (watch time last, e.g. Miami's `7 10 0` then END) that skipped
+  END and the walk ran on through the AI lists, paths and pads and on into
+  live stage-pool memory (past 400 KB on Miami), giving "kit" from whatever it
+  found - an ammo type of 1.7 billion crashed `bgunGetCapacityByAmmotype`.
+  On 12 of GoldenEye's own 20 missions (Control, Aztec, Caverns, Frigate,
+  Jungle, Streets, Runway, Bunker 1 and 2, Surface 2, Statue, Train) the walk fell back
+  into step before END but had stepped over their kit
+  commands (a co-op/Mission Respawn new life there gave no intro kit; it now
+  does, as on Perfect Dark's missions). `playerReset()`, scenarios.c and
+  simnavstage.c already had both lengths. The walk now has them, refuses an
+  unknown command (ends the walk) and a weapon or ammo type outside the
+  tables, logging once ("player: stage 0x..'s intro has ..."). Gate:
+  netcooptest.sh gfrespawn.
