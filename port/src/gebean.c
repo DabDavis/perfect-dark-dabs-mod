@@ -14715,19 +14715,11 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	fromchar = strncmp(r->source, "char/", 5) == 0;
 	const s32 arm = !ishead && gebeanRowIsWatchArm(r);
 
-	// Also what the pictures are keyed on, so the two looks never share one
+	// Also what the pictures are keyed on, so the two looks never share one.
+	// (Doctor Doak, Cgx051Z, is head/headdave: the release's Dr. Rakhmanov, and
+	// with the Community Edition's art on its own Doak face under the same name,
+	// which beanLoad() takes from the overlay - gebeance.c's ceArtFiles)
 	snprintf(source, sizeof(source), "%s/%s", original ? "original" : "new", r->source);
-
-	// Doctor Doak with the Community Edition's art on: its own Doak head, the
-	// release's headneil (his face, which he wears otherwise) refitted for his
-	// place and without the glasses GoldenEye's Doak never wore (gebeance.c)
-	if (!original && r->file && strcmp(r->file, "Cgx051Z") == 0) {
-		char cepath[FS_MAXPATH + 1];
-
-		if (gebeanCeFilePath(cepath, sizeof(cepath), "new/head/headdave", "default.bin")) {
-			snprintf(source, sizeof(source), "new/head/headdave");
-		}
-	}
 
 	if (gebeanEnvNames("PD_GEBEAN_FAILBUILD", r->source)) {
 		beanWhy = "its mesh did not build (PD_GEBEAN_FAILBUILD)";

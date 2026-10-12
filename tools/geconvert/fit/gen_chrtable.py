@@ -21,11 +21,14 @@ The seven that do not:
   bodies with a headspot and five Brosnan heads.
 - blueman, bluewoman and greyman are broken in the release (BROKEN_SOURCES in
   batch_gex.py) and are left in the N64 look.
-- headdave is Dr. Doak's head (HEAD_Male_Dave_Dr_Doak), and the release's
-  head/headdave is another man: a clean-shaven face in glasses, where
-  GoldenEye's Doak has dark curly hair, a moustache and a goatee (F3
-  20260925-225738, Facility: "dr doak using wrong face texture"). No other
-  file of the release has his face, so he keeps GoldenEye's own.
+
+headdave is Dr. Doak's head (HEAD_Male_Dave_Dr_Doak) and pairs straight across
+like the rest: the release's head/headdave is its own Facility scientist, Dr.
+Rakhmanov (loc/ark's name for him), clean-shaven in glasses, where GoldenEye's
+Doak has dark curly hair, a moustache and a goatee. The owner keeps the
+release's face (2026-09-26, and again 2026-10-12 for F3 20261012-041514); with
+the Community Edition's art on, the same file name draws its own Doak face (the
+release's headneil refitted, no glasses - gebeance.c's ceArtFiles).
 
 A head is a character with no skeleton of its own (one list node); the rest
 are bodies, and a body's kind is GoldenEye's own `hashead` flag out of
@@ -48,16 +51,20 @@ BEAN = os.path.join(paths.BEAN, 'files/new')
 
 BROKEN = {'blueman', 'bluewoman', 'greyman'}
 
-# Heads whose release file is somebody else's face. headdave is not Doak's
-# face, but the user keeps the release's HD head anyway (2026-09-26).
+# Heads whose release file is somebody else's face, left in the N64 look.
+# headdave is not GoldenEye's Doak, but the owner keeps the release's HD head
+# (2026-09-26, 2026-10-12).
 NOT_THEIRS = set()
 
-# Heads drawn from another of the release's files, which has their face: the
-# release's headneil is Doctor Doak's (dark curly hair, goatee), and the
-# Community Edition's own headdave is that file refitted. Built in with the
-# Community Edition (2026-10-10); headfit.c seats it on the neck.
+# Heads drawn from another of the release's files. Empty: Doak (headdave) was
+# drawn from the release's headneil from 2026-10-10 to 2026-10-12, glasses and
+# all, and the owner wanted the release's own Rakhmanov back (F3
+# 20261012-041514). Trap: gebean.c maps a pool head to its ROM character by
+# source, the first chr row with it winning (gebeanRomChrForSource()), so a
+# repoint onto another head's file moves that too - with Doak on headneil the
+# Character page's Neil was Doak's ROM head (his face in the N64 look) and
+# Dave had none (a copy of the pool's row, and missing with no release).
 REPOINT = {
-    'headdave': 'head/headneil',
 }
 
 # GoldenEye's stem -> the release's name for it, and a note for the row
