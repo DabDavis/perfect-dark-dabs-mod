@@ -21,7 +21,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT" || exit 2
 LOG=${1:-$ROOT/build/netallgates.log}
 RERUN=${RERUN:-1}
-GATES=${GATES:-"netclocktest netsessiontest netplayertest netsnaptest netpuppettest neteventtest netlobbytest netlobbyuitest netlobbywinetest netnattest netpredicttest netlagcomptest netscenariotest netcontenttest netjointest netchattest netwidetest nettwelvetest netcooptest netmigratetest netteamtest"}
+GATES=${GATES:-"netclocktest netsessiontest netplayertest netsnaptest netpuppettest neteventtest netlobbytest netlobbyuitest netlobbywinetest netnattest netpredicttest netlagcomptest netscenariotest netcontenttest netjointest netchattest netwidetest nettwelvetest netcooptest netmigratetest netteamtest netantitest"}
 
 rungate() {
 	local t=$1 s0 rc
