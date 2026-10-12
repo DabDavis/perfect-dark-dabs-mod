@@ -228,6 +228,113 @@ class Config:
 # ------------------------------------------------------------------ text
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,15}\Z")
+
+# ---- name filter: begin (the same in tools/pdghostd/pdghostd.py and
+# tools/pdlobbyd/pdlobbyd.py; test_pdlobbyd.py checks the two copies match) ----
+#
+# Names that are slurs or obscenities are refused: an account's, when it is
+# made or signed in with, and a room's. A letter also matches what stands in
+# for it (a 4 @, i 1 l ! |, o 0, s 5 $, ...) and may repeat (niiigger). Three
+# lists, by how much of a name a word may hide in:
+#
+#   NF_SEVERE  anywhere at all, with spaces and _ . - left out (n.i.g.g.e.r):
+#              slurs nothing ordinary is spelled with
+#   NF_PART    anywhere inside one word of the name (Slutty, xXbitchXx). A
+#              word ends at a space, _ . -, or a capital after a small letter,
+#              so WhoReigns is not "whore" and MassHit is not "shit"
+#   NF_WHOLE   only as a whole word, or with an s on: short ones that sit
+#              inside ordinary words - raccoon, Janus, torpedo, Santiago,
+#              therapist, Japan, Pakistan, Spice, Grape
+#
+# Letters standing alone are one word ("N I G G E R"). NF_ALLOWED are
+# ordinary words holding one of them (Scunthorpe, snigger, shiitake), taken
+# out before the lists are asked. Not here on purpose: names and words that
+# are only rude in some company (dick - a tester's name - ass, damn, piss).
+
+NF_LOOKS = {
+    "a": "a4@", "b": "b8", "e": "e3", "g": "g96q", "i": "i1l!|", "l": "l1i|",
+    "o": "o0", "s": "s5$", "t": "t7+", "u": "uv", "z": "z2",
+}
+
+NF_SEVERE = (
+    "nigger", "nigga", "nigguh", "niggah", "niggur", "faggot", "fagot",
+    "fuck", "phuck", "cunt", "kkk", "1488", "hitler", "siegheil", "whitepower",
+    "wetback", "raghead", "towelhead", "cameljockey", "porchmonkey",
+    "junglebunny", "jigaboo", "zipperhead", "spearchucker", "chingchong",
+    "golliwog", "pedophile", "paedophile",
+)
+
+NF_PART = (
+    "niglet", "nignog", "negroid", "beaner", "tranny", "shemale", "retard",
+    "mongoloid", "whore", "slut", "bitch", "asshole", "pussy", "penis",
+    "vagina", "dildo", "jizz", "cumshot", "cumslut", "blowjob", "handjob",
+    "porn", "wanker", "shitty", "shithead", "bullshit", "molest", "rapist",
+)
+
+NF_WHOLE = (
+    "nig", "spic", "spick", "coon", "kike", "chink", "gook", "jap", "paki",
+    "wog", "wop", "dago", "honky", "injun", "squaw", "redskin", "negro",
+    "hymie", "fag", "dyke", "homo", "lesbo", "spaz", "tard", "nazi", "heil",
+    "rape", "pedo", "kys", "anal", "anus", "cum", "tits", "twat", "cock",
+    "wank", "shit",
+)
+
+NF_ALLOWED = (
+    "scunthorpe", "snigger", "niggard", "shiitake", "shitake", "pussycat",
+    "pussywillow", "retardant", "penistone", "beanery", "therapist",
+    "fagotto", "lesbos",
+)
+
+
+def _nf_pattern(word):
+    return "".join("[%s]+" % re.escape(NF_LOOKS.get(ch, ch)) for ch in word)
+
+
+_NF_SEVERE_RE = re.compile("|".join(_nf_pattern(w) for w in NF_SEVERE))
+_NF_PART_RE = re.compile("|".join(_nf_pattern(w) for w in NF_PART))
+_NF_WHOLE_RE = re.compile("[0-9]*(?:%s)[s5$z]?[0-9]*" % "|".join(_nf_pattern(w) for w in NF_WHOLE))
+
+
+def _nf_words(text):
+    """The name's words, small letters, ordinary words holding a listed one taken out."""
+    raw = re.split(r"[\s_.\-]+", re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text))
+    words, letters = [], ""
+
+    for word in raw:
+        word = re.sub(r"[^a-z0-9@$!|+]", "", word.lower())
+        if len(word) == 1:
+            letters += word
+            continue
+        if len(letters) > 1:
+            words.append(letters)
+        letters = ""
+        if word:
+            words.append(word)
+
+    if len(letters) > 1:
+        words.append(letters)
+
+    for ok in NF_ALLOWED:
+        words = [w.replace(ok, "") for w in words]
+
+    return [w for w in words if w]
+
+
+def name_offends(name):
+    """True when a name (an account's, a room's) is a slur or an obscenity."""
+    words = _nf_words(str(name))
+
+    if _NF_SEVERE_RE.search("".join(words)):
+        return True
+
+    for word in words:
+        if _NF_PART_RE.search(word) or _NF_WHOLE_RE.fullmatch(word):
+            return True
+
+    return False
+
+# ---- name filter: end ----
+
 PIN_RE = re.compile(r"^[0-9]{4,8}\Z")
 TOKEN_RE = re.compile(r"^[0-9a-f]{32}\Z")
 ROOM_RE = re.compile(r"^[0-9a-f]{8}\Z")
@@ -963,6 +1070,9 @@ class Lobby:
         username = str(body.get("username", "")).strip()
         if not USERNAME_RE.match(username):
             raise HttpError(400, "3-15 chars, letters, digits, _ . - only")
+        # pdghostd refuses these too; an open (LAN) lobby asks nobody else
+        if name_offends(username):
+            raise HttpError(403, "that name is not allowed")
         if not self.windows.allow(("login", req.key), self.cfg.login_window[0],
                                   self.cfg.login_window[1], now):
             raise HttpError(429, "too many sign-ins, wait a few minutes")
@@ -1150,6 +1260,8 @@ class Lobby:
             name = clean_text(body.get("name", ""), ROOM_NAME_MAX)
             if not name:
                 raise HttpError(400, "room needs a name")
+            if name_offends(name):
+                raise HttpError(400, "that room name is not allowed")
             upd["name"] = name
         if "password" in body:
             pw = body.get("password") or ""

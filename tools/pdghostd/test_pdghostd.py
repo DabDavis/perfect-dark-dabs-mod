@@ -1544,6 +1544,31 @@ def test_report_archive():
         pass
 
 
+
+def test_name_filter():
+    print("names that are slurs or obscene are refused, ordinary ones are not")
+    for i, name in enumerate(("nigger", "N1gg3r", "Fag", "KillKikes", "Hitler88", "fuckface")):
+        st, body, _ = register(name, "1234", ip="10.9.1.%d" % (i + 1))
+        check(st == 400 and "not allowed" in body.get("error", ""),
+              "register %r -> 400 not allowed (%d %r)" % (name, st, body))
+    st, body, _ = post_json("/login", {"username": "Nazi", "pin": "1234", "create": True}, ip="10.9.1.20")
+    check(st == 400 and "not allowed" in body.get("error", ""),
+          "sign in to make 'Nazi' -> 400 before the questions (%d %r)" % (st, body))
+    for i, name in enumerate(("Raccoon", "dick", "Janus", "Scunthorpe")):
+        st, body, _ = register(name, "1234", ip="10.9.2.%d" % (i + 1))
+        check(st == 200, "register %r -> 200 (%d %r)" % (name, st, body))
+
+    # An account made before the filter cannot sign in any more.
+    import sqlite3
+    conn = sqlite3.connect(os.path.join(ROOT, "ghosts.db"))
+    conn.execute("UPDATE users SET username = 'Kike' WHERE username = 'Raccoon'")
+    conn.commit()
+    conn.close()
+    st, body, _ = login("Kike", "1234", ip="10.9.2.1")
+    check(st != 200 and "not allowed" in body.get("error", ""),
+          "an old account named a slur is refused at sign-in (%d %r)" % (st, body))
+
+
 def main():
     build_daemon()
     seed_old_schema()
@@ -1562,6 +1587,7 @@ def main():
         test_recovery()
         test_three_questions()
         test_sign_in_creates()
+        test_name_filter()
         test_crash_reports()
         test_problem_reports()
         test_report_board()

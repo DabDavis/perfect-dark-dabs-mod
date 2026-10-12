@@ -2028,5 +2028,77 @@ class BuildTests(unittest.TestCase):
         self.assertFalse(L.same_build(None, "487ae2e"))
 
 
+
+# ------------------------------------------------------------------ names
+
+# Spellings the filter must refuse and real names (testers', rooms', places',
+# GoldenEye's) it must not. The slurs are written out because the list they
+# test is; nothing here is shown to anyone.
+OFFENSIVE_NAMES = (
+    "nigger", "N1GGER", "n.i.g.g.e.r", "N I G G E R", "Nigg3r_Slayer", "xXniggaXx",
+    "TheNiggerKing", "niiigga", "nigguh", "n1gg@", "fuckyou", "FvckYou", "Phuck",
+    "Fuck_You_All", "Scunt", "Hitler88", "Siegheil", "KKKmember", "pl4yer1488",
+    "faggot", "Fag", "Fags_R_Us", "spic", "sp1c", "Coon", "big_coon", "w0rd_c00n",
+    "Kike", "KillKikes", "Kike123", "Chinks", "Paki", "Jap", "Dago", "Negro", "Nig",
+    "towelhead", "wetback", "Retarded", "whore", "SlutKing", "bitch", "Pu$$y",
+    "Rapist", "rape", "Pedo", "Nazi", "Kys", "Tranny", "Shemale", "Shit", "BullShit",
+    "Shithead", "Porn", "Dildo", "Cock", "Twat", "Tits", "a-n-a-l",
+)
+FINE_NAMES = (
+    "dab", "dabba", "dick", "Dickens", "Dickson", "savantique", "Parabolee",
+    "ElmoBear02", "KingZakkart", "froexiaSim", "Kvothe", "Cheeto", "JillyJane240",
+    "Odeyseis", "Casey", "Dyldan", "dblaney1", "Brandon", "LINKmendez", "Raccoon",
+    "Coonhound", "Tycoon", "Cocoon", "Janus", "Uranus", "Torpedo", "Pedometer",
+    "Santiago", "Therapist", "Japan", "Pakistan", "Scunthorpe", "Sniggering",
+    "Shiitake", "Shitake", "Grape", "Scrape", "Peacock", "Cockpit", "Hancock",
+    "Assassin", "Classic", "Bass", "Analyst", "Analog", "Canal", "Title", "Titan",
+    "Petite", "Document", "Cucumber", "Cumberland", "Spice", "Spicy", "Spices",
+    "Nigel", "Niger", "Nigeria", "Homogenous", "Homer", "Sapiens", "Swank", "Wanko",
+    "Mass_Hit", "WhoReigns", "Glasshouse", "Penistone", "Pussycat", "Retardant",
+    "Beanery", "Tardis", "Tardy", "Lesbos", "Nazir", "Kakariko", "Hokkaido",
+    "froexiaSim's Room", "KingZakkart's Room", "Stock Game Tuesday Night Brawl",
+    "Mass Hit Squad", "This Hit List", "Shockwave S08", "GoldenEye 007",
+    "Ourumov", "Natalya", "Oddjob", "Trevelyan", "Xenia", "Zukovsky",
+)
+
+
+class NameFilterTests(Base):
+    def test_lists(self):
+        for name in OFFENSIVE_NAMES:
+            self.assertTrue(L.name_offends(name), name)
+        for name in FINE_NAMES:
+            self.assertFalse(L.name_offends(name), name)
+
+    def test_sign_in_refused(self):
+        for name in ("nigger", "Fag", "Hitler88", "KillKikes"):
+            st, r = Client(self.srv.port).login(name)
+            self.assertEqual(st, 403, (name, r))
+            self.assertIn("not allowed", r["error"])
+        st, r = Client(self.srv.port).login("Raccoon")
+        self.assertEqual(st, 200, r)
+
+    def test_room_name_refused(self):
+        host = self.client("hostess")
+        for name in ("Fuck Off", "n i g g e r s only", "KKK Den", "Nazi Room"):
+            st, r = host.create(name=name)
+            self.assertEqual(st, 400, (name, r))
+            self.assertIn("not allowed", r["error"])
+        st, r = host.create(name="Mass Hit Squad")
+        self.assertEqual(st, 200, r)
+        st, r = host.act("settings", {"name": "Shit Room"})
+        self.assertEqual(st, 400, r)
+
+    def test_same_filter_as_pdghostd(self):
+        # one list for the two servers: pdghostd refuses the same names
+        # at sign-up and sign-in that this does at sign-in and on rooms
+        def block(path):
+            with open(path) as f:
+                text = f.read()
+            start = text.index("# ---- name filter: begin")
+            return text[start:text.index("# ---- name filter: end", start)]
+        self.assertEqual(block(os.path.join(HERE, "pdlobbyd.py")),
+                         block(os.path.join(HERE, "..", "pdghostd", "pdghostd.py")))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
