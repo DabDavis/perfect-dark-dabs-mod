@@ -59,7 +59,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-API_VERSION = 6   # 2: host migration (README "Host migration"); 3: the same shape, hardened (README "Limits"); 4: the main menu's chat (README "Main menu chat"); 5: the server's notices (README "Server notices"); 6: a launched room's host names who its session has, and a member gone from it frees its seat (README "Seats in a running match")
+API_VERSION = 7   # 2: host migration (README "Host migration"); 3: the same shape, hardened (README "Limits"); 4: the main menu's chat (README "Main menu chat"); 5: the server's notices (README "Server notices"); 6: a launched room's host names who its session has, and a member gone from it frees its seat (README "Seats in a running match"); 7: who is online and where (README "Players online")
 
 
 def env(name, default):
@@ -149,6 +149,12 @@ class Config:
         # api 6: a launched room's host's "seated" list counts this long
         # after its beat (three missed 5 s beats: no word, nobody reaped)
         self.seated_fresh = 16.0
+        # api 7, GET /players: an account in no room counts as online this
+        # long after its session last asked for anything (the game's
+        # Briefing Room asks for the main menu's chat every 2 s), and a
+        # reply lists at most players_max of them (count says how many)
+        self.presence_ttl = 60.0
+        self.players_max = 200
         self.gone_keep = 120.0
         self.reap_interval = 1.0
 
@@ -729,10 +735,11 @@ class HttpError(Exception):
 
 
 class Session:
-    __slots__ = ("token", "user", "expires", "key")
+    __slots__ = ("token", "user", "expires", "key", "seen")
 
     def __init__(self, token, user, expires, key=""):
         self.token, self.user, self.expires, self.key = token, user, expires, key
+        self.seen = time.monotonic()   # its last request (GET /players: online while recent)
 
 
 class Member:
@@ -1090,6 +1097,8 @@ class Lobby:
             return self.main_chat(req)
         if m == "POST" and parts == ["chat"]:
             return self.main_chat_say(req)
+        if m == "GET" and parts == ["players"]:
+            return self.list_players(req)
 
         if len(parts) == 3 and parts[0] == "rooms" and ROOM_RE.match(parts[1]):
             room_id, action = parts[1], parts[2]
@@ -1165,6 +1174,7 @@ class Lobby:
         if s is None or s.expires < time.time():
             raise HttpError(401, "sign in first")
         s.expires = time.time() + self.cfg.session_ttl
+        s.seen = time.monotonic()
         return s
 
     def member_auth(self, req, room_id):
@@ -1241,6 +1251,40 @@ class Lobby:
             self.mainchat.popleft()
         log("notice to %d room(s): %s" % (len(self.rooms), text))
         return {"ok": True, "rooms": len(self.rooms)}
+
+    # ---------------------------------------------------------- players online
+
+    def list_players(self, req):
+        """Who is online now and where (README "Players online"), for a
+        signed-in player: every member of every room - in its Game Lobby, or
+        in its match once it is launched - and every other account whose
+        session asked for anything in the last presence_ttl, which is the
+        Briefing Room. An account once, by its name; never an address. A
+        dedicated room's host is a server, not a player: left out. The names
+        are ones the lobby let sign in and the rooms' ones it let be made, so
+        the name filter has passed them all (its lists are this process's: a
+        change to them is a restart, which empties both)."""
+        self.session_auth(req)
+        now = time.monotonic()
+        wall = time.time()
+        found = {}
+        for room in self.rooms.values():
+            where = "match" if room.status == "launched" else "room"
+            for m in room.members.values():
+                key = m.user.lower()
+                if key in found:
+                    continue
+                if m.host and room.dedicated:
+                    found[key] = None
+                    continue
+                found[key] = {"user": m.user, "where": where, "room": room.name, "room_id": room.id,
+                              "host": m.host, "spectator": m.spectator and not m.host}
+        for s in self.sessions.values():
+            key = s.user.lower()
+            if key not in found and now - s.seen <= self.cfg.presence_ttl and s.expires >= wall:
+                found[key] = {"user": s.user, "where": "menu"}
+        players = sorted((p for p in found.values() if p), key=lambda p: (p["user"].lower(), p["user"]))
+        return {"ok": True, "count": len(players), "players": players[:self.cfg.players_max]}
 
     # ---------------------------------------------------------- rooms
 

@@ -412,7 +412,7 @@ class RoomTests(Base):
         self.assertEqual(Client(self.srv.port).req("POST", "/notice", {"text": "x"})[0], 404)
         self.assertEqual(admin.req("GET", "/rooms")[0], 404)
         self.assertEqual(admin.req("POST", "/notice", {"text": " \x1b "})[0], 400)
-        self.assertEqual(Client(self.srv.port).req("GET", "/ping")[1]["api"], 6)
+        self.assertEqual(Client(self.srv.port).req("GET", "/ping")[1]["api"], 7)
 
     def test_notice_port_taken_is_not_fatal(self):
         # a second lobby on the same notice port: it runs, without notices
@@ -581,6 +581,98 @@ class RoomTests(Base):
 
 
 # ------------------------------------------------------------------ long-poll
+
+# ------------------------------------------------------------------ players online
+
+class PlayersTests(Base):
+    """API 7: GET /players, who is online now and where (README "Players
+    online")."""
+
+    def names(self, c):
+        st, r = c.req("GET", "/players")
+        self.assertEqual(st, 200, r)
+        return [p["user"] for p in r["players"]]
+
+    def test_where_everyone_is(self):
+        # signed in to ask
+        self.assertEqual(Client(self.srv.port, ip="10.0.0.9").req("GET", "/players")[0], 401)
+        alpha = self.client("alpha")
+        host, (bravo,) = self.room_with("bravo", name="Night Room")
+        delta = self.client("delta")
+        self.assertEqual(delta.join(host.room, spectator=True)[0], 200)
+        charlie = self.client("charlie")
+        self.assertEqual(charlie.create(name="Match Room")[0], 200)
+        self.assertEqual(charlie.act("launch")[0], 200)
+        for _ in range(60):
+            if charlie.state()[1]["room"]["state"] == "launched":
+                break
+            time.sleep(0.05)
+        st, r = alpha.req("GET", "/players")
+        self.assertEqual(st, 200, r)
+        self.assertEqual(r["count"], 5)
+        # by name; the asker itself is online, in no room: the Briefing Room
+        self.assertEqual([p["user"] for p in r["players"]], ["alpha", "bravo", "charlie", "delta", "hostess"])
+        got = {p["user"]: p for p in r["players"]}
+        self.assertEqual(got["alpha"], {"user": "alpha", "where": "menu"})
+        self.assertEqual(got["bravo"], {"user": "bravo", "where": "room", "room": "Night Room", "room_id": host.room,
+                                        "host": False, "spectator": False})
+        self.assertEqual((got["hostess"]["where"], got["hostess"]["host"]), ("room", True))
+        self.assertEqual((got["delta"]["where"], got["delta"]["spectator"]), ("room", True))
+        self.assertEqual((got["charlie"]["where"], got["charlie"]["room"], got["charlie"]["host"]),
+                         ("match", "Match Room", True))
+        # names and places only: nobody's address, session or member token
+        text = json.dumps(r)
+        for c in (alpha, host, bravo, delta, charlie):
+            self.assertNotIn(c.ip, text)
+            self.assertNotIn(c.session, text)
+            if c.token:
+                self.assertNotIn(c.token, text)
+        for p in r["players"]:
+            self.assertLessEqual(set(p), {"user", "where", "room", "room_id", "host", "spectator"})
+        # leaving the room is the Briefing Room again; a reopened room's
+        # match over, its members back in its Game Lobby
+        self.assertEqual(bravo.act("leave")[0], 200)
+        self.assertEqual(charlie.act("reopen")[0], 200)
+        got = {p["user"]: p for p in delta.req("GET", "/players")[1]["players"]}
+        self.assertEqual(got["bravo"], {"user": "bravo", "where": "menu"})
+        self.assertEqual(got["charlie"]["where"], "room")
+
+    def test_dedicated_host_is_not_a_player(self):
+        server = self.client("server")
+        self.assertEqual(server.create(name="Always On", dedicated=True)[0], 200)
+        alpha = self.client("alpha")
+        self.assertEqual(alpha.join(server.room)[0], 200)
+        self.assertEqual(self.names(alpha), ["alpha"])
+
+    def test_one_line_an_account(self):
+        alpha = self.client("alpha")
+        self.client("Bravo")
+        self.client("bravo", ip="10.0.0.77")   # a second session, another machine
+        self.assertEqual(self.names(alpha), ["alpha", "Bravo"])
+
+
+class PlayersPresenceTests(Base):
+    over = dict(presence_ttl=0.4, players_max=2)
+
+    def test_presence_lapses_and_returns(self):
+        alpha = self.client("alpha")
+        bravo = self.client("bravo")
+        host, _ = self.room_with()
+        time.sleep(0.6)
+        # bravo has asked for nothing since: not online; the asker is, and a
+        # room's member (the room says so) whatever its session did
+        st, r = alpha.req("GET", "/players")
+        self.assertEqual((r["count"], [p["user"] for p in r["players"]]), (2, ["alpha", "hostess"]))
+        # its game asks again (the main menu's chat, every 2 s on the Briefing Room)
+        self.assertEqual(bravo.req("GET", "/chat")[0], 200)
+        st, r = alpha.req("GET", "/players")
+        # three now, the first players_max of them by name in the reply
+        self.assertEqual((r["count"], [p["user"] for p in r["players"]]), (3, ["alpha", "bravo"]))
+        # signed out: gone at once
+        self.assertEqual(bravo.req("POST", "/logout")[0], 200)
+        st, r = alpha.req("GET", "/players")
+        self.assertEqual((r["count"], [p["user"] for p in r["players"]]), (2, ["alpha", "hostess"]))
+
 
 class PollTests(Base):
     def test_long_poll_wakes_on_change(self):

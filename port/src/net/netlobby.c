@@ -73,9 +73,12 @@
 #define JOB_LEAVE    5
 #define JOB_SIGNIN   6 // signing in alone: the Online Game page says who this is as it opens
 #define JOB_MAINSAY  7 // POST /chat, the main menu's chat, as the session
+#define JOB_PLAYERS  8 // GET /players, who is online (the Briefing Room's Players Online page)
 
 #define LOBBY_MAINCHAT_POLL_MS 2000 // the main menu's chat is asked for this often while it is up
 #define LOBBY_MAINCHAT_WANT_MS 1500 // and "up" lasts this long after the Briefing Room last said so
+#define LOBBY_PLAYERS_POLL_MS  5000 // who is online, asked this often while Players Online is up
+#define LOBBY_PLAYERS_WANT_MS  1500 // and "up" lasts this long after the page last said so
 
 // the host's session accounts for its heartbeat (pdlobbyd api 6 "seated"),
 // written by the main thread, read by the beat thread, under s_Lock; "" none
@@ -983,6 +986,8 @@ static void lobbyGone(u32 epoch, const char *why)
 	SDL_UnlockMutex(s_Lock);
 }
 
+static void lobbyPlayersFetch(void);
+
 static void lobbyRunJob(struct lobbyjob *job)
 {
 	char err[128];
@@ -1149,6 +1154,9 @@ static void lobbyRunJob(struct lobbyjob *job)
 		if (!i) {
 			lobbyLogin();
 		}
+		break;
+	case JOB_PLAYERS:
+		lobbyPlayersFetch();
 		break;
 	case JOB_ACTION:
 	case JOB_LEAVE:
@@ -1939,6 +1947,200 @@ void netLobbyMainChatSay(const char *text)
 	ghostnetJsonEscape(text, esc, sizeof(esc));
 	snprintf(body, sizeof(body), "{\"text\":\"%s\"}", esc);
 	lobbyQueue(JOB_MAINSAY, "chat", body);
+}
+
+/*
+ * Players online (pdlobbyd API 7, GET /players): who is signed in to the
+ * lobby now and where, for the Briefing Room's Players Online page
+ * (netlobbymenu.c). Asked on the action thread as the page opens and every
+ * 5 s while it is up, as the session (signed in again on a 401); a lobby
+ * without it (404, before API 7) is not asked again until the page opens
+ * anew.
+ */
+#ifdef PD_GHOST_NET
+// under s_Lock
+static struct netlobbyplayer s_Players[NETLOBBY_MAXPLAYERS]; // by name, as the lobby sorts them
+static s32 s_PlayersN = 0;
+static s32 s_PlayersTotal = 0;        // the lobby's count (a reply lists the first 200)
+static s32 s_PlayersAvail = 0;        // 1 a list came, -1 the lobby has none (404), 0 not heard yet
+static char s_PlayersError[200] = ""; // why the last ask failed ("" it did not)
+static s32 s_PlayersQueued = 0;       // a JOB_PLAYERS queued or running
+static u64 s_PlayersAskedAt = 0;      // lobbyNowMs() it was queued (0: ask at once)
+static u64 s_PlayersWantUntil = 0;    // the page is up until then
+static s32 s_PlayersLogged = -1;      // the count last logged
+
+static void lobbyPlayersFetch(void)
+{
+	char err[128];
+	char msg[200];
+	char *reply = NULL;
+	struct jspan obj;
+	struct jspan arr;
+	struct jspan el;
+	s32 objok = 0;
+	s32 status;
+	s32 logged = -1;
+	s32 i;
+
+	status = lobbySessionRequest("/players", NULL, &reply, &obj, &objok, err, sizeof(err));
+	msg[0] = '\0';
+
+	if (status != 200 && status != 404 && status != -1) {
+		lobbyReplyError(status, reply, obj, objok, err, msg, sizeof(msg));
+	}
+
+	SDL_LockMutex(s_Lock);
+
+	if (status == 200 && objok && jsonGet(obj, "players", &arr)) {
+		s32 n = 0;
+		s32 total;
+
+		for (i = 0; n < NETLOBBY_MAXPLAYERS && jsonAt(arr, i, &el); i++) {
+			struct netlobbyplayer *p = &s_Players[n];
+			char where[12];
+
+			memset(p, 0, sizeof(*p));
+
+			if (!jsonGetStr(el, "user", p->user, sizeof(p->user)) || !p->user[0]) {
+				continue;
+			}
+
+			jsonGetStr(el, "where", where, sizeof(where));
+			p->where = strcmp(where, "match") == 0 ? NETLOBBY_WHERE_MATCH
+				: strcmp(where, "room") == 0 ? NETLOBBY_WHERE_ROOM : NETLOBBY_WHERE_MENU;
+			jsonGetStr(el, "room", p->room, sizeof(p->room));
+			p->host = jsonGetInt(el, "host", 0) != 0;
+			p->spectator = jsonGetInt(el, "spectator", 0) != 0;
+			n++;
+		}
+
+		total = (s32)jsonGetInt(obj, "count", n);
+		s_PlayersN = n;
+		s_PlayersTotal = total < n ? n : total;
+		s_PlayersAvail = 1;
+		s_PlayersError[0] = '\0';
+
+		if (s_PlayersTotal != s_PlayersLogged) {
+			s_PlayersLogged = s_PlayersTotal;
+			logged = s_PlayersTotal;
+		}
+	} else if (status == 404) {
+		// a lobby from before API 7
+		s_PlayersAvail = -1;
+	} else if (status == -1) {
+		// the sign-in failed, and said why
+		snprintf(s_PlayersError, sizeof(s_PlayersError), "%s", s_Message);
+	} else {
+		snprintf(s_PlayersError, sizeof(s_PlayersError), "%s", msg[0] ? msg : "The lobby did not answer.");
+	}
+
+	s_PlayersQueued = 0;
+	SDL_UnlockMutex(s_Lock);
+
+	if (logged >= 0) {
+		sysLogPrintf(LOG_NOTE, "lobby: %d player%s online", logged, logged == 1 ? "" : "s");
+	} else if (status == 404) {
+		sysLogPrintf(LOG_NOTE, "lobby: this lobby has no players list (404: before API 7)");
+	} else if (status != 200) {
+		sysLogPrintf(LOG_WARNING, "lobby: players online not read (%d): %s", status, msg[0] ? msg : "sign-in failed");
+	}
+
+	free(reply);
+}
+#endif
+
+void netLobbyPlayersWant(void)
+{
+#ifdef PD_GHOST_NET
+	u64 now;
+	s32 ask = 0;
+
+	if (!netLobbyAvailable()) {
+		return;
+	}
+
+	lobbyStartThreads();
+	now = lobbyNowMs();
+
+	SDL_LockMutex(s_Lock);
+
+	// opened anew: a fresh list at once (the last may be minutes old), and
+	// a lobby that had none asked again
+	if (now >= s_PlayersWantUntil) {
+		s_PlayersAskedAt = 0;
+		s_PlayersAvail = 0;
+		s_PlayersN = 0;
+		s_PlayersTotal = 0;
+		s_PlayersError[0] = '\0';
+		s_PlayersLogged = -1;
+	}
+
+	s_PlayersWantUntil = now + LOBBY_PLAYERS_WANT_MS;
+
+	// one at a time (one the full queue dropped is given up after 30 s)
+	if ((!s_PlayersQueued || now - s_PlayersAskedAt > 30000) && s_PlayersAvail >= 0
+			&& (s_PlayersAskedAt == 0 || now - s_PlayersAskedAt >= LOBBY_PLAYERS_POLL_MS)) {
+		s_PlayersQueued = 1;
+		s_PlayersAskedAt = now;
+		ask = 1;
+	}
+
+	SDL_UnlockMutex(s_Lock);
+
+	if (ask) {
+		lobbyQueue(JOB_PLAYERS, "players", NULL);
+	}
+#endif
+}
+
+s32 netLobbyPlayersState(void)
+{
+#ifdef PD_GHOST_NET
+	s32 state = 0;
+
+	if (s_Lock) {
+		SDL_LockMutex(s_Lock);
+		state = s_PlayersAvail;
+		SDL_UnlockMutex(s_Lock);
+	}
+
+	return state;
+#else
+	return -1;
+#endif
+}
+
+s32 netLobbyPlayersGet(struct netlobbyplayer *out, s32 max, s32 *total, char *err, s32 errsize)
+{
+	s32 n = 0;
+
+	if (total) {
+		*total = 0;
+	}
+
+	if (err && errsize > 0) {
+		err[0] = '\0';
+	}
+
+#ifdef PD_GHOST_NET
+	if (s_Lock) {
+		SDL_LockMutex(s_Lock);
+		n = s_PlayersN < max ? s_PlayersN : max;
+		memcpy(out, s_Players, sizeof(out[0]) * n);
+
+		if (total) {
+			*total = s_PlayersTotal;
+		}
+
+		if (err && errsize > 0) {
+			snprintf(err, errsize, "%s", s_PlayersError);
+		}
+
+		SDL_UnlockMutex(s_Lock);
+	}
+#endif
+
+	return n;
 }
 
 /**

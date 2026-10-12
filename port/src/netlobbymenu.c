@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <math.h>
@@ -36,6 +37,7 @@
 #include "video.h"
 #include "input.h"
 #include "menuimage.h"
+#include "screenshot.h"
 #include "xblamesh.h"
 #include "config.h"
 #include "gexplusrom.h"
@@ -1164,7 +1166,23 @@ static Gfx *lobbyChromeDraw(Gfx *gdl, const struct lobbydraw *d, const struct lo
 				SCREEN_WIDTH_LO - 2 * LOBBY_MARGIN - 4);
 		s_LobbyFullSize = 1;
 	} else if (hints && hints[0]) {
-		gdl = lobbyText(gdl, LOBBY_MARGIN + 4, l->footery, hints, LOBBYFONT_XS, lobbyAlpha(0xc0c0c000, alpha), 0);
+		// as far as the screen goes (the 320 units, less at 4:3): hints that
+		// are longer at full size (the Briefing Room's four) drawn smaller
+		const s32 hx = LOBBY_MARGIN + 4;
+		const s32 room = SCREEN_WIDTH_LO + 2 * MIN(l->pillar, 0) - LOBBY_MARGIN - hx;
+		const s32 full = lobbyTextWidthFull(hints, LOBBYFONT_XS);
+
+		if (full > room && room > 0) {
+			const s32 keep = s_LobbyTextScale;
+
+			s_LobbyFullSize = 0;
+			s_LobbyTextScale = MAX(50, room * 100 / full - 1);
+			gdl = lobbyTextLong(gdl, hx, l->footery + 1, hints, LOBBYFONT_XS, lobbyAlpha(0xc0c0c000, alpha), room);
+			s_LobbyTextScale = keep;
+			s_LobbyFullSize = 1;
+		} else {
+			gdl = lobbyText(gdl, hx, l->footery, hints, LOBBYFONT_XS, lobbyAlpha(0xc0c0c000, alpha), 0);
+		}
 	}
 
 	gdl = text0f153780(gdl);
@@ -1857,6 +1875,8 @@ static void briefingListFit(struct menudialog *dialog)
 	s_BriefingItems[BRIEFING_LIST].param2 = l.lx2 - l.lx1 - 4;
 }
 
+static void briefingOnlineKey(void); // Players Online's button, below
+
 static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
 	if (operation == MENUOP_OPEN) {
@@ -1880,6 +1900,9 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 		// line opens with Space or the chat key (nethud.c)
 		netLobbyMainChatWant();
 		netHudMainChatFrame();
+
+		// Players Online: Select, L2 or the players key
+		briefingOnlineKey();
 
 		if (s_WaitingForRoom && netLobbyInRoom()) {
 			s_WaitingForRoom = 0;
@@ -4474,6 +4497,480 @@ static Gfx *lobbyPreviewPanels(Gfx *gdl, const struct lobbydraw *d, const struct
 	return gdl;
 }
 
+/*
+ * Players Online (F3 20261012-115245, the owner: "need a button to show
+ * players online in the main menu, ie select or L2"): everyone signed in to
+ * the lobby now and where - the Briefing Room, a room's Game Lobby, a room's
+ * match - from pdlobbyd's GET /players (API 7; an older lobby has no list,
+ * and the page says so). Select or L2 on the menu's pad, or the players key
+ * (Net.PlayersKey, P: the match's players panel's), opens it from the
+ * Briefing Room and closes it again; B or Esc goes back. A page of its own
+ * in the windows' style: the header, one dialog in the middle (a line a
+ * player: the name, then where), the hints. Nothing offline: the Briefing
+ * Room is the lobby's.
+ */
+
+#define ONLINEROWH  (LOBBY_SMROW + 3) // a player's line
+#define ONLINE_W    280               // the dialog's width, at most (4:3 has less)
+#define ONLINE_LIST 1                 // s_PlayersOnlineItems' list
+#define ONLINE_PAD_SELECT 4           // SDL_CONTROLLER_BUTTON_BACK: Select, View, Share
+
+extern struct menudialogdef g_NetPlayersOnlineMenuDialog;
+void netLobbyMenuPushBriefing(void);
+
+static struct netlobbyplayer s_Online[NETLOBBY_MAXPLAYERS];
+static s32 s_OnlineN = 0;
+static s32 s_OnlineTotal = 0;
+static s32 s_OnlineState = 0;  // netLobbyPlayersState(): 1 a list, -1 the lobby has none, 0 not yet
+static s32 s_OnlineNameW = 0;  // the widest name, as drawn
+static char s_OnlineErr[200];  // why the last ask failed
+static s32 s_OnlineVk = -1;    // Net.PlayersKey as a key (0 none), looked up once
+static s32 s_OnlineKeyDown = 0; // the key or a button was down at the last look ...
+static u64 s_OnlineKeyAt = 0;   // ... and when that was (us)
+
+// What the lobby last said, for this tick's drawing
+static void onlineRead(void)
+{
+	s32 i;
+
+	s_OnlineState = netLobbyPlayersState();
+	s_OnlineN = netLobbyPlayersGet(s_Online, NETLOBBY_MAXPLAYERS, &s_OnlineTotal, s_OnlineErr, sizeof(s_OnlineErr));
+	s_OnlineNameW = 0;
+
+	for (i = 0; i < s_OnlineN; i++) {
+		const s32 w = lobbyTextWidth(s_Online[i].user, LOBBYFONT_SM);
+
+		if (w > s_OnlineNameW) {
+			s_OnlineNameW = w;
+		}
+	}
+}
+
+// Net.PlayersKey (nethud.c registers it: P, the match's players panel)
+static s32 onlineKeyVk(void)
+{
+	if (s_OnlineVk < 0) {
+		const char *name = "P";
+		void *ptr = NULL;
+		s32 type = 0;
+
+		if (configGetEntry("Net.PlayersKey", &type, &ptr, NULL) && type == CONFIG_TYPE_STR && ptr) {
+			name = ptr;
+		}
+
+		s_OnlineVk = !name[0] || strcmp(name, "NONE") == 0 ? 0 : inputGetKeyByName(name);
+
+		if (s_OnlineVk < 0) {
+			s_OnlineVk = 0;
+		}
+	}
+
+	return s_OnlineVk;
+}
+
+/**
+ * The page's button, pressed since the last look: Select or L2 on the menu's
+ * pad (its own buttons, as menu.c reads the shoulder buttons: on these pages
+ * neither does anything else) or the players key, which is a letter while a
+ * line or a keyboard is being typed into. A look after a gap (the pages were
+ * not up) only notes what is down, so a button held on the way here does not
+ * count.
+ */
+static s32 onlineKeyPressed(void)
+{
+	const u64 now = sysGetMicroseconds();
+	const s32 pad = g_MpPlayerNum * INPUT_MAX_CONTROLLER_BUTTONS;
+	const s32 vk = onlineKeyVk();
+	const s32 typing = netHudChatOpen() || inputIsTextInputActive() || g_MenuKeyboardPlayer >= 0;
+	const s32 down = inputKeyPressed(VK_JOY1_BEGIN + ONLINE_PAD_SELECT + pad) || inputKeyPressed(VK_JOY1_LTRIG + pad)
+		|| (vk > 0 && !typing && inputKeyPressed(vk));
+	const s32 pressed = down && !s_OnlineKeyDown && s_OnlineKeyAt != 0 && now - s_OnlineKeyAt < 250000;
+
+	s_OnlineKeyDown = down;
+	s_OnlineKeyAt = now;
+
+	return pressed;
+}
+
+// The Briefing Room's tick (dialogBriefing): its button opens the page
+static void briefingOnlineKey(void)
+{
+	if (onlineKeyPressed() && !s_WaitingForRoom) {
+		sysLogPrintf(LOG_NOTE, "lobby: Players Online opened");
+		menuPushDialog(&g_NetPlayersOnlineMenuDialog);
+	}
+}
+
+// Where a player is, and its colour
+static void onlineWhere(const struct netlobbyplayer *p, char *out, s32 size, u32 *colour)
+{
+	if (p->where == NETLOBBY_WHERE_MATCH) {
+		const char *what = p->spectator ? "Watching" : "In a match";
+
+		if (p->room[0]) {
+			snprintf(out, size, "%s: %s", what, p->room);
+		} else {
+			snprintf(out, size, "%s", what);
+		}
+
+		*colour = 0xffa04000;
+	} else if (p->where == NETLOBBY_WHERE_ROOM) {
+		if (p->room[0]) {
+			snprintf(out, size, "In room: %s", p->room);
+		} else {
+			snprintf(out, size, "In a room");
+		}
+
+		*colour = 0x60a0ff00;
+	} else {
+		snprintf(out, size, "Briefing Room");
+		*colour = 0xa8b8d000;
+	}
+}
+
+// What the list says in place of its players while it has none to show
+static const char *onlineStatus(void)
+{
+	if (s_OnlineState < 0) {
+		return "This lobby server has no players list yet: it needs an update.";
+	}
+
+	if (s_OnlineErr[0]) {
+		return s_OnlineErr;
+	}
+
+	return "Asking the lobby...";
+}
+
+static char *textOnlineTitle(struct menudialogdef *dialogdef)
+{
+	static char text[48];
+
+	if (s_OnlineN > 0) {
+		snprintf(text, sizeof(text), "Players (%d)", s_OnlineTotal);
+	} else {
+		snprintf(text, sizeof(text), "%s", "Players");
+	}
+
+	return text;
+}
+
+// Over the list: how many are where, or why the list is an old one
+static char *textOnlineHead(struct menuitem *item)
+{
+	static char text[160];
+	char more[32] = "";
+	s32 at[3] = { 0, 0, 0 };
+	s32 i;
+
+	if (s_OnlineN == 0) {
+		snprintf(text, sizeof(text), "%s", "Signed in to the lobby now\n");
+		return text;
+	}
+
+	// (why, in the log: "players online not read")
+	if (s_OnlineErr[0]) {
+		snprintf(text, sizeof(text), "%s", "The lobby did not answer: the last list\n");
+		return text;
+	}
+
+	for (i = 0; i < s_OnlineN; i++) {
+		at[s_Online[i].where >= 0 && s_Online[i].where <= 2 ? s_Online[i].where : 0]++;
+	}
+
+	if (s_OnlineTotal > s_OnlineN) {
+		snprintf(more, sizeof(more), " (the first %d shown)", s_OnlineN);
+	}
+
+	snprintf(text, sizeof(text), "%d in the Briefing Room, %d in %s, %d in %s%s\n",
+			at[NETLOBBY_WHERE_MENU], at[NETLOBBY_WHERE_ROOM], at[NETLOBBY_WHERE_ROOM] == 1 ? "a room" : "rooms",
+			at[NETLOBBY_WHERE_MATCH], at[NETLOBBY_WHERE_MATCH] == 1 ? "a match" : "matches", more);
+
+	return text;
+}
+
+static MenuItemHandlerResult handlerOnlineList(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	struct menudialog *dialog = g_Menus[g_MpPlayerNum].curdialog;
+	struct menuitemrenderdata *rd;
+	Gfx *gdl;
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		// with no players to show, a line saying why
+		data->list.value = s_OnlineN > 0 ? s_OnlineN : 1;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)"";
+	case MENUOP_GETOPTIONHEIGHT:
+		data->list.value = ONLINEROWH;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->list.value = 0xfffff;
+		break;
+	case MENUOP_GETOPTGROUPCOUNT:
+		data->list.value = 0;
+		break;
+	case MENUOP_GETOPTGROUPTEXT:
+		return 0;
+	case MENUOP_GETGROUPSTARTINDEX:
+		data->list.groupstartindex = 0;
+		break;
+	case MENUOP_RENDER:
+		gdl = data->type19.gdl;
+		rd = data->type19.renderdata2;
+
+		{
+			const s32 index = (s32)data->type19.unk04;
+			const u32 alpha = rd->colour & 0xff;
+			const s32 focused = rd->unk10 && dialog && dialog->focuseditem == item;
+			const s32 x1 = rd->x + 2;
+			const s32 x2 = rd->x + rd->width - 6;
+			const s32 tx = x1 + 4;
+			const s32 inner = x2 - x1 - 8;
+			const s32 ty = rd->y + (ONLINEROWH - LOBBY_SMROW) / 2 + 1;
+
+			// the cursor's line in a box, as the Briefing Room's cards have
+			// it, and no glyph boxes (the list's own mark of its cursor)
+			text0f156024(0);
+
+			if (focused && s_OnlineN > 0) {
+				lobbyRect(&gdl, x1, rd->y, x2, rd->y + ONLINEROWH, lobbyAlpha(0x00000000, alpha / 2), lobbyAlpha(0xff303000, alpha));
+			}
+
+			gdl = text0f153628(gdl);
+
+			// a line that would reach past the 320 units at the fonts' own
+			// size (a long room's name) in pieces: lobbyText() would lay it
+			// out leftwards from its end and lose its start
+			if (index >= s_OnlineN) {
+				gdl = lobbyTextLong(gdl, tx, ty, onlineStatus(), LOBBYFONT_SM, dimColour(alpha), inner);
+			} else {
+				// the name, this player's own in gold; where, in its colour, after
+				// the longest name (at most two fifths of the line)
+				const struct netlobbyplayer *p = &s_Online[index];
+				const s32 namew = MIN(s_OnlineNameW, inner * 2 / 5);
+				const s32 me = netLobbySignedIn() && strcasecmp(p->user, netLobbyAccount()) == 0;
+				char where[NETLOBBY_MAXROOMNAME + 24];
+				u32 colour;
+
+				gdl = lobbyText(gdl, tx, ty, p->user, LOBBYFONT_SM, lobbyAlpha(me ? 0xffd25a00 : 0xffffff00, alpha), namew);
+				onlineWhere(p, where, sizeof(where), &colour);
+				gdl = lobbyTextLong(gdl, tx + namew + 10, ty, where, LOBBYFONT_SM, lobbyAlpha(colour, alpha), inner - namew - 10);
+			}
+
+			gdl = text0f153780(gdl);
+		}
+
+		return (uintptr_t)gdl;
+	}
+
+	return 0;
+}
+
+static struct menuitem s_PlayersOnlineItems[] = {
+	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LESSLEFTPADDING, (uintptr_t)&textOnlineHead, 0, NULL },
+	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER | MENUITEMFLAG_LIST_LEAVEATENDS, 272, 110, handlerOnlineList }, // sized each tick
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
+	{ MENUITEMTYPE_END },
+};
+
+// The dialog's width: the frame's 320 less a margin, less again at 4:3
+static s32 onlineWidth(const struct lobbylayout *l)
+{
+	const s32 w = SCREEN_WIDTH_LO + 2 * MIN(l->pillar, 0) - 2 * LOBBY_MARGIN - 16;
+
+	return w > ONLINE_W ? ONLINE_W : w;
+}
+
+// The list as tall as the windows' room leaves under the rest, as wide as
+// the dialog (every tick, as the Briefing Room's)
+static void onlineListFit(struct menudialog *dialog)
+{
+	struct lobbylayout l;
+	s32 h;
+	s32 i;
+
+	lobbyLayout(&l);
+	h = l.bottom - l.top - 12;
+
+	for (i = 0; s_PlayersOnlineItems[i].type != MENUITEMTYPE_END; i++) {
+		s16 w16;
+		s16 h16;
+
+		if (i != ONLINE_LIST) {
+			menuCalculateItemSize(&s_PlayersOnlineItems[i], &w16, &h16, dialog);
+			h -= h16;
+		}
+	}
+
+	h = h / ONLINEROWH * ONLINEROWH;
+	s_PlayersOnlineItems[ONLINE_LIST].param3 = h < ONLINEROWH * 3 ? ONLINEROWH * 3 : h;
+	s_PlayersOnlineItems[ONLINE_LIST].param2 = onlineWidth(&l) - 4;
+}
+
+static MenuDialogHandlerResult dialogPlayersOnline(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	if (operation == MENUOP_OPEN) {
+		// the lobby asked at once (netLobbyPlayersWant: opened anew)
+		netLobbyPlayersWant();
+		onlineRead();
+	}
+
+	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
+		struct menudialog *dialog = g_Menus[g_MpPlayerNum].curdialog;
+
+		netLobbyTick();
+		netLobbyPlayersWant();
+		onlineRead();
+		onlineListFit(dialog);
+		listClamp(dialog, &dialogdef->items[ONLINE_LIST], ONLINEROWH);
+
+		// the button again closes it
+		if (onlineKeyPressed()) {
+			sysLogPrintf(LOG_NOTE, "lobby: Players Online closed by its button");
+			menuPopDialog();
+		}
+	}
+
+	return 0;
+}
+
+struct menudialogdef g_NetPlayersOnlineMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)&textOnlineTitle,
+	s_PlayersOnlineItems,
+	dialogPlayersOnline,
+	0,
+	NULL,
+};
+
+// In the middle, from the top of the windows' room, as tall as its rows
+static void lobbyOnlinePlace(struct menudialog *dialog, const struct lobbylayout *l)
+{
+	const s32 w = onlineWidth(l);
+
+	dialog->dstx = (SCREEN_WIDTH_LO - w) / 2;
+	dialog->dsty = l->top;
+	dialog->dstwidth = w;
+	dialog->dstheight = MIN(dialog->contentheight, l->bottom - l->top);
+}
+
+// The header and the hints are the page's whole chrome: no windows beside it
+static Gfx *lobbyOnlinePanels(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l)
+{
+	return gdl;
+}
+
+/**
+ * --net-test-players-online (tools/ci/netplayersonlinetest.sh): the
+ * Briefing Room up over the boot's menus, its button pressed as a player
+ * presses it (the players key, held through input.c's test hold), the page
+ * shot once the lobby has answered and its rows logged, the button again to
+ * close it, the Briefing Room shot, and quit. Run under --net-lobby-script
+ * join with a room name no room has, which keeps the lobby ticking
+ * (netPump) and lists the rooms.
+ */
+static void onlineTestTick(void)
+{
+	static s32 step = -1;
+	static u64 at = 0;
+	const u64 now = sysGetMicroseconds() / 1000;
+	s32 i;
+
+	if (step < 0) {
+		step = sysArgCheck("--net-test-players-online") ? 0 : 99;
+		at = now;
+	}
+
+	switch (step) {
+	case 0:
+		if (now - at > 3000 && g_MenuData.root != 0 && g_Menus[g_MpPlayerNum].curdialog) {
+			netLobbyMenuPushBriefing();
+			sysLogPrintf(LOG_NOTE, "lobby test: Briefing Room up");
+			step = 1;
+			at = now;
+		}
+		break;
+	case 1:
+	case 4:
+		if ((step == 1 ? isCurrent(&g_NetBriefingMenuDialog) : 1) && now - at > 2500) {
+			inputTestHoldKey(onlineKeyVk());
+			step++;
+			at = now;
+		}
+		break;
+	case 2:
+	case 5:
+		if (now - at > 200) {
+			inputTestHoldKey(0);
+			step++;
+			at = now;
+		}
+		break;
+	case 3:
+		if (!isCurrent(&g_NetPlayersOnlineMenuDialog)) {
+			if (now - at > 5000) {
+				sysLogPrintf(LOG_ERROR, "lobby test: Players Online did not open");
+				fflush(stdout);
+				exit(3);
+			}
+			break;
+		}
+
+		// the lobby's answer in (or 20 s), the page grown open
+		if ((s_OnlineState != 0 && now - at > 2500) || now - at > 20000) {
+			for (i = 0; i < s_OnlineN; i++) {
+				char where[NETLOBBY_MAXROOMNAME + 24];
+				u32 colour;
+
+				onlineWhere(&s_Online[i], where, sizeof(where), &colour);
+				sysLogPrintf(LOG_NOTE, "lobby test: online: %s: %s", s_Online[i].user, where);
+			}
+
+			{
+				char head[160];
+
+				snprintf(head, sizeof(head), "%s", s_OnlineN ? textOnlineHead(NULL) : onlineStatus());
+				head[strcspn(head, "\n")] = '\0';
+				screenshotRequest();
+				sysLogPrintf(LOG_NOTE, "lobby test: shot Players Online: %d listed of %d, state %d: %s",
+						s_OnlineN, s_OnlineTotal, s_OnlineState, head);
+			}
+			step = 4;
+			at = now;
+		}
+		break;
+	case 6:
+		// back on the Briefing Room: it too is shot (its footer's hints)
+		if (now - at > 1500) {
+			sysLogPrintf(LOG_NOTE, "lobby test: after the button again: %s",
+					isCurrent(&g_NetBriefingMenuDialog) ? "the Briefing Room" : isCurrent(&g_NetPlayersOnlineMenuDialog) ? "Players Online still up" : "another page");
+
+			if (isCurrent(&g_NetBriefingMenuDialog)) {
+				screenshotRequest();
+				sysLogPrintf(LOG_NOTE, "lobby test: shot the Briefing Room");
+			}
+
+			step = 7;
+			at = now;
+		}
+		break;
+	case 7:
+		if (now - at > 1500) {
+			fflush(stdout);
+			exit(0);
+		}
+		break;
+	}
+}
+
+// The header's right: who this machine plays as
+static void lobbyInfoOnline(char *out, s32 size)
+{
+	snprintf(out, size, "%s", netLobbySignedIn() ? netLobbyAccount() : "");
+}
+
 /**
  * The GAME LOBBY over whatever is up (netLobbyMenuAfterMatch): after a
  * match from the room, in place of the Combat Simulator or Perfect Menu
@@ -4545,6 +5042,8 @@ void netLobbyMenuPushRoomAfterMatch(void)
 void netLobbyMenuFrame(void)
 {
 	struct menudialogdef *top;
+
+	onlineTestTick();
 
 	if (!s_RoomOverOnline) {
 		return;
@@ -4657,7 +5156,9 @@ static void lobbyInfoRoom(char *out, s32 size)
 static const struct lobbypage s_LobbyPages[] = {
 	{ &g_NetOnlineMenuDialog, 0, lobbyNamePlace, lobbyNamePanels, "NAME ENTRY", NULL, LOBBY_HINTS_SELECT },
 	{ &g_NetBriefingMenuDialog, G_ASPECT_LEFT_EXT, lobbyBriefingPlace, lobbyBriefingPanels, "BRIEFING ROOM", lobbyInfoRooms,
-		"A / Enter: Join     Space or T: Chat     B / Esc: Back", briefingFootMessage },
+		"A / Enter: Join     Select / P: Players     Space or T: Chat     B / Esc: Back", briefingFootMessage },
+	{ &g_NetPlayersOnlineMenuDialog, 0, lobbyOnlinePlace, lobbyOnlinePanels, "PLAYERS ONLINE", lobbyInfoOnline,
+		"Select / P: Close     B / Esc: Back" },
 	{ &g_NetCreateMenuDialog, G_ASPECT_LEFT_EXT, lobbyPreviewPlace, lobbyPreviewPanels, "CREATE ROOM", lobbyInfoAccount, LOBBY_HINTS_SELECT },
 	{ &g_NetRoomSettingsMenuDialog, G_ASPECT_LEFT_EXT, lobbyPreviewPlace, lobbyPreviewPanels, "ROOM SETTINGS", lobbyInfoRoom, LOBBY_HINTS_SELECT },
 	{ &g_NetRoomMenuDialog, G_ASPECT_RIGHT_EXT, lobbyRoomPlace, lobbyRoomPanels, "GAME LOBBY", lobbyInfoRoom,
