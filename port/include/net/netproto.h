@@ -187,7 +187,9 @@
 //    an autogun's OBJ record (a thrown Laptop Gun's sentry, a mission's
 //    turret) carries its aim and firing in bytes 20-22 (NETAUTOGUN_FIRING,
 //    the turn in 256ths, the elevation in half degrees), and a client makes
-//    a DYNOBJ autogun (the thrown laptop) it had left out
+//    a DYNOBJ autogun (the thrown laptop) it had left out; the local-player
+//    block's byte 202 (was 0) holds the player's cloaks on (NETLPDEV_*: the
+//    RC-P120's, the Cloaking Device), the host's word over the client's
 #define NET_PROTOCOL_VERSION 31
 
 #define NETMSG_CONNECT    1
@@ -809,7 +811,9 @@
  *     left hand's gun, 0 for none; was 0), s32 loadedammo[4]
  *     (right 0, 1, left 0, 1), u16 ammoheld[33], u16 0, u8 weapons[32]
  *     (a bit per weapon number), u8 dualweapons[32], u16 blurdrug (protocol
- *     20: the chr's blurdrugamount, a tranquilizer's drugged screen), u8 0[6],
+ *     20: the chr's blurdrugamount, a tranquilizer's drugged screen), u8
+ *     devices (protocol 31: NETLPDEV_CLOAKRCP120 1, NETLPDEV_CLOAKDEVICE 2,
+ *     the cloaks on; was 0), u8 0[5],
  *     then the movement state (protocol 5; struct netmove, netsnap.h), the
  *     player after command lastcmd, from which the client replays the
  *     commands after it (netpredict.c): f32 speedtheta, speedverta,

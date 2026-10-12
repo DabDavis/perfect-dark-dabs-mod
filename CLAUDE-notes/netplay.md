@@ -3474,3 +3474,35 @@ explosion came through. Now:
   its puppets summary). In a script, B held does not change a Laptop Gun's
   function on PC (CONTROLMODE_PC reads the alt mode button, L_TRIG, and the
   laptop's second function is a temporary one while it is held).
+
+## The RC-P120's cloak on a client (protocol 31, 2026-10-12)
+
+The owner: "the rcp120 cloak is desynced for clients but not host". A
+client's switch (the alt mode button on PC, or the second function's fire)
+reached the host with the command and switched the host's copy, but:
+
+- **A client's own player never cloaked.** In a match a player's body is
+  ticked (`chrTick`, and in it `chrUpdateCloak`) only in another player's
+  pass (`playerTickThirdPerson`'s "every other player" branch); offline,
+  or on the host, some other pass always runs. A client runs only its own
+  pass, so seen through its own eyes its chr never got CHRHFLAG_CLOAKED:
+  no cloak look, and the RC-P120's drain (which needs the chr cloaked) never
+  ran there - the magazine stood full until the host's stopped moving
+  (`NET_LPSTABLE`). `playerTickThirdPerson` now calls `chrUpdateCloak` for
+  a client's own player when that branch did not tick the body (as it does
+  for a lone player offline). The Cloaking Device shared the same gap.
+- **Nothing carried the switch back.** `devicesactive` was in no block, so
+  what the host decided alone - the cloak off when the magazine runs dry,
+  and anything else that clears it - never reached the client: it went on
+  believing the cloak on, and its next press switched the host's on and its
+  own off, inverted from then on. The local-player block's byte 202 carries
+  the cloaks on (`NETLPDEV_*`); the client takes the host's word once the
+  host has played the command that last switched one here (the switch shows
+  at once; an older block would switch it back for a round trip). "cloaks
+  set" in the local block summary counts the host's word put over this
+  machine's (0 in the gate: with the drain in step the two agree).
+- Gate: netpuppettest `cloak` (two clients, no sims): the first client
+  switches on, off, on until the magazine runs dry, on again; every 30 ticks
+  (`--net-test-trace`, whose player lines now end in `devices` and
+  `cloaked`) its switch, its own cloak and magazine, and the second client's
+  puppet of it must be the host's.

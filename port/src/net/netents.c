@@ -159,6 +159,9 @@ struct netlplocalsig {
 static struct netlplocalsig s_LpLocalSig;
 static s32 s_LpHaveSig = 0;
 static u32 s_LpAmmoSets = 0;
+static u32 s_LpDevLast = 0;     // (protocol 31) this machine's cloaks on, as the last block left them
+static u32 s_LpDevSwitched = 0; // ... the tick one was switched here since (the host's word waits for its command)
+static u32 s_LpDevSets = 0;     // ... the host's put over this machine's
 static u32 s_LpTicks = 0;      // ticks this machine's player was in the match
 static u32 s_LpGeGunTicks = 0; // ... with a GoldenEye gun in its hand
 // You Only Live Twice (GoldenEye's scenario): twice dead is out for good,
@@ -583,6 +586,7 @@ void netEntsStageStart(void)
 	s_LpStableSince = 0;
 	s_LpHardAbs = s_LpDeaths = s_LpRespawnsDone = 0;
 	s_LpInvChanges = s_LpAmmoSets = s_LpEquips = 0;
+	s_LpDevLast = s_LpDevSwitched = s_LpDevSets = 0;
 	s_LpTicks = s_LpGeGunTicks = 0;
 	s_YoltOutTicks = s_YoltOutAlive = s_YoltLocalOut = 0;
 	memset(s_YoltOutSince, 0, sizeof(s_YoltOutSince));
@@ -1153,6 +1157,11 @@ static void netLpCapture(s32 slot, s32 pn, u8 *out)
 
 		s.blurdrug = (u16)(blur < 0 ? 0 : blur > 0xffff ? 0xffff : blur);
 	}
+
+	// (protocol 31) the cloaks: the RC-P120's is switched by the hand and
+	// switched off by the host alone when its magazine runs dry
+	s.devices = ((p->devicesactive & DEVICE_CLOAKRCP120) ? NETLPDEV_CLOAKRCP120 : 0)
+		| ((p->devicesactive & DEVICE_CLOAKDEVICE) ? NETLPDEV_CLOAKDEVICE : 0);
 
 	netPredictCaptureMove(p, &s.mv);
 	netPredictCaptureTank(pn, &s.tank);
@@ -2001,6 +2010,31 @@ void netEntsClientApplyLocal(void)
 	// Effect decides whether it is drawn
 	p->prop->chr->blurdrugamount = lp->blurdrug;
 
+	// (protocol 31) the cloaks on: the host's, once it has played the
+	// command that last switched one here (this machine's own switch shows
+	// at once; a block from before it would switch it back for a round
+	// trip). The host switches the RC-P120's off by itself when its
+	// magazine runs dry, and that was never heard of here: the client went
+	// on believing it on, and its next press turned it on at the host
+	// while switching it off here (the owner: "the rcp120 cloak is
+	// desynced for clients but not host")
+	{
+		const u32 mask = DEVICE_CLOAKRCP120 | DEVICE_CLOAKDEVICE;
+		const u32 host = ((lp->devices & NETLPDEV_CLOAKRCP120) ? DEVICE_CLOAKRCP120 : 0)
+			| ((lp->devices & NETLPDEV_CLOAKDEVICE) ? DEVICE_CLOAKDEVICE : 0);
+
+		if ((p->devicesactive & mask) != s_LpDevLast) {
+			s_LpDevSwitched = g_NetTick ? g_NetTick : 1;
+		}
+
+		if (!p->isdead && (u32)s_LpCmd >= s_LpDevSwitched && (p->devicesactive & mask) != host) {
+			p->devicesactive = (p->devicesactive & ~mask) | host;
+			s_LpDevSets++;
+		}
+
+		s_LpDevLast = p->devicesactive & mask;
+	}
+
 	// movement: the host's state after the command it played, squared with
 	// this machine's own run of the commands since (a respawn or teleport
 	// taken whatever this machine had)
@@ -2196,8 +2230,8 @@ static void netClientLog(const char *why)
 			why, g_NetTick, c->received, c->decoded, c->old, c->otherMatch, c->nobase, c->malformed, c->keyframes, c->entkeys,
 			c->received ? c->bytes / c->received : 0, s_Mapped, s_Unresolved, s_PresentUnmapped, s_StaleSeen, s_NacksSent, s_NoneNacked, s_KeptOverGap, s_Misfits, c->resyncs,
 			s_RespawnsSeen, s_TeleportsSeen, s_HostileFed, s_HostileRejected, s_HostileAccepted, s_HostileDropped);
-	sysLogPrintf(LOG_NOTE, "net: local block %s (tick %u): respawns or teleports taken %u; deaths %u, respawns %u, inventory changes %u, ammo sets %u, equips %u, revives %u, bad floats %u",
-			why, g_NetTick, s_LpHardAbs, s_LpDeaths, s_LpRespawnsDone, s_LpInvChanges, s_LpAmmoSets, s_LpEquips, s_LpRevives, s_LpBadFloats);
+	sysLogPrintf(LOG_NOTE, "net: local block %s (tick %u): respawns or teleports taken %u; deaths %u, respawns %u, inventory changes %u, ammo sets %u, equips %u, revives %u, bad floats %u, cloaks set %u",
+			why, g_NetTick, s_LpHardAbs, s_LpDeaths, s_LpRespawnsDone, s_LpInvChanges, s_LpAmmoSets, s_LpEquips, s_LpRevives, s_LpBadFloats, s_LpDevSets);
 	netPuppetsLog(why);
 	netSessionContentLog(why, s_LpTicks, s_LpGeGunTicks);
 

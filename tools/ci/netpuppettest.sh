@@ -30,6 +30,16 @@
 #           host's from its descriptor, head and all (its puppets' "Guards
 #           Alerted! guards" count; they had been missing unless a chr there
 #           wore the same body and head, F3 20261010-034414).
+#   cloak   (0x32, no sims, two clients) the first client's player is given
+#           the RC-P120 and switches its cloak with the alt mode button: on,
+#           off, on until the magazine runs dry (the host switches it off),
+#           on again. Every 30 ticks (--net-test-trace) the client's switch,
+#           its own player's cloak and its magazine, and the second client's
+#           puppet of it must be the host's (a sample either side allowed).
+#           The client's own player never cloaked (its body is ticked only
+#           in other players' passes), so its magazine never drained there,
+#           and the host's switch-off at an empty magazine never reached it:
+#           its next press cloaked the host's player and uncloaked its own.
 #   laptop  (0x32, 2 sims, the client's player invincible) the client's player is given the Laptop Gun
 #           (--net-test-give) and fires it with the alt mode button held
 #           (its second function): thrown to deploy as a sentry. The host's laptopDeploy makes an
@@ -48,7 +58,7 @@
 #   netpuppettest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: OUT (build/netpuppet-out), PORT (27200; uses PORT..PORT+4), MODDIR
-# (mod_allinone), CASES (skedar lossy doors two alarm laptop shots; shots only takes the
+# (mod_allinone), CASES (skedar lossy doors two alarm laptop cloak shots; shots only takes the
 # screenshots, its players invincible and moved, so it gates on nothing but a
 # clean run).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
@@ -57,7 +67,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpuppet-out}; PORT=${PORT:-27200}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-skedar lossy doors two alarm laptop shots}
+CASES=${CASES:-skedar lossy doors two alarm laptop cloak shots}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -105,6 +115,16 @@ cat > "$OUT/laptop.script" <<'EOF'
 450 499 0020 0 0 0 0 0 0
 500 504 2020 0 0 0 0 0 0
 505 560 0020 0 0 0 0 0 0
+EOF
+# cloak: the alt mode button (L) pressed and let go switches the RC-P120's
+# cloak (CONTROLMODE_PC: bgunConsiderToggleGunFunction's own toggle): on,
+# off a second later, on until the magazine runs dry (the host switches it
+# off), and on once more
+cat > "$OUT/cloak.script" <<'EOF'
+500 505 0020 0 0 0 0 0 0
+600 605 0020 0 0 0 0 0 0
+800 805 0020 0 0 0 0 0 0
+1300 1305 0020 0 0 0 0 0 0
 EOF
 cat > "$OUT/shots.script" <<'EOF'
 60 300 0008 0 0 0 0 0 0
@@ -241,6 +261,7 @@ run() {
 	local extra=100 cscript=client.script
 	[ "$label" = shots ] && { extra=1500; cscript=shots.script; }
 	[ "$label" = laptop ] && cscript=laptop.script
+	[ "$label" = cloak ] && cscript=cloak.script
 	game "$label-host" 240 --moddir "$MODDIR" --host "$port" --net-test-host "$nclients" --net-test-stage "$stage" \
 		--net-test-sims "$sims" --endless --rng-seed 1 --mp-weapons 1,4,7,9,10,1 \
 		--net-test-input "$OUT/host.script" --net-snap-dump "$OUT/$label-host.dump" \
@@ -494,6 +515,7 @@ check_run() {
 		shots)  run shots $((PORT + i)) 0x32 8 1 1300 ;;
 		alarm)  run alarm $((PORT + i)) 0x17 0 1 2400 --chr-trace ;;
 		laptop) run laptop $((PORT + i)) 0x32 2 1 2400 --net-test-give 300,0x0e --net-test-invincible-pad 1 ;;
+		cloak)  run cloak $((PORT + i)) 0x32 0 2 1800 --net-test-give 300,0x0d --net-test-trace 30 ;;
 		esac
 		i=$((i + 1))
 	done
@@ -518,6 +540,40 @@ for c in $CASES; do
 	        else
 	        	fail "alarm: host spawns $hs, client's own spawns $cs (want 0), host's guards made on the client '${cb:-?}' (want 2 or more)"
 	        fi ;;
+	cloak)  check_run cloak client client2
+	        python3 - "$OUT/cloak-host.log" "$OUT/cloak-client.log" "$OUT/cloak-client2.log" <<'PY' || status=1
+import re, sys
+def trace(path):
+    t = {}
+    for l in open(path):
+        m = re.search(r"net: trace tick (\d+) player 1 .* ammo (\d+) .* devices (\S+) cloaked (-?\d+)", l)
+        if m: t[int(m.group(1))] = (int(m.group(2)), int(m.group(3), 16) & 0x80 != 0, int(m.group(4)))
+    return t
+H, C, C2 = (trace(x) for x in sys.argv[1:4])
+ticks = sorted(k for k in H if k >= 450 and k in C and k in C2)
+bad = []
+def near(d, k, f, want):
+    # the same as the host's at this sample, or at the one before or after
+    # (the client's ticks lead the host's commands; the third machine draws
+    # the host's a render delay late)
+    return any(f(d[j]) == want for j in (k - 30, k, k + 30) if j in d)
+ons = sum(1 for a, b in zip(ticks, ticks[1:]) if not H[a][1] and H[b][1])
+offs = sum(1 for a, b in zip(ticks, ticks[1:]) if H[a][1] and not H[b][1])
+dry = any(H[a][1] and not H[b][1] and H[b][0] == 0 for a, b in zip(ticks, ticks[1:]))
+for k in ticks:
+    if not near(C, k, lambda x: x[1], H[k][1]): bad.append(f"tick {k}: the client's cloak switch {C[k][1]}, the host's {H[k][1]}")
+    if not near(C, k, lambda x: x[2], H[k][2]): bad.append(f"tick {k}: the client's own player cloaked {C[k][2]}, the host's {H[k][2]}")
+    if not near(C2, k, lambda x: x[2], H[k][2]): bad.append(f"tick {k}: the third machine's puppet cloaked {C2[k][2]}, the host's {H[k][2]}")
+    if H[k][2] and not any(j in C and abs(C[j][0] - H[k][0]) <= 12 for j in (k - 30, k, k + 30)):
+        bad.append(f"tick {k}: cloaked, the client's magazine {C[k][0]}, the host's {H[k][0]}")
+print(f"     cloak: {len(ticks)} samples; on the host the cloak came on {ons} times and went off {offs} ({'once at an empty magazine' if dry else 'never at an empty magazine'})")
+if ons >= 3 and offs >= 2 and dry and not bad:
+    print("ok   cloak: the client's switch, its own player's cloak and its magazine, and the third machine's puppet, as the host's")
+else:
+    for b in bad[:12]: print("     " + b)
+    print(f"FAIL cloak: {len(bad)} samples off the host's (on {ons}, off {offs}, dry {dry})"); sys.exit(1)
+PY
+	        grep "net: local block .*cloaks set" "$OUT/cloak-client.log" | tail -1 | sed "s/^.*net: /     cloak client: /" ;;
 	laptop) check_run laptop client
 	        grep -q "net: --net-test-give: slot 1 given guns 0x0e" "$OUT/laptop-host.log" || fail "laptop: the host never gave the client's player the Laptop Gun"
 	        lp=$(grep "net: puppets " "$OUT/laptop-client.log" | tail -1 | sed -n 's/.*thrown laptops made \([0-9]*\), autogun shots drawn \([0-9]*\).*/\1 \2/p')
