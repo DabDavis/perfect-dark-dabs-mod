@@ -1139,6 +1139,13 @@ static s32 netRotSameOnWire(f32 m[3][3], const f32 *q)
 	return fabsf(dot) > 0.999999f;
 }
 
+// The record's place is this prop's own as the wire carries it (each
+// coordinate in eighths of a unit)
+static s32 netPupSamePlace(const struct prop *prop, const struct netentstate *s)
+{
+	return netPosWire(prop->pos.x) == s->pos[0] && netPosWire(prop->pos.y) == s->pos[1] && netPosWire(prop->pos.z) == s->pos[2];
+}
+
 static void netPupSeedRooms(struct prop *prop, s32 room)
 {
 	if (room > 0 && room < g_Vars.roomcount) {
@@ -1340,6 +1347,15 @@ static void netPupObj(struct netpup *u, struct prop *prop, const struct netentst
 	if (moved || isdyn) {
 		if (isdyn) {
 			netPupPlaceObj(obj, s, obj->model->scale);
+		} else if (!letgo && netPupSamePlace(prop, s) && netRotSameOnWire(obj->realrot, s->quat)) {
+			// a setup object the host has neither moved nor turned keeps
+			// this machine's own place, from the same setup: the record's
+			// is that place to the wire's eighth of a unit, and put there
+			// the object's collision moved by up to a sixteenth - enough
+			// that a client's walk sliding along a table's edge (Bunker 1's
+			// armour table, F3 20261012-123411) stopped at its corner where
+			// the host's slid on, a correction every few ticks for as long
+			// as the player pushed along it
 		} else if (!letgo && netRotSameOnWire(obj->realrot, s->quat)) {
 			// a setup object the host has not turned: its own matrix,
 			// from the same setup, which a rotation cannot always carry
