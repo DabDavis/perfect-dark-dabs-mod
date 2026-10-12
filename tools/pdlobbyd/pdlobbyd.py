@@ -335,6 +335,22 @@ def name_offends(name):
 
 # ---- name filter: end ----
 
+
+def chat_mask(text):
+    """A chat line with every word that is a slur or an obscenity (name_offends())
+    starred out, letter for letter, so the rest still reads. A line that spells
+    one only across its words (n i g g e r, nig ger) is starred whole."""
+    def star(m):
+        word = m.group(0)
+        return re.sub(r"[A-Za-z0-9@$!|+]", "*", word) if name_offends(word) else word
+
+    out = re.sub(r"\S+", star, text)
+
+    if name_offends(out):
+        out = re.sub(r"[A-Za-z0-9@$!|+]", "*", out)
+
+    return out
+
 PIN_RE = re.compile(r"^[0-9]{4,8}\Z")
 TOKEN_RE = re.compile(r"^[0-9a-f]{32}\Z")
 ROOM_RE = re.compile(r"^[0-9a-f]{8}\Z")
@@ -1167,7 +1183,7 @@ class Lobby:
     def main_chat_say(self, req):
         s = self.session_auth(req)
         body = req.json()
-        text = clean_text(body.get("text", ""), CHAT_MAX)
+        text = chat_mask(clean_text(body.get("text", ""), CHAT_MAX))
         if not text:
             raise HttpError(400, "nothing to say")
         # per account, as a room's is per seat: a second session is no faster
@@ -1766,7 +1782,7 @@ class Lobby:
         return {"ok": True, "version": room.version}
 
     def act_chat(self, req, room, m, body):
-        text = clean_text(body.get("text", ""), CHAT_MAX)
+        text = chat_mask(clean_text(body.get("text", ""), CHAT_MAX))
         if not text:
             raise HttpError(400, "nothing to say")
         if not self.windows.allow(("chat", m.token), self.cfg.chat_window[0],

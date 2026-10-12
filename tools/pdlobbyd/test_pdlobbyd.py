@@ -2088,6 +2088,26 @@ class NameFilterTests(Base):
         st, r = host.act("settings", {"name": "Shit Room"})
         self.assertEqual(st, 400, r)
 
+    def test_chat_masked(self):
+        self.assertEqual(L.chat_mask("you are a nigger lol"), "you are a ****** lol")
+        self.assertEqual(L.chat_mask("fuck this map"), "**** this map")
+        self.assertEqual(L.chat_mask("n i g g e r"), "* * * * * *")
+        self.assertEqual(L.chat_mask("u r a fag"), "u r a ***")
+        for fine in ("gg ez", "nice shot", "the raccoon in the cockpit", "Janus is here",
+                     "Scunthorpe united", "mass hit squad", "dick joined", "go to Japan"):
+            self.assertEqual(L.chat_mask(fine), fine)
+        # what the room and the main menu's chat keep and hand out is the starred line
+        a = self.client("alpha")
+        st, r = a.req("POST", "/chat", {"text": "this is bullshit"})
+        self.assertEqual(st, 200, r)
+        st, r = a.req("GET", "/chat?since=0")
+        self.assertEqual(r["chat"][-1]["text"], "this is ********")
+        host, (b,) = self.room_with("bravo")
+        st, r = b.act("chat", {"text": "kys noob"})
+        self.assertEqual(st, 200, r)
+        st, s = host.state()
+        self.assertEqual(s["chat"][-1]["text"], "*** noob")
+
     def test_same_filter_as_pdghostd(self):
         # one list for the two servers: pdghostd refuses the same names
         # at sign-up and sign-in that this does at sign-in and on rooms

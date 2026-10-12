@@ -366,3 +366,13 @@ sed -e 's|^PORT = 8090|PORT = 8391|' \
     -e 's|^ROOT = .*|ROOT = os.path.abspath("testroot")|' \
     pdghostd.py > testd.py
 ```
+
+## Names that offend (2026-10-12)
+
+`name_offends()` (the same block as pdlobbyd's) refuses such a name at
+`/register` and at a sign-in that creates (`400`, before the security
+questions are asked for), and an account already so named cannot sign in
+(`403`, "that name is not allowed") - here, or to the lobby, which asks this
+`/login`. An account to remove is one row of `users` (its ghosts are rows of
+`ghosts` with the same `username`, their files in `blobs/` where no other row
+names them): stop the service, back up `ghosts.db`, delete, start.

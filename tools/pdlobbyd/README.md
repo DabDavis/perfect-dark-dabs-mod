@@ -705,3 +705,15 @@ attribute of `Config` at the top of the file.
 
 Logs go to the journal: one line per room made, closed (with why) and
 launched. `journalctl -u pdlobbyd -f`.
+
+## Names and chat that offend (2026-10-12)
+
+`name_offends()` (the same block as pdghostd's; `test_pdlobbyd.py` checks the
+copies match) refuses an account name at `POST /login` (`403`, "that name is
+not allowed" - pdghostd refuses it too, this is for an open LAN lobby) and a
+room name at create and in settings (`400`, "that room name is not allowed").
+Chat, the rooms' and the main menu's, is kept and handed out through
+`chat_mask()`: a word that is a slur or an obscenity is starred letter for
+letter (`you are a ****** lol`), and a line that spells one only across its
+words (`n i g g e r`) is starred whole. The lists and how much of a name each
+may hide in are at the top of the block.
