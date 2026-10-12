@@ -922,6 +922,26 @@ static void netPupChr(struct netpup *u, struct prop *prop, s32 kind, const struc
 	chr->manground = chr->ground;
 	chr->sumground = chr->manground * (PAL ? 8.417509f : 9.999998f);
 
+	// another machine's player is never ticked here, so nothing moved its
+	// collision cylinder (playerUpdatePerimInfo) from where its last own
+	// tick left it: the co-op spawn spot every player starts stacked on. A
+	// guest launching its CamSpy from beside it was refused ("Not enough
+	// room to launch", F3 20261012-022730). The cylinder follows the pose,
+	// its height kept.
+	if (isplayer) {
+		const s32 pn = playermgrGetPlayerNumByProp(prop);
+
+		if (pn >= 0 && pn < PLAYERCOUNT() && pn != g_NetLocalSlot && g_Vars.players[pn]) {
+			struct player *player = g_Vars.players[pn];
+			const f32 height = player->periminfo.ymax - player->periminfo.ymin;
+
+			player->periminfo.x = prop->pos.x;
+			player->periminfo.z = prop->pos.z;
+			player->periminfo.ymin = chr->manground;
+			player->periminfo.ymax = chr->manground + (height > 0 ? height : 80);
+		}
+	}
+
 	// the anim (the frames load at the matrix build; speed at most 0.5 so a
 	// build with several players keeps the frac, and only its sign is read)
 	anim->animnum = s->animnum;
