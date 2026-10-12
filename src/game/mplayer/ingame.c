@@ -21,6 +21,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "net/net.h"
+#include "modloader.h"
 #endif
 
 // read only by the Japanese layout (JPNLAYOUT), which a CJK pack selects
@@ -898,6 +899,8 @@ void mpPushEndscreenDialog(u32 arg0, u32 playernum)
 				&& g_PlayerConfigsArray[g_MpPlayerNum].fileguid.deviceserial == 0
 #ifndef PLATFORM_N64
 				&& g_NetMode == NETMODE_NONE // netplay: no profile prompt after a net match (spec-stage trap 13)
+				// GoldenEye's matches keep no player profiles (F3 20261011-053806)
+				&& !g_GexPlusMode
 #endif
 				) {
 			g_PlayerConfigsArray[g_MpPlayerNum].options |= OPTION_ASKEDSAVEPLAYER;

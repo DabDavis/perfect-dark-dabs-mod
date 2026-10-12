@@ -100,6 +100,7 @@
 #include "game/playermgr.h"
 #include "game/zbuf.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/setup.h"
 #include "lib/anim.h"
 #include "lib/joy.h"
 #include "lib/main.h"
@@ -478,7 +479,7 @@ enum {
 	MPSTR_RANK1 = 0x11, MPSTR_RANK2, MPSTR_RANK3, MPSTR_RANK4,
 	MPSTR_PLAY, MPSTR_GAMEOVER, MPSTR_STARTTOEXIT, MPSTR_PAUSED, MPSTR_PAUSE,
 	MPSTR_EXIT, MPSTR_SCORES, MPSTR_P, MPSTR_KILLS, MPSTR_LOSSES,
-	MPSTR_WEAPONOFCHOICE, MPSTR_CANCEL, MPSTR_CONFIRM,
+	MPSTR_WEAPONOFCHOICE, MPSTR_CANCEL, MPSTR_CONFIRM, MPSTR_PRESSSTART,
 };
 
 static struct {
@@ -6071,6 +6072,26 @@ static s32 watchIsMp(void)
 	return g_Vars.normmplayerisrunning;
 }
 
+const char *geWatchMpModalString(s32 paused)
+{
+	const char *text;
+
+	if (!g_Watch.loaded || !watchIsMp() || !g_Watch.mpmenu) {
+		return NULL;
+	}
+
+	text = watchMpString(paused ? MPSTR_PAUSED : MPSTR_PRESSSTART);
+
+	return text[0] ? text : NULL;
+}
+
+s32 geWatchMpOverlayOn(void)
+{
+	const s32 num = g_Vars.currentplayernum;
+
+	return g_Watch.loaded && watchIsMp() && num >= 0 && num < MAX_PLAYERS && g_MpWatch[num].on;
+}
+
 s32 geWatchMpHoldsInput(void)
 {
 	const s32 num = g_Vars.currentplayernum;
@@ -6329,7 +6350,13 @@ static Gfx *watchMpRender(Gfx *gdl)
 					value += mpchr->killcounts[k];
 				}
 			} else {
-				value = mpchr->numpoints;
+				// get_points_for_mp_player(): the match's own score, kills
+				// less suicides as the scenario counts them. numpoints is
+				// only the extra points of a scenario's own (the case's), so
+				// a Normal match's scores stayed at 0 (F3 20261011-060000)
+				s32 deaths;
+
+				scenarioCalculatePlayerScore(mpchr, mpGetChrIndexBySlotNum(i), &value, &deaths);
 			}
 
 			// the name carries its own newline, so the number goes in a

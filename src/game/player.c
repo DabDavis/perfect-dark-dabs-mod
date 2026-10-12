@@ -7483,6 +7483,10 @@ Gfx *playerRenderHud(Gfx *gdl)
 #endif
 						if (joyGetButtons(optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex), 0xb000)
 								&& !mpIsPaused()
+#ifndef PLATFORM_N64
+								// not the press that answers F3's Report a Problem
+								&& !traceReportHoldsInput()
+#endif
 								&& g_NumReasonsToEndMpMatch == 0) {
 							canrestart = true;
 						}

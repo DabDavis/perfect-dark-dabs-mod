@@ -15107,3 +15107,29 @@ is applied at startup before the release's models load, so the first start with 
 restart. Menu: "GoldenEye XBLA: Community Edition Art" on Mods: Missions, shown only with the zip, Restart Now
 while a change waits. Online: unchanged - `NETLOOK_GECE` is the host's HD look (the data fixes), art is each
 machine's own picture. Shots: `~/wt/f3-1010c-gehd-run/shots/art-toggle.png`, `doak-art-on-off-nozip.png`.
+
+## GoldenEye multiplayer: scores, its own words for Paused/press start, Temple's doors in HD (37th F3 pass, 2026-10-11, fix/f3-1011-gemp)
+
+- **The MP watch's SCORES page read `mpchr->numpoints`**, which in Perfect Dark is only a scenario's own extra
+  points (the briefcase's, the hill's); a Normal match's kills are counted on demand by
+  `scenarioCalculatePlayerScore()`, so every row stayed 0 (F3 20261011-060000). The page asks that now, by the
+  slot's mpchr index (`mpGetChrIndexBySlotNum()`), as GoldenEye's `get_points_for_mp_player()` does.
+- **"Paused" and "Press START"** (`mpRenderModalText()`) on a GE HUD match are LmpmenuE's "PAUSED" (0x18) and
+  "press start" (0x22) in GoldenEye's font, green 0x00ff00b0 centred in the view, as mpmenu.c draws them
+  (`geWatchMpModalString()`, `geHudText()`); the pauser's own overlay already says PAUSED in its title, so
+  nothing more is drawn there. The death countdown (Perfect Dark's dead timer) goes under it in the same font.
+- **F3 while dead in a match**: the Press START branch holds `openinhibit` at 10 every frame, which the report's
+  in-play branch waited on, so the report never opened until a respawn. It may open over a dead match player
+  now, and the respawn press waits for `traceReportHoldsInput()`.
+- **Level page** opens on its first page (Random and GoldenEye's own arenas), the cartridge's one page; it
+  opened on the page of the last arena chosen. **No Save Player prompt** after a GoldenEye match.
+- **Temple's six doors are cryptdoor1b** (Egyptian's 200x100x50 block under the slab) squashed across x, so
+  the block's two end faces are the doors' big faces. The release baked those ends for a block hidden in the
+  wall: 0xff191510 and 0xff584a3b, near black and dim (F3 20261011-053330); GoldenEye's own colours light them
+  like the front. They take the release's front's mean, 0xffab9173 (`beanVertexColourFixes`). A door in a dark
+  room is still dark - the room's light, as on the cartridge (door/wall 0.20 HD, 0.30 N64 at -1700 634 -625).
+- **The "stretched door" was no door**: Temple's door at 780 322 -625 is a block 312 x 312 x 645, and
+  `fillDoorReveals()` took its thinnest axis (a tie) as the wall's depth and laid strips 157 units back from
+  the corridor walls - a band of wall smeared across the corridor in front of it, left standing when it slid
+  up (F3 20261011-053059). A door whose thickness is more than half its narrower face is a block and gets no
+  reveals (one log line each). **Changes the built HD level: HDCACHE_VERSION bump needed** (left to the merge).

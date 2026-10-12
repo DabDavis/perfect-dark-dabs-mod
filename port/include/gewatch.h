@@ -45,6 +45,15 @@ s32 geWatchHoldsPlayer(s32 playernum);
  */
 s32 geWatchMpHoldsInput(void);
 
+/**
+ * mpRenderModalText()'s two lines on a GoldenEye match, in GoldenEye's words
+ * (LmpmenuE's "PAUSED" and "press start"); NULL when this is not one. And
+ * whether the current player's own overlay is up, whose title already says
+ * PAUSED as GoldenEye says it nowhere else.
+ */
+const char *geWatchMpModalString(s32 paused);
+s32 geWatchMpOverlayOn(void);
+
 // and whether the view model is out of the player's hands while it is
 s32 geWatchHidesGun(void);
 
