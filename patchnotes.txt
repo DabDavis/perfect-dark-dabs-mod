@@ -31,6 +31,12 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 61 2026-10-12
+Online: new Counter-Op Mission rooms, for Perfect Dark's, GoldenEye's, Goldfinger 64's and Tomorrow Never Dies 64's missions: everyone picks a side in the Game Lobby with Change Side (thanks dab)
+Counter-Op Mission: the agents play the mission together as in co-op, while each counter-op takes over one of the mission's guards - its body, gun and health - and A, Z or START puts them in the next guard after a death (thanks dab)
+Counter-Op Mission: with Guards Alerted! on, its extra guards are bodies the counter-ops can take too (thanks dab)
+Counter-operative with Guards Alerted!: the extra guards no longer go after the counter-operative
+
 notes 60 2026-10-12
 Automatic guns (yours, guards' and simulants') no longer go quiet in a firefight: their ricochets no longer crowd out the gunfire (thanks dblaney1)
 Randomizer: an arena's music plays as soon as you land, without pausing first (thanks Odeyseis and savantique)
