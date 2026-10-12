@@ -996,7 +996,14 @@ void menuTick(void)
 
 			if ((g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
 					&& PLAYERCOUNT() >= 2
-					&& g_Menus[mpindex].curdialog) {
+					&& g_Menus[mpindex].curdialog
+#ifndef PLATFORM_N64
+					// The split screen's rule. Online every player has a
+					// screen of their own and the host never sees a guest's
+					// menu, so the goggles stay on (F3 20261012-035155)
+					&& (g_NetMode == NETMODE_NONE || g_NetClockTest)
+#endif
+					) {
 				g_Vars.players[i]->devicesinhibit = 0
 					| DEVICE_NIGHTVISION
 					| DEVICE_XRAYSCANNER
