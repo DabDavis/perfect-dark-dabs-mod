@@ -753,6 +753,14 @@ struct sndstate *func00033820(s32 arg0, s16 soundnum, u16 vol, ALPan pan, f32 pi
 			const s16 startednum = soundnum;
 #endif
 			sound = sndLoadSound(soundnum);
+
+#ifndef PLATFORM_N64
+			// left out: a number off the bank, or no cache slot free
+			if (sound == NULL) {
+				break;
+			}
+#endif
+
 			state = func00033390(arg0, sound);
 
 			if (state != NULL) {
