@@ -14564,7 +14564,8 @@ off Perfect Dark still sums every team number and gives every simulant past
 the eighth team 7 (`mpFindUnusedTeamNum()`), so its default team limit of 20
 ended a 24-simulant GoldenEye match in 13 seconds. `mpApplyLimits()` sets no
 team limit while `g_GexPlusMode` and teams are off. Perfect Dark's own Combat
-Simulator is unchanged (the same sum happens there past eight simulants).
+Simulator had the same sum past eight simulants; since F3 pass 38 it too sets
+no team limit in a free-for-all with more than eight (chrs-and-memory.md).
 
 **The folder's Simulants rows** (F3 20261009-043648, ElmoBear: "GE multiplayer
 settings apply to combat sim but not the other way around"). The folder's
