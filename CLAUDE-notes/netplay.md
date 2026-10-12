@@ -454,8 +454,10 @@ the one still statistical):
   mode before the client's. Session 5's pass was build-share/, which had
   the zip.
 
-replaytest's `randrun` case flips between two hashes on the base binary too
-(pre-existing); rerun `CASES=randrun` alone before looking for a regression.
+replaytest's `randrun` case flipped between two hashes on the base binary too
+(pre-existing): a walk-in guard's uninitialised yvisang held a pointer byte
+from the stage's first load; fixed in chrmgrConfigure() (F3 pass 38,
+performance.md "randrun parting from itself").
 
 **The Windows lobby client under wine.** `netlobbywinetest.sh` stages
 `build-win/pd.x86_64.exe` in `build/netlobbywine-out/win/` with

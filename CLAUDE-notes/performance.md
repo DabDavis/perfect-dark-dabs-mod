@@ -247,6 +247,33 @@ others are harmless too: `liftUpdateTiles()` (propobj.c:5464) takes
 `result` is 0 then, so the test is false either way. Filter with
 `grep "runtime error" | grep -v misaligned`.
 
+**randrun parting from itself was a stage-pool leftover (F3 pass 38,
+fix/f3-1012-randflake).** The stage pool (memp) is never cleared between
+stage loads, and neither ASan nor plain valgrind can see a read of the last
+load's data: it is "initialised". A chr made by `chrInit()` keeps every field
+nobody sets after it - the setup file's spawn sets yvisang and myspecial
+(`bodyAllocateChr()`), `chrSpawnAtCoord()` and `modAlarmSpawn()` do not, and
+the player's chr never gets flags2 (which the hash reads). The Randomizer run
+loads G5 twice (boot, then the landing at frame 60), the second time with
+g_ChrSlots 0x20b0 bytes off, so a slot nothing had used yet held first-load
+pointers at the new chr's fields. Walk-in guard 5039's yvisang was byte 4 of
+a memp address - 0 to 255 with ASLR - and `aiIfCheckFovWithTarget()` passes
+for `0 < yvisang < vertical angle to the target in 256ths of a turn`: 1-2 at
+f637 with the main build's data (about 1 run in 100), 1-15 at f630 in a PD-look
+install (about 1 in 17; its first DIFF was frame 631). With ASLR off the byte is 0xff and
+never passes. `chrmgrConfigure()` now zeroes the slots, which is what a first
+load reads. How it was found, for the next one: a debug hook after
+`mempResetPool(MEMPOOL_STAGE)` (pdmain.c) that memsets the free stage pool with
+a byte - 0x00 kept the usual hashes, 0xff and 0x55 changed them (from frame 10:
+a first load reads never-written pool memory as zero) - then valgrind with the
+pool marked undefined there (`VALGRIND_MAKE_MEM_UNDEFINED`), which names every
+read of it. With the fix, filling the second load's pool with 1, 2, 85, 170 or
+255 leaves all of randrun's hashes as they were. Valgrind names more stale
+reads that did not reach this run's hash (the portal camera cache, dlights'
+tables, `chrStartPatrol()`'s stock read of act_gopos.waydata.mode, which on
+64-bit lies past act_patrol); zeroing the whole used pool at the reset would
+cover those too.
+
 ## Run to a level frame, not for a wall-clock span
 
 `--exit-frame N` quits when `lvframenum` reaches N (lv.c), and `tools/perf/perfframes.sh` counts a
