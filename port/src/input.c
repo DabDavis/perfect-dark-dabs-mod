@@ -1678,21 +1678,31 @@ const u32 *inputKeyGetBinds(s32 idx, u32 ck)
 	return binds[idx][ck];
 }
 
+// a key held down by a test (inputTestHoldKey: netplay's --net-test-hold-key),
+// as if a player held it, through everything a real key goes through
+static u32 testHeldKey = 0;
+
+void inputTestHoldKey(u32 vk)
+{
+	testHeldKey = vk;
+}
+
 s32 inputKeyPressed(u32 vk)
 {
 	if (vk >= VK_KEYBOARD_BEGIN && vk < VK_MOUSE_BEGIN) {
 		const u8 *state = SDL_GetKeyboardState(NULL);
 		const u32 sc = vk - VK_KEYBOARD_BEGIN;
+		const s32 down = state[sc] || (testHeldKey && vk == testHeldKey);
 
 		if (keyLatched[sc]) {
-			if (state[sc]) {
+			if (down) {
 				return 0;
 			}
 
 			keyLatched[sc] = 0;
 		}
 
-		return state[sc];
+		return down;
 	}
 
 	if (vk >= VK_MOUSE_BEGIN && vk < VK_JOY_BEGIN) {

@@ -240,12 +240,14 @@ static s32 s_ScriptSkipLadder = 0; // --net-test-skip-ladder: a launch takes the
 static s32 s_ScriptNoEcho = 0;     // --net-test-no-echo: the list's PING as if UDP to the lobby were blocked; the join script lists only
 static s32 s_ScriptShots = 0;      // --net-lobby-shots: the menus up, screenshots of them (netlobbyuitest.sh)
 static s32 s_ScriptShotStep = 0;   // 0 nothing yet, 1 menu up, 2 shot taken
+static s32 s_ScriptChatAtLaunch = 0; // --net-test-chat-at-launch: join: the Game Lobby's Chat open as each later match launches
 static u64 s_ScriptShotAt = 0;
 
 void netLobbyMenuPushRoom(void);     // netlobbymenu.c
 void netLobbyMenuPushRoomAfterMatch(void); // netlobbymenu.c
 void netLobbyMenuPushBriefing(void); // netlobbymenu.c
 s32 netLobbyMenuPageUp(s32 room);     // netlobbymenu.c
+s32 netLobbyMenuPushChat(void);       // netlobbymenu.c
 void screenshotRequest(void);        // screenshot.h
 extern struct menudialogdef g_MpEndscreenSavePlayerMenuDialog;
 
@@ -3729,6 +3731,7 @@ void netLobbyArgs(void)
 		s_ScriptMigrateFrame = sysArgGetInt("--net-lobby-migrate", 0);
 		s_ScriptSkipLadder = sysArgCheck("--net-test-skip-ladder");
 		s_ScriptNoEcho = sysArgCheck("--net-test-no-echo");
+		s_ScriptChatAtLaunch = sysArgCheck("--net-test-chat-at-launch");
 
 		if (sysArgGetString("--net-lobby-room")) {
 			s_ScriptRoom = sysArgGetString("--net-lobby-room");
@@ -4215,6 +4218,15 @@ static void lobbyScriptTick(void)
 				sysLogPrintf(LOG_NOTE, "lobby script: shot the joiner's Game Lobby (%d members, path %s, %d ms)",
 						s_Room.nmembers, netRdvLadder() == NETRDV_LADDER_DONE ? netRdvPathName(netRdvPath()) : "-", netRdvPing());
 				s_ScriptShotStep = 2;
+			}
+
+			// --net-test-chat-at-launch: the Game Lobby's Chat open (typing)
+			// when the next match launches under it, as a player who
+			// clicked Chat and was still in it (F3 20261012-021339)
+			if (s_ScriptChatAtLaunch == 1 && s_ScriptPlayed > 0 && !netSessionMatchLoading() && g_MenuData.root != MENUROOT_MPENDSCREEN
+					&& g_StageNum == STAGE_CITRAINING) {
+				s_ScriptChatAtLaunch = 2;
+				sysLogPrintf(LOG_NOTE, "lobby script: join: the Game Lobby's Chat open, typing %d", netLobbyMenuPushChat());
 			}
 
 			if (netSessionMatchLoading()) {

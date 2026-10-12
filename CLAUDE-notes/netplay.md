@@ -3434,3 +3434,21 @@ on its hull; nothing moved them with it. Now (getank.c "Riding on top"):
   and drives with C-up/C-left/C-right and the host rides). Guards and sims
   never climb the hull; nothing else GoldenEye or Perfect Dark moves can be
   stood on but lifts, which carry already.
+
+### A keyboard dialog left up at a launch (F3 20261012-021339, pass 37)
+
+- **Typing outlived its dialog.** A menu keyboard (the Game Lobby's Chat,
+  Player Setup's name, any MENUITEMTYPE_KEYBOARD) turns typing on
+  (`g_MenuKeyboardPlayer`, `inputStartTextInput`) and off only as it closes
+  itself (OK, Cancel, Esc). A launch under it - the host's countdown ran
+  out while the joiner was in Chat - loads the stage, and `menuReset`
+  wipes every dialog without it: typing stayed on all match, so
+  `inputReadController` read only the mouse and pads (`inputBindPressedNotKeys`):
+  no walking with WASD or the arrows, mouse firing and looking fine, the
+  host's and client's prediction in agreement on a player standing still.
+  `menuReset` now stops a menu keyboard's typing (logged "menu: a keyboard
+  was up ... typing stopped"); the netHud chat line stops itself already.
+- Gate: netlobbytest `rematch`: the joiner opens the Game Lobby's Chat
+  before match 2 launches (`--net-test-chat-at-launch`) and holds W through
+  the real key path in each match (`--net-test-hold-key W,60,240`,
+  input.c `inputTestHoldKey`); it must walk in both.

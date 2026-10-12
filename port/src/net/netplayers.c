@@ -190,6 +190,17 @@ static f32 s_AimNear = 0;    // farther than this from the target: walk toward i
 
 extern s32 g_StageNum;
 
+// --net-test-hold-key NAME,FROM,TO: a keyboard key (W) held from tick FROM to
+// TO of each match through the real key path (input.c inputTestHoldKey):
+// typing left on turns it into a letter (F3 20261012-021339). The player's
+// place at both ends is logged.
+static s32 s_HoldVk = 0;          // 0 none, -1 its name not yet looked up (input.c names keys as it starts)
+static char s_HoldName[32];
+static u32 s_HoldFrom = 0;
+static u32 s_HoldTo = 0;
+static s32 s_HoldStage = 0; // 0 before FROM, 1 held, 2 logged at the end
+static f32 s_HoldPos[3];
+
 /*
  * Boot
  */
@@ -252,6 +263,20 @@ void netPlayersArgs(void)
 
 	if (script) {
 		netPlayersLoadScript(script);
+	}
+
+	{
+		const char *hold = sysArgGetString("--net-test-hold-key");
+		char name[32];
+		unsigned int from = 0;
+		unsigned int to = 0;
+
+		if (hold && sscanf(hold, "%31[^,],%u,%u", name, &from, &to) == 3) {
+			snprintf(s_HoldName, sizeof(s_HoldName), "%s", name);
+			s_HoldVk = -1;
+			s_HoldFrom = from;
+			s_HoldTo = to;
+		}
 	}
 
 	s_TestTrace = sysArgGetInt("--net-test-trace", 0);
@@ -442,6 +467,36 @@ static s32 netPlayersTestAimFar(void)
 	return 1;
 }
 
+static void netPlayersTestHoldKey(void)
+{
+	const struct player *me = g_NetLocalSlot >= 0 && g_NetLocalSlot < MAX_PLAYERS ? g_Vars.players[g_NetLocalSlot] : NULL;
+	const s32 on = g_NetTick >= s_HoldFrom && g_NetTick <= s_HoldTo;
+
+	inputTestHoldKey(on ? s_HoldVk : 0);
+
+	if (!me || !me->prop) {
+		return;
+	}
+
+	if (g_NetTick < s_HoldFrom) {
+		s_HoldStage = 0;
+	} else if (on && s_HoldStage == 0) {
+		s_HoldStage = 1;
+		s_HoldPos[0] = me->prop->pos.x;
+		s_HoldPos[1] = me->prop->pos.y;
+		s_HoldPos[2] = me->prop->pos.z;
+		sysLogPrintf(LOG_NOTE, "net: --net-test-hold-key: %s held from tick %u, typing %d, menu keyboard %d",
+				inputGetKeyName(s_HoldVk), g_NetTick, inputIsTextInputActive(), g_MenuKeyboardPlayer);
+	} else if (!on && s_HoldStage == 1) {
+		const f32 dx = me->prop->pos.x - s_HoldPos[0];
+		const f32 dz = me->prop->pos.z - s_HoldPos[2];
+
+		s_HoldStage = 2;
+		sysLogPrintf(LOG_NOTE, "net: --net-test-hold-key: let go at tick %u: walked %.0f units, typing %d",
+				g_NetTick, sqrtf(dx * dx + dz * dz), inputIsTextInputActive());
+	}
+}
+
 s32 netContGetReadData(void *pads)
 {
 	OSContPad *pad = pads;
@@ -452,6 +507,17 @@ s32 netContGetReadData(void *pads)
 
 	if (!netInMatch()) {
 		return 0;
+	}
+
+	if (s_HoldVk < 0) {
+		const s32 vk = inputGetKeyByName(s_HoldName);
+
+		sysLogPrintf(LOG_NOTE, "net: --net-test-hold-key: %s is key %d", s_HoldName, vk);
+		s_HoldVk = vk > 0 ? vk : 0;
+	}
+
+	if (s_HoldVk > 0) {
+		netPlayersTestHoldKey();
 	}
 
 	memset(&phys, 0, sizeof(phys));

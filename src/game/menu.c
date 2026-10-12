@@ -4681,6 +4681,18 @@ void menuReset(void)
 	g_MenuData.unk5d4 = 0;
 	g_MenuData.unk5d5_05 = false;
 
+#ifndef PLATFORM_N64
+	// The dialogs go below, and a keyboard among them stops typing only as it
+	// closes itself: one up as the stage changed (the Game Lobby's Chat as
+	// the host launched, F3 20261012-021339) left the keys letters all the
+	// next match - no walking, the mouse alone still firing and looking
+	if (g_MenuKeyboardPlayer != -1) {
+		sysLogPrintf(LOG_NOTE, "menu: a keyboard was up for player %d as the menus were reset; typing stopped", g_MenuKeyboardPlayer);
+		g_MenuKeyboardPlayer = -1;
+		inputStopTextInput();
+	}
+#endif
+
 	for (i = 0; i < ARRAYCOUNT(g_Menus); i++) {
 		g_Menus[i].curdialog = NULL;
 		g_Menus[i].depth = 0;

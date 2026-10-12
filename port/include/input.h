@@ -188,6 +188,7 @@ s32 inputAssignController(s32 cidx, s32 id);
 
 // vk is a value from the virtkey enum above
 s32 inputKeyPressed(u32 vk);
+void inputTestHoldKey(u32 vk); // a test's held key (0 none)
 s32 inputKeyJustPressed(u32 vk);
 
 // keyboard and mouse only: went down between the last inputUpdate() and this
