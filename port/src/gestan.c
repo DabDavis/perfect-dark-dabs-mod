@@ -812,6 +812,10 @@ static s32 stanMoverTile(f32 x, f32 z, f32 limit, f32 rise);
 // or -1: a cylinder test for anyone else finds its tile by height alone
 static s32 g_StanMover = -1;
 
+// A guard's own move is being asked about (geStanSetChrClimb()): the climb
+// walls are not there for it
+static bool g_StanChrClimb = false;
+
 /**
  * Which of the conversion's walls `geo` is, with the tiles a body at `pos`
  * reaches worked out (stanFlood()), or -1 for a wall that is not one of them.
@@ -895,6 +899,12 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32
 	// asked of every wall, as it always was
 	if (!g_Stan.lastfound) {
 		return false;
+	}
+
+	// a guard walks GoldenEye's links whatever they climb (geStanChrClimb())
+	if (g_StanChrClimb && g_Stan.points[g_Stan.walls[w].point].climbwall) {
+		g_GeStanSkipped++;
+		return true;
 	}
 
 	if (g_Stan.reached[g_Stan.walls[w].tile] == g_Stan.gen) {
@@ -1368,13 +1378,23 @@ static bool stanCrosses(f32 x0, f32 z0, f32 x1, f32 z1, f32 ax, f32 az, f32 bx, 
 	return v1 < linked && v2 < linked;
 }
 
+// The rooms of the tiles a walk goes through, each once where it follows itself
+// (stan.c's noteTileRoomIfDifferentToPrev(), sub_GAME_7F0B0C24()'s callback)
+struct stanroomnote {
+	RoomNum *rooms;
+	s32 count;
+	s32 max;
+};
+
 /**
  * sub_GAME_7F0B0914(): from `tile`, through every linked edge the line leaves a
  * tile by, to the tile that holds its end or to the last one before an edge
  * with nothing across it - a camera out over a drop stays on the brink's tile.
  * With `noclimb`, a link the conversion raised a climb wall on stops it too.
+ * With `note`, the room of every tile it goes through is noted.
  */
-static s32 stanWalkLineReached(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb, bool *reached)
+static s32 stanWalkLineNote(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb, bool *reached,
+		struct stanroomnote *note)
 {
 	s32 prev, prevprev, next = -1;
 	const f32 negdz = -(z1 - z0);
@@ -1386,6 +1406,11 @@ static s32 stanWalkLineReached(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool no
 		const struct stantile *t = &g_Stan.tiles[tile];
 		const struct stanpoint *p = &g_Stan.points[t->first];
 		s32 crossings = 0;
+
+		if (note && note->count < note->max
+				&& (note->count == 0 || note->rooms[note->count - 1] != t->room)) {
+			note->rooms[note->count++] = t->room;
+		}
 
 		for (s32 k = 0; k < t->npts; k++) {
 			const struct stanpoint *a = &p[k], *b = &p[(k + 1) % t->npts];
@@ -1420,6 +1445,11 @@ static s32 stanWalkLineReached(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool no
 	}
 
 	return tile;
+}
+
+static s32 stanWalkLineReached(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb, bool *reached)
+{
+	return stanWalkLineNote(tile, x0, z0, x1, z1, noclimb, reached, NULL);
 }
 
 static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb)
@@ -1866,6 +1896,47 @@ bool geStanChrFloor(const struct geo *geo, struct coord *from, f32 fromground, s
 	return true;
 }
 
+void geStanSetChrClimb(bool on)
+{
+	g_StanChrClimb = on;
+}
+
+s32 geStanChrClimb(struct coord *from, f32 fromground, struct coord *to, f32 *ground, s32 *room)
+{
+	s32 start, low, across;
+
+	if (!g_Stan.active || g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		return 0;
+	}
+
+	start = stanTileUnder(from->x, from->z, fromground + 10.0f, GESTAN_RISE);
+
+	if (start < 0) {
+		return 0;
+	}
+
+	// the walk GoldenEye's guard makes, and the same walk stopped at the
+	// links the conversion raised a climb wall on: where they part, the move
+	// went up across one
+	across = stanWalkLine(start, from->x, from->z, to->x, to->z, false);
+	low = stanWalkLine(start, from->x, from->z, to->x, to->z, true);
+
+	if (across == low) {
+		return 0;
+	}
+
+	if (stanTileUpright(across) || !stanHolds(&g_Stan.tiles[across], to->x, to->z)) {
+		// over the climb wall onto no floor the walk reaches: GoldenEye's
+		// walk stops short of it, and the guard does not move there
+		return stanHolds(&g_Stan.tiles[low], to->x, to->z) && !stanTileUpright(low) ? 0 : -1;
+	}
+
+	*ground = stanSurface(&g_Stan.tiles[across], to->x, to->z);
+	*room = g_Stan.tiles[across].room;
+
+	return 1;
+}
+
 bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 *room, f32 *ground)
 {
 	s32 tile;
@@ -2270,8 +2341,10 @@ s32 geStanRoomUnder(struct coord *pos, f32 ground, s32 prefer)
  *
  * A walk that ends on a tile holding `to` at the same height is the same floor
  * (a point on the seam between two tiles). A link the conversion raised a
- * climb wall on ends the walk: GoldenEye lifts a guard up it and Perfect Dark
- * does not. True where there is no graph, or either end is over no tile.
+ * climb wall on is walked: GoldenEye lifts a guard up it, and so does
+ * geStanChrClimb() now (it ended the walk until then, and a guard's route up
+ * Aztec's grated stair was swept from the corridor's floor into the climb
+ * wall). True where there is no graph, or either end is over no tile.
  */
 bool geStanReaches(struct coord *from, f32 ground, struct coord *to)
 {
@@ -2296,7 +2369,7 @@ bool geStanReaches(struct coord *from, f32 ground, struct coord *to)
 		return true;
 	}
 
-	tile = stanWalkLine(fromtile, from->x, from->z, to->x, to->z, true);
+	tile = stanWalkLine(fromtile, from->x, from->z, to->x, to->z, false);
 
 	if (tile == totile) {
 		return true;
@@ -2335,6 +2408,36 @@ s32 geStanLinks(struct coord *from, f32 fromground, struct coord *to, f32 togrou
 
 	return stanHolds(&g_Stan.tiles[tile], to->x, to->z)
 		&& fabsf(stanSurface(&g_Stan.tiles[tile], to->x, to->z) - stanSurface(&g_Stan.tiles[totile], to->x, to->z)) < 1.0f;
+}
+
+s32 geStanLineRooms(struct coord *from, f32 fromground, struct coord *to, RoomNum *rooms, s32 max)
+{
+	struct stanroomnote note;
+	s32 fromtile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active || max < 2) {
+		return 0;
+	}
+
+	fromtile = stanTileUnder(from->x, from->z, fromground + 10.0f, 0.0f);
+
+	if (fromtile < 0) {
+		return 0;
+	}
+
+	note.rooms = rooms;
+	note.count = 0;
+	note.max = max - 1;
+
+	stanWalkLineNote(fromtile, from->x, from->z, to->x, to->z, false, NULL, &note);
+
+	rooms[note.count] = -1;
+
+	return note.count;
 }
 
 f32 geStanFloorAt(struct coord *pos)

@@ -828,6 +828,9 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 	bool walkdrop = false;
 	RoomNum walkrooms[8];
 	struct coord offladder = {0, 0, 0};
+	s32 climbed = 0;
+	f32 climbground = 0.0f;
+	s32 climbroom = -1;
 #endif
 
 	// NTSC beta reads g_Vars lvupdate properties throughout this function,
@@ -1069,6 +1072,31 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 					&& !(chr->actiontype == ACT_SKJUMP && chr->act_skjump.state == SKJUMPSTATE_AIRBORNE)) {
 				walked = chrWalkBotMove(chr, arg2, &manground, walkrooms, &walkdrop);
 			}
+
+			// A guard on a converted level walks GoldenEye's tile graph up
+			// any link, the ones the conversion raised a climb wall on too,
+			// and is stood on the floor across (geStanChrClimb())
+			if (geRoomActive() && prop->type == PROPTYPE_CHR && chr->aibot == NULL
+					&& !chr->onladder && race != RACE_EYESPY
+					&& (chr->chrflags & (CHRCFLAG_HAS_SPECIAL_DEATH_ANIMATION | CHRCFLAG_GE_LOCKY)) == 0) {
+				const s32 invalidmove = chr->invalidmove;
+				const s32 lastmoveok60 = chr->lastmoveok60;
+
+				geStanSetChrClimb(true);
+				chrCalculatePushPos(chr, arg2, spfc, true);
+				geStanSetChrClimb(false);
+
+				climbed = geStanChrClimb(&prop->pos, chr->ground, arg2, &climbground, &climbroom);
+
+				if (climbed < 0) {
+					arg2->x = prop->pos.x;
+					arg2->z = prop->pos.z;
+					roomsCopy(prop->rooms, spfc);
+					chr->invalidmove = invalidmove ? invalidmove : 1;
+					chr->lastmoveok60 = lastmoveok60;
+					climbed = 0;
+				}
+			} else
 #endif
 
 			chrCalculatePushPos(chr, arg2, spfc, true);
@@ -1211,6 +1239,15 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 							if (tileroom > 0 && tileroom < g_Vars.roomcount) {
 								chr->floorroom = tileroom;
 							}
+						}
+					}
+
+					// and up across a climb, onto the floor the walk went to
+					if (climbed > 0 && !inlift && climbground > ground) {
+						ground = climbground;
+
+						if (climbroom > 0 && climbroom < g_Vars.roomcount) {
+							chr->floorroom = climbroom;
 						}
 					}
 #endif

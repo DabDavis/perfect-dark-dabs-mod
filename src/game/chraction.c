@@ -8148,6 +8148,25 @@ bool chrHasLosToChr(struct chrdata *chr, struct chrdata *target, RoomNum *room)
 				&& geStanLinks(&prop->pos, chr->ground, &target->prop->pos, target->ground, true) == 0) {
 			cansee = false;
 		}
+
+		// And its line test meets the props of every room its walk's tiles
+		// are in (stanTestLineUnobstructed(): roomGetProps() of the walk's
+		// rooms). Perfect Dark's walk goes by portals in three dimensions and
+		// can pass over a room: Bunker's glass doors are filed in the
+		// corridor's room, and the line from the floor above it to the main
+		// room went from one to the other over it - a guard upstairs saw Bond
+		// through the shut doors and opened fire (F3 20261012-042236), where
+		// the cartridge's guard never sees him
+		if (cansee && !chr->aibot && target->prop->type == PROPTYPE_PLAYER && geRoomActive()) {
+			RoomNum walkrooms[21];
+
+			if (geStanLineRooms(&prop->pos, chr->ground, &target->prop->pos, walkrooms, ARRAYCOUNT(walkrooms)) > 0
+					&& !cdTestAToB(&pos, &target->prop->pos, walkrooms,
+						CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE,
+						GEOFLAG_BLOCK_SIGHT, CHECKVERTICAL_YES, 1, 0, 0)) {
+				cansee = false;
+			}
+		}
 #endif
 
 		chrSetPerimEnabled(chr, true);

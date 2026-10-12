@@ -161,6 +161,17 @@ bool geStanReaches(struct coord *from, f32 ground, struct coord *to);
 s32 geStanLinks(struct coord *from, f32 fromground, struct coord *to, f32 toground, bool climbs);
 
 /**
+ * The rooms of the tiles GoldenEye's line walk from the tile under `from` (on
+ * the floor at `fromground`) towards `to` goes through, in order and each once
+ * where it follows itself, ended by -1 (stan.c's sub_GAME_7F0B0C24()); at most
+ * `max` - 1 of them. Its line test (stanTestLineUnobstructed()) meets the props
+ * of those rooms: a guard's sight of Bond is stopped by a door in a room its
+ * walk crosses whatever Perfect Dark's portals make of the line in three
+ * dimensions. 0 where the level has no graph or `from` is over no tile.
+ */
+s32 geStanLineRooms(struct coord *from, f32 fromground, struct coord *to, RoomNum *rooms, s32 max);
+
+/**
  * The surface of the tile under `pos` at or under its height (a pad's floor),
  * or -1e30 where there is no graph or no tile.
  */
@@ -258,6 +269,27 @@ bool geStanPlayerTileFloor(s32 playernum, struct coord *pos, f32 y);
  */
 bool geStanChrFloor(const struct geo *geo, struct coord *from, f32 fromground, struct coord *to, f32 radius,
 		f32 found, f32 *ground, s32 *room);
+
+/**
+ * A guard's move up across a link the conversion raised a climb wall on
+ * (geconvert.c's stanClimb()). GoldenEye's guard moves by its tile graph alone
+ * (chr.c's sub_GAME_7F01F614(): the line walk and the volume test, links only)
+ * and stands on the tile the walk ends on (stanGetPositionYValue()), whatever
+ * height that is: Aztec's grated stair rises 76 from the corridor in its first
+ * riser, and on the cartridge Jaws walks up it from the corridor into the room
+ * over it (F3 20261012-035807), where ours stopped him at the climb wall. The
+ * climb walls are for the player, whose own lift is geStanClimbFloor().
+ *
+ * While geStanSetChrClimb(true) is in force, a cylinder test leaves the climb
+ * walls out (geStanWallSkipped()); the guard's move is then asked of
+ * geStanChrClimb(): 1 with the floor across (its height at `to` and its room)
+ * where the walk from the tile under `from` at `fromground` went up across a
+ * climb link onto a tile holding `to`, -1 where the move went over a climb
+ * wall onto no floor the walk reaches (refused, as GoldenEye refuses it), 0
+ * otherwise.
+ */
+void geStanSetChrClimb(bool on);
+s32 geStanChrClimb(struct coord *from, f32 fromground, struct coord *to, f32 *ground, s32 *room);
 
 /** Moves `pos` the least it takes for a circle of `radius` to clear the tile graph's walls (false: unmoved). */
 bool geStanClearOfWalls(struct coord *pos, s32 room, f32 radius);
