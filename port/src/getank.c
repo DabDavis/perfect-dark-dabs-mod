@@ -117,6 +117,8 @@
 #define TANK_PART_MUZZLE 4
 #define TANK_PART_FLASH  7
 #define TANK_PART_OFF    8
+#define TANK_PART_HULLBOX   5
+#define TANK_PART_TURRETBOX 6
 
 #define TANK_OUT      0
 #define TANK_ENTERING 1
@@ -406,10 +408,14 @@ static void tankSeat(struct tankobj *tank, struct coord *seat)
 	seat->z = (-local.x * s + local.z * c) * scale;
 }
 
+static struct modelrodata_bbox *tankPartBbox(struct tankobj *tank, s32 part);
+
 f32 geTankEyeHeight(f32 eyeheight)
 {
 	const s32 p = g_Vars.currentplayernum;
 	struct tankobj *tank = g_Tank[p].state != TANK_OUT ? tankDriven() : NULL;
+	struct modelrodata_bbox *hull;
+	struct modelrodata_bbox *turret;
 	struct coord seat;
 	f32 target;
 	f32 t;
@@ -418,17 +424,33 @@ f32 geTankEyeHeight(f32 eyeheight)
 		return eyeheight;
 	}
 
-	// the seat is where he *stands*, half crouched (bondview2.c sets
-	// CROUCH_HALF as he gets in, and takes 37 off the height besides): the
-	// eye is a crouched man's over it. With the eye at the seat itself it is
-	// level with the turret's roof and inside the turret, whose own faces
-	// are then culled - no roof under him and no barrel until well past the
-	// mantlet, which is what it looked like
-	tankSeat(tank, &seat);
-	target = tank->base.prop->pos.y + seat.y + TANK_EYE_OVER_SEAT - g_Vars.currentplayer->vv_manground;
+	// GoldenEye's height in the tank (bondview2.c, g_PlayerTankYOffset):
+	// Bond's floor is the hull's box and the turret's box stacked on the
+	// ground under the tank, 37 down into the hatch, and he is half crouched
+	// in it (CROUCH_HALF: 60 off a standing eye). Goldfinger 64's Aston
+	// Martin (Alps) is the tank with a low car's boxes: the eye comes out
+	// 115 over the road, in the seat, where a seat-plus-a-crouched-man rule
+	// held at least a standing eye stood him on the bonnet (F3
+	// 20261011-062449, "Bond is supposed to sit inside"). GoldenEye's own
+	// tank comes out within four units of that rule.
+	hull = tankPartBbox(tank, TANK_PART_HULLBOX);
+	turret = tankPartBbox(tank, TANK_PART_TURRETBOX);
 
-	if (target < eyeheight) {
-		target = eyeheight;
+	if (hull) {
+		target = (hull->ymax - hull->ymin) * tankScale(tank) - 37.0f - 60.0f + eyeheight;
+
+		if (turret) {
+			target += (turret->ymax - turret->ymin) * tankScale(tank);
+		}
+	} else {
+		// no box: the seat is where he *stands*, and the eye a crouched
+		// man's over it
+		tankSeat(tank, &seat);
+		target = tank->base.prop->pos.y + seat.y + TANK_EYE_OVER_SEAT - g_Vars.currentplayer->vv_manground;
+
+		if (target < eyeheight) {
+			target = eyeheight;
+		}
 	}
 
 	// GoldenEye's ease in: (cos(t * pi) + 1) / 2 is what remains
@@ -446,8 +468,6 @@ f32 geTankDamageScale(void)
 /* On the tank                                                               */
 /* ------------------------------------------------------------------------ */
 
-#define TANK_PART_HULLBOX   5
-#define TANK_PART_TURRETBOX 6
 #define TANK_CLIMB_SPEED    20.0f
 
 // the collision stops him a hair short of touching
