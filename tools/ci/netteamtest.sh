@@ -5,7 +5,8 @@
 # Loopback: a listen host (player 0, team 0) and one client (player 1, team
 # 1) on 127.0.0.1, offscreen on the GPU, the 0x32 match with four sims dealt
 # round two teams (bot slots 0 and 2 on the client's team, 1 and 3 on the
-# host's), every player invincible. Orders are given as the active menu's sim
+# host's), every player invincible, no weapons in the arena (a sim fetches
+# what it lacks before it takes any order, stock, so it would follow late). Orders are given as the active menu's sim
 # pages give them (--net-test-order: botcmdApply on the machine's own copy,
 # and a client's to the host in its next command):
 #
@@ -14,7 +15,7 @@
 #           its team) to Hold; the host orders its own first sim to Follow.
 #           Checks on the host: the client's Follow and Attack were taken and
 #           its Hold refused (the sim is not on its team); at the check tick
-#           the client's first sim follows player 1 (and has come near it),
+#           the client's first sim follows player 1 (its action the follow),
 #           slot 2 attacks player 0, the host's first sim follows player 0;
 #           the client's own copies show the orders it gave (its menu's).
 #   ffa     no teams: the client's order is refused (not a team match), and
@@ -72,12 +73,12 @@ run() {
 	[ $# -gt 0 ] && shift
 	cargs=("$@")
 	( game "$label-host" 150 --moddir "$MODDIR" --host "$port" --net-test-host 1 --net-test-stage 0x32 \
-		--endless --rng-seed 3 --net-test-sims 4 --net-test-invincible --net-test-order-check 900 \
+		--endless --rng-seed 3 --net-test-sims 4 --net-test-invincible --net-test-order-check 300 \
 		--exit-frame 1300 "${hargs[@]}" ) &
 	local host=$!
 	waitfor "$OUT/$label-host.log" "net: hosting on UDP port" 60 || { echo "FAIL: $label host did not start"; kill -TERM $host; exit 2; }
 	( game "$label-client" 140 --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join \
-		--net-test-order-check 900 --exit-frame 1100 "${cargs[@]}" ) &
+		--net-test-order-check 300 --exit-frame 1100 "${cargs[@]}" ) &
 	local client=$!
 	wait "$client"; echo "$label: client exit $?"
 	wait "$host"; echo "$label: host exit $?"
@@ -89,7 +90,7 @@ sim() {
 }
 
 case_team() {
-	run team "$PORT" --net-test-teams 2 --net-test-order 250:0 -- \
+	run team "$PORT" --net-test-teams 2 --mp-weapons 0,0,0,0,0,0 --net-test-order 250:0 -- \
 		--net-test-order 250:0,280:1:2:0,310:3:1
 	local H=$OUT/team-host.log C=$OUT/team-client.log
 	grep -q "net: slot 1 is remote" "$H" || { fail "team: slot 1 never became remote on the host"; return; }
@@ -111,10 +112,15 @@ case_team() {
 	else
 		fail "team: on the host slot 0 has command '$cmd', follows '$f'"
 	fi
-	if [ -n "$d" ] && awk -v d="$d" 'BEGIN { exit !(d < 600) }'; then
-		pass "team: ... and has come within $d of it"
+	# a following sim breaks off to fight what it sees (stock: Follow, not
+	# Protect), so its follow is looked for over the checks, every 150 ticks
+	local nf nc
+	nc=$(grep -c "net: order check tick [0-9]* sim [0-9]* slot 0 " "$H")
+	nf=$(grep "net: order check tick [0-9]* sim [0-9]* slot 0 " "$H" | grep -c "myaction 50 (following 1)")
+	if [ "$nf" -gt 0 ]; then
+		pass "team: ... and went after it (MA_AIBOTFOLLOW following 1 at $nf of $nc checks; distance $(grep "order check tick [0-9]* sim [0-9]* slot 0 " "$H" | sed -n 's/.* dist \([^ ]*\).*/\1/p' | tr '\n' ' '))"
 	else
-		fail "team: slot 0 is '${d:-?}' from player 1"
+		fail "team: slot 0 never MA_AIBOTFOLLOW following player 1 in $nc checks"
 	fi
 	cmd=$(sim "$H" 2 command); a=$(sim "$H" 2 attacks)
 	[ "$cmd" = 1 ] && [ "$a" = 0 ] && pass "team: on the host slot 2 attacks player 0" \

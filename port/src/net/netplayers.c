@@ -151,7 +151,7 @@ static s32 s_OrderCount = 0;
 // --net-test-order TICK:CMD[:SIM[:TARGET]][,...]: Team Control's orders as the
 // active menu gives them (SIM a bot config slot, else the first sim on the
 // player's team; -1 all of them; TARGET Attack's mpchr index), on either role;
-// --net-test-order-check TICK: every sim's order logged then
+// --net-test-order-check TICK: every sim's order logged then, and every 150 ticks on
 #define NET_TESTORDERS 4
 static s32 s_TestOrders = 0;
 static u32 s_TestOrderTick[NET_TESTORDERS];
@@ -2505,7 +2505,7 @@ static void netPlayersTestOrders(void)
 		setCurrentPlayerNum(prev);
 	}
 
-	if (s_TestOrderCheck && g_NetTick == s_TestOrderCheck) {
+	if (s_TestOrderCheck && g_NetTick >= s_TestOrderCheck && (g_NetTick - s_TestOrderCheck) % 150 == 0) {
 		for (i = PLAYERCOUNT(); i < g_MpNumChrs; i++) {
 			struct chrdata *chr = g_MpAllChrPtrs[i];
 			s32 follow = -1;
@@ -2528,9 +2528,10 @@ static void netPlayersTestOrders(void)
 				attack = ap->chr ? mpPlayerGetIndex(ap->chr) : -1;
 			}
 
-			sysLogPrintf(LOG_NOTE, "net: order check tick %u sim %d slot %d team %d command %d (%s) follows %d attacks %d dist %.0f",
+			sysLogPrintf(LOG_NOTE, "net: order check tick %u sim %d slot %d team %d command %d (%s) follows %d attacks %d dist %.0f myaction %d (following %d) action %d target %d",
 					g_NetTick, i, (s32)(chr->aibot->config - g_BotConfigsArray), g_MpAllChrConfigPtrs[i]->team,
-					chr->aibot->command, netOrderName(chr->aibot->command), follow, attack, dist);
+					chr->aibot->command, netOrderName(chr->aibot->command), follow, attack, dist,
+					chr->myaction, chr->aibot->followingplayernum, chr->actiontype, chr->target);
 		}
 	}
 }
