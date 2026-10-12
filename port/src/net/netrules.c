@@ -1100,6 +1100,10 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 		netBufWriteU8(b, minutes);
 	}
 
+	// protocol 32: a counter-op mission and its sides (netcoop.c)
+	netBufWriteU8(b, (u8)(netCoopHostAnti() != 0));
+	netBufWriteU16(b, netCoopHostAntiMask());
+
 	{
 		// the content block (protocol 13, netcontent.c): the mod and the
 		// ROM hack mode the client is to play this match in
@@ -1244,6 +1248,8 @@ s32 netRulesRead(struct netbuf *b)
 	s_NetRules.coop.cinema = netBufReadU8(b);
 	s_NetRules.coop.cinemaloop = netBufReadU8(b);
 	s_NetRules.coop.cinemaminutes = netBufReadU8(b);
+	s_NetRules.coop.anti = netBufReadU8(b);
+	s_NetRules.coop.antimask = netBufReadU16(b);
 	netContentRead(b, &s_NetRules.content, 1);
 
 	if (s_NetRules.coop.on && !netCoopRulesOk(&s_NetRules.coop)) {

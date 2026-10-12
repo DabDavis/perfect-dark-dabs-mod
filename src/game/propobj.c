@@ -10501,7 +10501,7 @@ void autogunTickShoot(struct prop *autogunprop)
 				// (ie. autogun is a Defense autogun or a thrown laptop)
 				if (g_Vars.normmplayerisrunning
 						|| (targetprop && (targetprop->type == PROPTYPE_CHR))
-						|| (g_Vars.antiplayernum >= 0 && targetprop && targetprop == g_Vars.anti->prop)) {
+						|| (targetprop && coopIsAntiProp(targetprop))) {
 					if (cdExamLos08(&gunpos, gunrooms, &hitpos, CDTYPE_ALL, GEOFLAG_BLOCK_SHOOT) == CDRESULT_COLLISION) {
 #if VERSION >= VERSION_PAL_FINAL
 						cdGetPos(&hitpos, 11480, "prop/propobj.c");
@@ -18199,7 +18199,7 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 		}
 	}
 
-	if (g_Vars.antiplayernum < 0 || g_Vars.currentplayer != g_Vars.anti || (obj->flags2 & OBJFLAG2_IMMUNETOANTI) == 0) {
+	if (!coopIsAnti(g_Vars.currentplayer) || (obj->flags2 & OBJFLAG2_IMMUNETOANTI) == 0) {
 		if (hit->hitthing.texturenum != 10000) {
 			f32 damage = gsetGetDamage(&shotdata->gset);
 
@@ -20069,6 +20069,13 @@ s32 objTestForPickup(struct prop *prop)
 	if (obj->hidden & OBJHFLAG_DELETING) {
 		return TICKOP_NONE;
 	}
+
+#ifndef PLATFORM_N64
+	// online counter-op: one waiting for a guard to take picks nothing up
+	if (coopAntiIsWaiting(g_Vars.currentplayernum)) {
+		return TICKOP_NONE;
+	}
+#endif
 
 	if (func0f085194(obj) && obj->type != OBJTYPE_HAT) {
 		if (obj->flags & OBJFLAG_UNCOLLECTABLE) {

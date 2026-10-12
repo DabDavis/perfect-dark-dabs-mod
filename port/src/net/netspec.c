@@ -416,7 +416,9 @@ s32 netSpecDeadCameraTick(void)
 		return 0;
 	}
 
-	if (g_Vars.normmplayerisrunning || g_Vars.coopplayernum < 0 || !pl->isdead || netCoopRespawnDue(g_Vars.currentplayernum)) {
+	// (a counter-op's death is a press away from its next guard: no watching)
+	if (g_Vars.normmplayerisrunning || g_Vars.coopplayernum < 0 || !pl->isdead || netCoopRespawnDue(g_Vars.currentplayernum)
+			|| coopIsAntiNum(g_Vars.currentplayernum)) {
 		s_Dead = 0;
 		return 0;
 	}

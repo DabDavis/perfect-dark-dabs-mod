@@ -337,7 +337,7 @@ bool modGhostMenuCharacterApplies(void)
 		return false;
 	}
 
-	if (g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.anti) {
+	if (coopIsAnti(g_Vars.currentplayer)) {
 		return false;
 	}
 

@@ -1643,6 +1643,7 @@ void chrInit(struct prop *prop, u8 *ailist)
 	chr->gesneezed = 0;
 	chr->coopturn = 0;
 	chr->coopretarget60 = 0;
+	chr->coopagentseen = 0;
 #endif
 	chr->aishootingatmelist = -1;
 	chr->aidarkroomlist = -1;
@@ -1698,6 +1699,14 @@ void chrInit(struct prop *prop, u8 *ailist)
 
 	if (g_Vars.currentplayer->prop == NULL) {
 		chr->target = -2;
+#ifndef PLATFORM_N64
+	} else if (g_CoopAntiMask && coopIsAnti(g_Vars.currentplayer)) {
+		// online counter-op: a chr made in a counter-op's pass (the host's
+		// own player may be one, and the stage's guards are made in its)
+		// targets the player it watches, p1p2, an agent: its first target
+		// had been the counter-op, which its lists then saw and went for
+		chr->target = -1;
+#endif
 	} else {
 		chr->target = g_Vars.currentplayer->prop - g_Vars.props;
 	}
@@ -3353,9 +3362,8 @@ s32 chrTick(struct prop *prop)
 #endif
 		chr->chrflags |= CHRCFLAG_EVERONSCREEN;
 
-		if (g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.bond) {
-			chr->hidden |= CHRHFLAG_ONBONDSSCREEN;
-		}
+		// (past one agent, any agent's screen: coop.c)
+		coopNoteChrOnScreen(chr, true);
 
 		if (cheatIsActive(CHEAT_DKMODE)
 #ifndef PLATFORM_N64
@@ -3681,9 +3689,7 @@ s32 chrTick(struct prop *prop)
 		// Offscreen
 		prop->flags &= ~PROPFLAG_ONTHISSCREENTHISTICK;
 
-		if (g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.bond) {
-			chr->hidden &= ~CHRHFLAG_ONBONDSSCREEN;
-		}
+		coopNoteChrOnScreen(chr, false);
 
 		child = prop->child;
 
@@ -5846,8 +5852,7 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 				g_Vars.currentplayer->prop, hit->hitpart, hit->prop, hit->bboxnode,
 				hit->model, hit->hitthing.unk28 / 2, sp90);
 
-		if (g_Vars.antiplayernum >= 0
-				&& g_Vars.currentplayer == g_Vars.anti
+		if (coopIsAnti(g_Vars.currentplayer)
 				&& (chr->hidden & CHRHFLAG_ANTINONINTERACTABLE)) {
 			return;
 		}
@@ -6266,7 +6271,8 @@ bool chrCalculateAutoAim(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *
 			&& (chr->chrflags & CHRCFLAG_NOAUTOAIM) == 0
 			&& ((chr->hidden & CHRHFLAG_CLOAKED) == 0 || USINGDEVICE(DEVICE_IRSCANNER))
 			&& !(prop->type == PROPTYPE_PLAYER && g_Vars.players[playermgrGetPlayerNumByProp(prop)]->isdead)
-			&& !coopIsPlayerProp(prop)) {
+			// (online counter-op: the other side's players are fair game)
+			&& !coopIsTeammateProp(prop)) {
 		struct model *model = chr->model;
 		Mtxf *mtx1;
 		Mtxf *mtx2;

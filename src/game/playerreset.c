@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "constants.h"
 #include "game/bondmove.h"
+#include "game/coop.h"
 #include "game/cheats.h"
 #include "game/inv.h"
 #include "game/playerreset.h"
@@ -200,7 +201,7 @@ void playerReset(void)
 				cmd = (struct cmd32 *)((uintptr_t)cmd + 8);
 				break;
 			case INTROCMD_WEAPON:
-				if (cmd->param3 == 0 && g_Vars.currentplayer != g_Vars.anti) {
+				if (cmd->param3 == 0 && !coopIsAnti(g_Vars.currentplayer)) {
 					modelmgrLoadProjectileModeldefs(cmd->param1);
 
 #ifndef PLATFORM_N64
@@ -240,7 +241,7 @@ void playerReset(void)
 				cmd = (struct cmd32 *)((uintptr_t)cmd + 16);
 				break;
 			case INTROCMD_AMMO:
-				if (cmd->param3 == 0 && g_Vars.currentplayer != g_Vars.anti) {
+				if (cmd->param3 == 0 && !coopIsAnti(g_Vars.currentplayer)) {
 					bgunSetAmmoQuantity(cmd->param1, cmd->param2);
 				}
 				cmd = (struct cmd32 *)((uintptr_t)cmd + 16);
@@ -419,10 +420,10 @@ void playerReset(void)
 	propEnable(g_Vars.currentplayer->prop);
 	chrInit(g_Vars.currentplayer->prop, NULL);
 
-	if (g_Vars.coopplayernum >= 0) {
+	if (g_Vars.coopplayernum >= 0 && !coopIsAnti(g_Vars.currentplayer)) {
 		g_Vars.currentplayer->prop->chr->team = TEAM_ALLY;
 	} else if (g_Vars.antiplayernum >= 0) {
-		if (g_Vars.currentplayer == g_Vars.bond) {
+		if (!coopIsAnti(g_Vars.currentplayer)) {
 			g_Vars.currentplayer->prop->chr->team = TEAM_ALLY;
 		} else {
 			g_Vars.currentplayer->prop->chr->team = TEAM_ENEMY;
@@ -465,7 +466,7 @@ void playerReset(void)
 #endif
 
 	if (g_NumSpawnPoints > 0) {
-		if (g_Vars.coopplayernum >= 0) {
+		if (g_Vars.coopplayernum >= 0 && !coopIsAnti(g_Vars.currentplayer)) {
 #ifndef PLATFORM_N64
 			// netplay: every player on the one spot, passing through each other (netcoop.c)
 			if (g_NetMode != NETMODE_NONE) turnanglerad = netCoopStackSpawn(&pos, rooms); else
@@ -521,6 +522,13 @@ void playerReset(void)
 
 		if (chr->target == -2) {
 			chr->target = g_Vars.currentplayer->prop - g_Vars.props;
+
+#ifndef PLATFORM_N64
+			// (online counter-op: never a counter-op, chrInit())
+			if (g_CoopAntiMask && coopIsAnti(g_Vars.currentplayer)) {
+				chr->target = -1;
+			}
+#endif
 		}
 	}
 

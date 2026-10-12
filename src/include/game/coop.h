@@ -14,32 +14,103 @@
  * exactly the answer the old code did, so offline co-op is unchanged.
  */
 
+/**
+ * Counter-operative with more than one (online counter-op, netcoop.c): the
+ * game's own is one player, g_Vars.anti (g_Vars.antiplayernum), against bond.
+ * Online any number of seats are counter-ops (g_CoopAntiMask, a bit per
+ * player number) and the rest are agents: bond, and past one agent the coop
+ * players, so online co-op's rules (Mission Respawn, the dead watching, the
+ * guards turned among the players) are the agents'. The mask is empty
+ * offline, and every question below then gives the game's own answer.
+ */
+extern u32 g_CoopAntiMask;
+
+// player playernum is a counter-operative (online the mask alone: a seat's
+// side is its player's, and a join in progress may change it)
+static inline bool coopIsAntiNum(s32 playernum)
+{
+	if (g_Vars.antiplayernum < 0 || playernum < 0) {
+		return false;
+	}
+
+	if (g_CoopAntiMask) {
+		return playernum < 32 && ((g_CoopAntiMask >> playernum) & 1);
+	}
+
+	return playernum == g_Vars.antiplayernum;
+}
+
+bool coopIsAnti(struct player *player);  // player is a counter-operative (offline: player == g_Vars.anti)
+bool coopIsAntiProp(struct prop *prop);  // prop is a counter-operative's
+bool coopIsAgentProp(struct prop *prop); // prop is a player's on the agents' side (bond's in the game's own)
+u32 coopAntiRandom(void);                // a counter-op's guard choice's draw (online its own sequence)
+
 // co-op is on: g_Vars.coopplayernum >= 0
 static inline bool coopIsOn(void)
 {
 	return g_Vars.coopplayernum >= 0;
 }
 
-// a co-op player other than bond (the second player offline, slots 1-11 online)
+// a co-op player other than bond (the second player offline, slots 1-11
+// online; never a counter-operative)
 static inline bool coopIsCoopPlayer(struct player *player)
 {
-	return g_Vars.coopplayernum >= 0 && player != NULL && player != g_Vars.bond;
+	return g_Vars.coopplayernum >= 0 && player != NULL && player != g_Vars.bond
+		&& (g_CoopAntiMask == 0 || !coopIsAnti(player));
 }
 
-// prop is some player's prop in a co-op game (bond's or any coop player's)
+// prop is some player's prop in a co-op game (bond's or any coop player's,
+// never a counter-operative's)
 static inline bool coopIsPlayerProp(struct prop *prop)
 {
-	return g_Vars.coopplayernum >= 0 && prop != NULL && prop->type == PROPTYPE_PLAYER;
+	return g_Vars.coopplayernum >= 0 && prop != NULL && prop->type == PROPTYPE_PLAYER
+		&& (g_CoopAntiMask == 0 || !coopIsAntiProp(prop));
 }
+
+// prop is a player's on the current player's side: in co-op any player's but
+// a counter-operative's, and a counter-operative's to another
+bool coopIsTeammateProp(struct prop *prop);
+// the players a and b are on one side (both agents or both counter-ops)
+bool coopSameSide(struct prop *a, struct prop *b);
+// a counter-operative's body and head while it is in a guard's (-1 none):
+// offline g_Vars.antibodynum/antiheadnum, online one a player (netcoop.c)
+bool coopAntiGetBody(s32 playernum, s32 *bodynum, s32 *headnum);
+void coopAntiSetBody(s32 playernum, s32 bodynum, s32 headnum);
+void coopAntiResetBodies(void);
+// a counter-op took a guard (its spawn count and the guard's radius, which
+// the clients take with the body: netcoop.c)
+void coopAntiNoteSpawn(s32 playernum, f32 radius);
+s32 coopAntiSpawnCount(s32 playernum);
+// online: a counter-op whose spawn found no guard (none left, or none yet)
+// is looked for one again each second on the host (playerAntiRetryTick())
+void coopAntiSetWaiting(s32 playernum, bool waiting);
+bool coopAntiRetryDue(s32 playernum);
+// ... and is out of the game until it has one: hidden, no collisions, no
+// harm to anyone, nothing picked up (the host's word: clients see it hidden)
+bool coopAntiIsWaiting(s32 playernum);
+f32 coopAntiRadius(s32 playernum);
+// chr is on screen (or not) for the current player: an agent's view is what
+// a counter-operative's spawn keeps away from (CHRHFLAG_ONBONDSSCREEN)
+void coopNoteChrOnScreen(struct chrdata *chr, bool onscreen);
+// a guard a counter-op may take: the game's CHRHFLAG_BASICGUARD, or a
+// converted mission's plain armed guard (coopConvertedGuard())
+bool coopAntiHostable(struct chrdata *chr);
+bool coopConvertedGuard(struct chrdata *chr);
+// the agent nearest pos alive (-1 none): where a counter-op spawns from
+s32 coopNearestAgentNum(struct coord *pos, f32 *sqdist);
 
 // the owner index a setup file's mine carries in co-op: "no player's", 2 on
 // the N64 (its third slot), past every slot online where slot 2 is a player
 extern s32 g_NetMode;
 #define COOP_SETUP_MINE_OWNER (g_NetMode != 0 ? MAX_PLAYERS : 2)
 
-bool coopAllDead(void);      // every player is dead (isdead)
+bool coopAllDead(void);      // every player is dead (isdead); with counter-ops, every agent
 bool coopAllDeadDone(void);  // ... and every death has finished (redblood and the death anim)
 bool coopAnyAborted(void);
+// a counter-op mission's sides (offline: bond's and anti's own answers)
+bool coopAgentsAborted(void);
+bool coopAntisAborted(void);
+bool coopAgentsDead(void);
 bool coopPlayerAlive(s32 playernum);
 // "the other player" for playernum: at two players the other one; past that
 // the nearest living other player (any other if none lives)

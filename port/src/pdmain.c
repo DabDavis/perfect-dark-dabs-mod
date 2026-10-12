@@ -32,6 +32,7 @@
 #include "romdata.h"
 #include "game/pdmode.h"
 #include "game/objectives.h"
+#include "game/coop.h"
 #include "game/endscreen.h"
 #include "game/playermgr.h"
 #include "game/game_1531a0.h"
@@ -863,7 +864,20 @@ void mainEndStage(void)
 					continue;
 				}
 
-				endscreenPushCoop();
+				// online counter-op: a counter-op's own end screen
+				// (the agents' outcome the other way round)
+				if (coopIsAnti(g_Vars.currentplayer)) {
+					if (g_NetMode != NETMODE_NONE) {
+						sysLogPrintf(LOG_NOTE, "net: counter-op: player %d's end screen: %s", i,
+								coopAntisAborted() ? "aborted"
+								: coopAgentsDead() || coopAgentsAborted() || !objectiveIsAllComplete() ? "completed (the agents failed)"
+								: "failed (the agents completed)");
+					}
+
+					endscreenPushAnti();
+				} else {
+					endscreenPushCoop();
+				}
 			}
 
 			setCurrentPlayerNum(prevplayernum);

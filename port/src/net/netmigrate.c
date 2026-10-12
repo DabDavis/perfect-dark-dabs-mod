@@ -257,10 +257,14 @@ s32 netMigrateAdopt(const char *room, s32 campaign, char *text, s32 textsize)
 		g_NetCoopSetup.difficulty = coop->difficulty;
 		g_NetCoopSetup.radar = coop->radar;
 		g_NetCoopSetup.friendlyfire = coop->friendlyfire;
+		// (protocol 32) a counter-op mission again as counter-op: the sides
+		// from the room's teams, which the kept RULES put on the slots
+		g_NetCoopSetup.anti = coop->anti && !campaign;
 		snprintf(g_NetCoopSetup.game, sizeof(g_NetCoopSetup.game), "%s", coop->game);
 	} else {
 		g_NetCoopSetup.on = 0;
 		g_NetCoopSetup.campaign = 0;
+		g_NetCoopSetup.anti = 0;
 	}
 
 	netRulesAdopt(s_Kept.myslot >= 0 ? s_Kept.myslot : 0);
@@ -377,6 +381,7 @@ s32 netMigrateHostStart(void)
 			netCoopCampaignResume(g_NetCoopSetup.game, g_NetCoopSetup.radar, g_NetCoopSetup.friendlyfire);
 		}
 
+		netCoopHostNextAnti(g_NetCoopSetup.anti && !g_NetCoopSetup.campaign);
 		netCoopHostStart(g_NetCoopSetup.game, g_NetCoopSetup.stageindex, g_NetCoopSetup.difficulty, g_NetCoopSetup.radar,
 				g_NetCoopSetup.friendlyfire);
 		menuStop();

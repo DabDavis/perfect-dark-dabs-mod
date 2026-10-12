@@ -6,6 +6,7 @@
 #include "game/modrules.h"
 #include "game/chraction.h"
 #include "game/bondgun.h"
+#include "game/coop.h"
 #include "game/game_0b0fd0.h"
 #include "game/game_0b2150.h"
 #include "game/tex.h"
@@ -114,7 +115,9 @@ bool sightIsPropFriendly(struct prop *prop)
 		return false;
 	}
 
-	if (g_Vars.coopplayernum >= 0 && prop->type == PROPTYPE_PLAYER) {
+	// (online counter-op: a player of the other side is the enemy's)
+	if (g_Vars.coopplayernum >= 0 && prop->type == PROPTYPE_PLAYER
+			&& (g_Vars.antiplayernum < 0 || coopSameSide(prop, g_Vars.currentplayer->prop))) {
 		return true;
 	}
 

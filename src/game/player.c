@@ -805,7 +805,7 @@ void playerStartNewLife(void)
 		if (cmd);
 		if (cmd);
 
-		if (g_Vars.antiplayernum < 0 || g_Vars.currentplayer != g_Vars.anti) {
+		if (!coopIsAnti(g_Vars.currentplayer)) {
 			while (cmd[0] != INTROCMD_END) {
 				switch (cmd[0]) {
 				case INTROCMD_SPAWN:
@@ -1168,6 +1168,12 @@ bool playerSpawnAnti(struct chrdata *hostchr, bool force)
 			g_Vars.antibodynum = hostchr->bodynum;
 		}
 
+#ifndef PLATFORM_N64
+		// online counter-op: each counter-op's own (coop.c; the mission
+		// block takes it to the clients, netcoop.c)
+		coopAntiSetBody(g_Vars.currentplayernum, g_Vars.antibodynum, g_Vars.antiheadnum);
+#endif
+
 		playerTickChrBody();
 		modelCopyAnimData(hostchr->model, playerchr->model);
 		func0f02e9a0(playerchr, 12);
@@ -1187,6 +1193,19 @@ bool playerSpawnAnti(struct chrdata *hostchr, bool force)
 
 		playerchr->radius = hostchr->radius;
 		g_Vars.currentplayer->bond2.radius = hostchr->radius;
+
+#ifndef PLATFORM_N64
+		// online counter-op: the clients put their copy of the player in it
+		// (netcoop.c's mission block)
+		// (a counter-op that waited for a guard is back in the game)
+		if (coopAntiIsWaiting(g_Vars.currentplayernum)) {
+			playerchr->chrflags &= ~CHRCFLAG_HIDDEN;
+			propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+		}
+
+		coopAntiNoteSpawn(g_Vars.currentplayernum, hostchr->radius);
+		netCoopAntiTookChr(hostprop);
+#endif
 
 		chrRemove(hostprop, true);
 		propDeregisterRooms(hostprop);
@@ -1351,7 +1370,62 @@ static void playerSpawnWeapons(void)
 }
 #endif
 
-void playerSpawn(void)
+#ifndef PLATFORM_N64
+/**
+ * Online counter-op past one agent: where each living agent's gun is and
+ * where it points, as the game takes bond's for a counter-op's spawn (a
+ * guard on an agent's screen and in its aim is passed over most times).
+ * The number filled.
+ */
+static s32 playerAntiAgentViews(struct coord *pos, struct coord *dir)
+{
+	const s32 prevplayernum = g_Vars.currentplayernum;
+	s32 n = 0;
+	s32 i;
+
+	for (i = 0; i < PLAYERCOUNT() && i < MAX_PLAYERS; i++) {
+		struct coord gunpos;
+		struct coord gundir;
+
+		if (!g_Vars.players[i] || !g_Vars.players[i]->prop || g_Vars.players[i]->isdead
+				|| coopIsAntiNum(i) || netPlayerOutOfPlay(i)) {
+			continue;
+		}
+
+		setCurrentPlayerNum(i);
+		bgun0f0a0c08(&gunpos, &gundir);
+		mtx4RotateVec(camGetProjectionMtxF(), &gundir, &dir[n]);
+		mtx4TransformVec(camGetProjectionMtxF(), &gunpos, &pos[n]);
+		n++;
+	}
+
+	setCurrentPlayerNum(prevplayernum);
+
+	return n;
+}
+
+static bool playerAntiInAgentsAim(struct coord *pos, struct coord *dir, s32 n, struct coord *chrpos, f32 scale)
+{
+	s32 i;
+
+	for (i = 0; i < n; i++) {
+		if (func0f06b39c(&pos[i], &dir[i], chrpos, scale)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+#endif
+
+/**
+ * A counter-op's guard (playerSpawn()): the living guards nearest bond (past
+ * one agent online, the nearest agent), one on an agent's screen and in its
+ * aim passed over most times, the nearest two or three shuffled, and the
+ * first that can be stood in taken (playerSpawnAnti()). choose false: none
+ * (a client's, whose guard the host takes). True when one was taken.
+ */
+static bool playerAntiTakeGuard(bool choose)
 {
 	f32 xdiff;
 	f32 ydiff;
@@ -1363,13 +1437,199 @@ void playerSpawn(void)
 	s32 i;
 	s32 j;
 	s32 k;
-	bool force;
-	s32 numsqdists;
+	bool force = false;
+	bool took = false;
+	s32 numsqdists = 0;
 	struct coord sp9c;
 	struct coord sp90;
 	struct coord sp84;
 	struct coord sp78;
+#ifndef PLATFORM_N64
+	struct coord agentpos[MAX_PLAYERS];
+	struct coord agentdir[MAX_PLAYERS];
+	s32 numagents = 0;
+#endif
 
+	if (g_Vars.lvframenum > 0 && choose) {
+#ifndef PLATFORM_N64
+		if (g_CoopAntiMask) {
+			numagents = playerAntiAgentViews(agentpos, agentdir);
+		} else
+#endif
+		{
+			s32 prevplayernum = g_Vars.currentplayernum;
+			setCurrentPlayerNum(g_Vars.bondplayernum);
+			bgun0f0a0c08(&sp84, &sp9c);
+			mtx4RotateVec(camGetProjectionMtxF(), &sp9c, &sp90);
+			mtx4TransformVec(camGetProjectionMtxF(), &sp84, &sp78);
+			setCurrentPlayerNum(prevplayernum);
+		}
+	}
+
+	for (i = 0; i < chrsGetNumSlots() && choose; i++) {
+		if (g_ChrSlots[i].model
+				&& g_ChrSlots[i].prop
+#ifndef PLATFORM_N64
+				// (a converted mission's guards by coop.c's rule)
+				&& coopAntiHostable(&g_ChrSlots[i])
+#else
+				&& (g_ChrSlots[i].hidden & CHRHFLAG_BASICGUARD)
+#endif
+				&& (g_ChrSlots[i].chrflags & CHRCFLAG_HIDDEN) == 0
+				&& g_ChrSlots[i].prop->type == PROPTYPE_CHR
+				&& !chrIsDead(&g_ChrSlots[i])
+				&& (g_ChrSlots[i].prop->flags & PROPFLAG_ENABLED)) {
+#ifndef PLATFORM_N64
+			if (g_CoopAntiMask && coopNearestAgentNum(&g_ChrSlots[i].prop->pos, &sqdist) >= 0) {
+				// the nearest living agent's distance
+			} else
+#endif
+			{
+				if (g_Vars.bond->prop) {
+					xdiff = g_ChrSlots[i].prop->pos.x - g_Vars.bond->prop->pos.x;
+					ydiff = g_ChrSlots[i].prop->pos.y - g_Vars.bond->prop->pos.y;
+					zdiff = g_ChrSlots[i].prop->pos.z - g_Vars.bond->prop->pos.z;
+				} else {
+					xdiff = g_ChrSlots[i].prop->pos.x - g_Vars.currentplayer->prop->pos.x;
+					ydiff = g_ChrSlots[i].prop->pos.y - g_Vars.currentplayer->prop->pos.y;
+					zdiff = g_ChrSlots[i].prop->pos.z - g_Vars.currentplayer->prop->pos.z;
+				}
+
+				sqdist = xdiff * xdiff + ydiff * ydiff + zdiff * zdiff;
+			}
+
+			if (g_Vars.lvframenum > 0
+					&& (g_ChrSlots[i].hidden & CHRHFLAG_ONBONDSSCREEN)
+#ifndef PLATFORM_N64
+					&& (g_CoopAntiMask
+						? playerAntiInAgentsAim(agentpos, agentdir, numagents, &g_ChrSlots[i].prop->pos, modelGetEffectiveScale(g_ChrSlots[i].model))
+						: func0f06b39c(&sp78, &sp90, &g_ChrSlots[i].prop->pos, modelGetEffectiveScale(g_ChrSlots[i].model)))
+#else
+					&& func0f06b39c(&sp78, &sp90, &g_ChrSlots[i].prop->pos, modelGetEffectiveScale(g_ChrSlots[i].model))
+#endif
+#ifndef PLATFORM_N64
+					&& (coopAntiRandom() % 8)) {
+#else
+					&& (rngRandom() % 8)) {
+#endif
+				sqdist += 1000 * 1000;
+			}
+
+			// Insert sqdist to sorteddists, maintaining sort order,
+			// and mirror the changes into the sortedchrs array.
+
+			// Move j to the first sqdist that is further than the new one
+			for (j = 0; j < numsqdists; j++) {
+				if (sqdist < sorteddists[j]) {
+					break;
+				}
+			}
+
+			if (j < 10) {
+				// Move the higher sorteddists forward, removing the highest item
+				for (k = numsqdists; k > j; k--) {
+					if (k < 10) {
+						sortedchrs[k] = sortedchrs[k - 1];
+						sorteddists[k] = sorteddists[k - 1];
+					}
+				}
+
+				// Write new sqdist
+				sortedchrs[j] = &g_ChrSlots[i];
+				sorteddists[j] = sqdist;
+
+				if (numsqdists < 9) {
+					numsqdists++;
+				}
+			}
+		}
+	}
+
+	// Randomly swap some of the earlier elements so the player
+	// doesn't always spawn into the closest
+#ifndef PLATFORM_N64
+	// (online, a sequence of the counter-ops' own: coop.c)
+	if (numsqdists > 1 && (coopAntiRandom() % 2) == 0) {
+#else
+	if (numsqdists > 1 && (rngRandom() % 2) == 0) {
+#endif
+		tmpchr = sortedchrs[0];
+		sqdist = sorteddists[0];
+		sortedchrs[0] = sortedchrs[1];
+		sorteddists[0] = sorteddists[1];
+		sortedchrs[1] = tmpchr;
+		sorteddists[1] = sqdist;
+	}
+
+#ifndef PLATFORM_N64
+	if (numsqdists > 2 && (coopAntiRandom() % 4) == 0) {
+#else
+	if (numsqdists > 2 && (rngRandom() % 4) == 0) {
+#endif
+		tmpchr = sortedchrs[0];
+		sqdist = sorteddists[0];
+		sortedchrs[0] = sortedchrs[2];
+		sorteddists[0] = sorteddists[2];
+		sortedchrs[2] = tmpchr;
+		sorteddists[2] = sqdist;
+	}
+
+	// Iterate sortedchrs in order and try to spawn into any of them.
+	// The spawn may fail if the chr is on-screen, and potentially in
+	// some other conditions such as the chr being too close to a wall.
+	// If no chrs can be spawned into, iterate the list again but this
+	// time allowing the spawn to happen on-screen (force = true).
+	for (i = 0; i < numsqdists; i++) {
+		if (playerSpawnAnti(sortedchrs[i], force)) {
+			took = true;
+			break;
+		}
+
+		if (i == numsqdists - 1) {
+			i = 0;
+
+			if (force) {
+				break;
+			}
+
+			force = true;
+		}
+	}
+
+	return took;
+}
+
+#ifndef PLATFORM_N64
+extern u64 g_RngSeed;
+
+/**
+ * Online counter-op, the host's pass for a counter-op whose spawn found no
+ * guard: the next one there is, looked for each second (a wave of Guards
+ * Alerted!, a mission's reinforcements), taken as a spawn takes one - its
+ * gun, its health, its body - the clients following as they do a spawn
+ */
+static void playerAntiRetryTick(void)
+{
+	const s32 pn = g_Vars.currentplayernum;
+	u64 rngkeep;
+
+	if (g_NetMode != NETMODE_SERVER || !g_CoopAntiMask || !coopIsAntiNum(pn) || g_Vars.currentplayer->isdead
+			|| g_Vars.tickmode != TICKMODE_NORMAL || !g_Vars.currentplayer->prop || !coopAntiRetryDue(pn)) {
+		return;
+	}
+
+	rngkeep = g_RngSeed;
+
+	if (playerAntiTakeGuard(true)) {
+		sysLogPrintf(LOG_NOTE, "counter-op: player %d took a guard that came after its spawn (frame %d)", pn, g_Vars.lvframenum);
+	}
+
+	g_RngSeed = rngkeep;
+}
+#endif
+
+void playerSpawn(void)
+{
 	g_Vars.currentplayer->deathanimfinished = false;
 	g_Vars.currentplayer->redbloodfinished = false;
 	g_Vars.currentplayer->startnewbonddie = true;
@@ -1399,129 +1659,67 @@ void playerSpawn(void)
 #endif
 
 	if (g_Vars.mplayerisrunning) {
-		if (g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.anti) {
-			numsqdists = 0;
-			force = false;
+		if (coopIsAnti(g_Vars.currentplayer)) {
+			bool took;
+#ifndef PLATFORM_N64
+			// netplay: a client's counter-op takes no guard of its own - the
+			// host takes it (its random choice, its idea of the agents'
+			// views), and the host's blocks put this machine's player in it:
+			// where it stands, its guns and its health in the local block,
+			// the guard's body in the mission block (netcoop.c)
+			const bool choose = g_NetMode != NETMODE_CLIENT;
+#else
+			const bool choose = true;
+#endif
+
+#ifndef PLATFORM_N64
+			// online counter-op: the host takes the guard and the clients
+			// never do, so nothing it draws may move the game's sequence -
+			// the first guards are taken in the stage's load, whose g_RngSeed
+			// every client's must match (the stage hash's "rng"); the body
+			// built draws too. Put back after (offline: stock, untouched).
+			const u64 rngkeep = g_RngSeed;
+#endif
 
 			invGiveSingleWeapon(WEAPON_SUICIDEPILL);
 			bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
 			bgunEquipWeapon2(HAND_RIGHT, WEAPON_UNARMED);
 
-			if (g_Vars.lvframenum > 0) {
-				s32 prevplayernum = g_Vars.currentplayernum;
-				setCurrentPlayerNum(g_Vars.bondplayernum);
-				bgun0f0a0c08(&sp84, &sp9c);
-				mtx4RotateVec(camGetProjectionMtxF(), &sp9c, &sp90);
-				mtx4TransformVec(camGetProjectionMtxF(), &sp84, &sp78);
-				setCurrentPlayerNum(prevplayernum);
-			}
-
 			if (g_Vars.currentplayer->model00d4 == NULL) {
 				playerTickChrBody();
 			}
 
-			for (i = 0; i < chrsGetNumSlots(); i++) {
-				if (g_ChrSlots[i].model
-						&& g_ChrSlots[i].prop
-						&& (g_ChrSlots[i].hidden & CHRHFLAG_BASICGUARD)
-						&& (g_ChrSlots[i].chrflags & CHRCFLAG_HIDDEN) == 0
-						&& g_ChrSlots[i].prop->type == PROPTYPE_CHR
-						&& !chrIsDead(&g_ChrSlots[i])
-						&& (g_ChrSlots[i].prop->flags & PROPFLAG_ENABLED)) {
-					if (g_Vars.bond->prop) {
-						xdiff = g_ChrSlots[i].prop->pos.x - g_Vars.bond->prop->pos.x;
-						ydiff = g_ChrSlots[i].prop->pos.y - g_Vars.bond->prop->pos.y;
-						zdiff = g_ChrSlots[i].prop->pos.z - g_Vars.bond->prop->pos.z;
-					} else {
-						xdiff = g_ChrSlots[i].prop->pos.x - g_Vars.currentplayer->prop->pos.x;
-						ydiff = g_ChrSlots[i].prop->pos.y - g_Vars.currentplayer->prop->pos.y;
-						zdiff = g_ChrSlots[i].prop->pos.z - g_Vars.currentplayer->prop->pos.z;
-					}
+			took = playerAntiTakeGuard(choose);
 
-					sqdist = xdiff * xdiff + ydiff * ydiff + zdiff * zdiff;
+#ifndef PLATFORM_N64
+			// online: no guard to be had - none left, or none yet (GoldenEye's
+			// Statue brings its guards later) - and the host looks again
+			// every second (playerAntiRetryTick())
+			if (g_CoopAntiMask && choose) {
+				coopAntiSetWaiting(g_Vars.currentplayernum, !took);
 
-					if (g_Vars.lvframenum > 0
-							&& (g_ChrSlots[i].hidden & CHRHFLAG_ONBONDSSCREEN)
-							&& func0f06b39c(&sp78, &sp90, &g_ChrSlots[i].prop->pos, modelGetEffectiveScale(g_ChrSlots[i].model))
-							&& (rngRandom() % 8)) {
-						sqdist += 1000 * 1000;
-					}
-
-					// Insert sqdist to sorteddists, maintaining sort order,
-					// and mirror the changes into the sortedchrs array.
-
-					// Move j to the first sqdist that is further than the new one
-					for (j = 0; j < numsqdists; j++) {
-						if (sqdist < sorteddists[j]) {
-							break;
-						}
-					}
-
-					if (j < 10) {
-						// Move the higher sorteddists forward, removing the highest item
-						for (k = numsqdists; k > j; k--) {
-							if (k < 10) {
-								sortedchrs[k] = sortedchrs[k - 1];
-								sorteddists[k] = sorteddists[k - 1];
-							}
-						}
-
-						// Write new sqdist
-						sortedchrs[j] = &g_ChrSlots[i];
-						sorteddists[j] = sqdist;
-
-						if (numsqdists < 9) {
-							numsqdists++;
-						}
-					}
+				// and out of the game until then: hidden (the host's records
+				// hide it on every client), no collisions, no harm done
+				// (chrDamage()) and nothing picked up (objTestForPickup())
+				if (!took && g_Vars.currentplayer->prop->chr) {
+					g_Vars.currentplayer->prop->chr->chrflags |= CHRCFLAG_HIDDEN;
+					propSetPerimEnabled(g_Vars.currentplayer->prop, false);
+					sysLogPrintf(LOG_NOTE, "counter-op: player %d found no guard to take (frame %d): out of the game until one comes",
+							g_Vars.currentplayernum, g_Vars.lvframenum);
 				}
 			}
-
-			// Randomly swap some of the earlier elements so the player
-			// doesn't always spawn into the closest
-			if (numsqdists > 1 && (rngRandom() % 2) == 0) {
-				tmpchr = sortedchrs[0];
-				sqdist = sorteddists[0];
-				sortedchrs[0] = sortedchrs[1];
-				sorteddists[0] = sorteddists[1];
-				sortedchrs[1] = tmpchr;
-				sorteddists[1] = sqdist;
-			}
-
-			if (numsqdists > 2 && (rngRandom() % 4) == 0) {
-				tmpchr = sortedchrs[0];
-				sqdist = sorteddists[0];
-				sortedchrs[0] = sortedchrs[2];
-				sorteddists[0] = sorteddists[2];
-				sortedchrs[2] = tmpchr;
-				sorteddists[2] = sqdist;
-			}
-
-			// Iterate sortedchrs in order and try to spawn into any of them.
-			// The spawn may fail if the chr is on-screen, and potentially in
-			// some other conditions such as the chr being too close to a wall.
-			// If no chrs can be spawned into, iterate the list again but this
-			// time allowing the spawn to happen on-screen (force = true).
-			for (i = 0; i < numsqdists; i++) {
-				if (playerSpawnAnti(sortedchrs[i], force)) {
-					break;
-				}
-
-				if (i == numsqdists - 1) {
-					i = 0;
-
-					if (force) {
-						break;
-					}
-
-					force = true;
-				}
-			}
+#endif
 
 			if (g_Vars.currentplayer->prop->chr) {
 				g_Vars.currentplayer->prop->chr->blurdrugamount = 0;
 				g_Vars.currentplayer->prop->chr->blurnumtimesdied = 0;
 			}
+
+#ifndef PLATFORM_N64
+			if (g_CoopAntiMask) {
+				g_RngSeed = rngkeep;
+			}
+#endif
 		} else {
 #ifndef PLATFORM_N64
 			if (cheatIsActive(CHEAT_CLOAKINGDEVICE)) {
@@ -1606,6 +1804,13 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 	s32 outfit;
 	bool solo;
 
+#ifndef PLATFORM_N64
+	// (online counter-op: each counter-op's own guard, coop.c)
+	if (coopIsAnti(g_Vars.currentplayer)
+			&& coopAntiGetBody(g_Vars.currentplayernum, bodynum, headnum)) {
+		return;
+	}
+#else
 	if (g_Vars.antiplayernum >= 0
 			&& g_Vars.currentplayer == g_Vars.anti
 			&& g_Vars.antiheadnum >= 0
@@ -1614,6 +1819,7 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 		*bodynum = g_Vars.antibodynum;
 		return;
 	}
+#endif
 
 #ifndef PLATFORM_N64
 	// A trial is played as whoever the player picked for it. Combat Simulator
@@ -1942,6 +2148,8 @@ void playerTickChrBody(void)
 			s32 menubody, menuhead;
 
 			if (!g_Vars.normmplayerisrunning
+					// a counter-op wears the guard it took, not Bond
+					&& !coopIsAnti(g_Vars.currentplayer)
 					&& !modGhostGetTrialCharacter(&menubody, &menuhead)
 					&& !modGhostGetMenuCharacter(&menubody, &menuhead)
 					&& gexPlusMissionBond(g_Vars.currentplayer->bondtype, &bodynum, &headnum)) {
@@ -2245,8 +2453,7 @@ void playerTickChrBody(void)
 		g_Vars.currentplayer->vv_eyeheight = (s32)g_HeadsAndBodies[bodynum].height;
 
 #if VERSION >= VERSION_NTSC_1_0
-		if (g_Vars.antiplayernum >= 0
-				&& g_Vars.currentplayer == g_Vars.anti
+		if (coopIsAnti(g_Vars.currentplayer)
 				&& g_Vars.currentplayer->vv_eyeheight > 159) {
 			g_Vars.currentplayer->vv_eyeheight = 159;
 		}
@@ -6727,6 +6934,16 @@ void playerTick(bool arg0)
 		playerBeginGeFadeIn();
 	}
 
+#ifndef PLATFORM_N64
+	// netplay: an online counter-op mission whose agents have all left the
+	// room is the counter-ops' (netcoop.c)
+	if (netCoopAgentsGone()) {
+		mainEndStage();
+	}
+
+	playerAntiRetryTick();
+#endif
+
 	// Handle mission exit on death
 	if (g_Vars.currentplayer->isdead) {
 		if (g_Vars.currentplayer->redbloodfinished == false) {
@@ -6757,7 +6974,14 @@ void playerTick(bool arg0)
 					mainEndStage();
 				}
 			} else if (g_Vars.coopplayernum >= 0) {
-				if (g_Vars.currentplayer == g_Vars.bond && coopAllDeadDone()
+				if ((g_Vars.currentplayer == g_Vars.bond
+#ifndef PLATFORM_N64
+							// online counter-op: any agent's pass - bond is
+							// a seat like any other there, and one that has
+							// left falls for ever (coop.c leaves it out)
+							|| (g_CoopAntiMask && !coopIsAnti(g_Vars.currentplayer))
+#endif
+							) && coopAllDeadDone()
 #ifndef PLATFORM_N64
 						// online: not while a death is still to come back
 						// (netcoop.c), and GoldenEye's replay of the death
@@ -7393,8 +7617,10 @@ Gfx *playerRenderHud(Gfx *gdl)
 							chr->chrflags |= CHRCFLAG_HIDDEN;
 						}
 
-						if (g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.anti) {
-							// Anti
+						if (coopIsAnti(g_Vars.currentplayer)) {
+							// Anti (online: the host reads the counter-op's
+							// own presses in its commands; a client's respawn
+							// is the host's, lv.c)
 							if (joyGetButtons(optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex), 0xb000) && !mpIsPaused()) {
 								g_Vars.currentplayer->dostartnewlife = true;
 							}
@@ -7727,9 +7953,8 @@ void playerDieByShooter(u32 shooter, bool force)
 #endif
 
 		if (g_Vars.mplayerisrunning && !keepkit &&
-				(g_Vars.antiplayernum < 0
-				 || g_Vars.currentplayernum != g_Vars.antiplayernum
-				 || shooter != g_Vars.antiplayernum)) {
+				(!coopIsAntiNum(g_Vars.currentplayernum)
+				 || shooter != g_Vars.currentplayernum)) {
 			currentPlayerDropAllItems();
 		}
 

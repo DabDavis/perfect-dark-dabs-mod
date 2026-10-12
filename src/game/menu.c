@@ -6715,7 +6715,7 @@ u32 menuChooseMusic(void)
 	}
 
 	if (g_MenuData.root == MENUROOT_MPENDSCREEN) {
-		if (g_Vars.coopplayernum >= 0) {
+		if (g_Vars.coopplayernum >= 0 && g_Vars.antiplayernum < 0) {
 			if (coopAllDead()
 					|| coopAnyAborted()
 					|| !objectiveIsAllComplete()) {
@@ -6726,7 +6726,7 @@ u32 menuChooseMusic(void)
 		}
 
 		if (g_Vars.antiplayernum >= 0) {
-			if (g_Vars.bond->isdead || g_Vars.bond->aborted || !objectiveIsAllComplete()) {
+			if (coopAgentsDead() || coopAgentsAborted() || !objectiveIsAllComplete()) {
 				return MUSIC_MISSION_FAILED;
 			}
 

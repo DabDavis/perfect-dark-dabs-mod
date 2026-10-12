@@ -19,6 +19,9 @@
 #include "geconvert.h"
 #include "game/bg.h"
 #include "game/chraction.h"
+#include "game/chr.h"
+#include "game/modalarm.h"
+#include "game/prop.h"
 #include "game/coop.h"
 #include "game/lv.h"
 #include "game/bondmove.h"
@@ -39,6 +42,7 @@
 #include "math.h"
 #include "net/net.h"
 #include "net/netsnap.h"
+#include "net/netlobby.h"
 #include "netint.h"
 
 /**
@@ -58,6 +62,18 @@
  *
  * Nothing here touches offline progress: no coop completion bit, no best
  * time, no game file save (menutick.c, endscreen.c), every mission open.
+ *
+ * Counter-op online (protocol 32, the user, 2026-10-12: "lets add
+ * counter-ops to online play for PD, GE, etc."): a room's Game "Counter-Op
+ * Mission", each player picking a side in the Game Lobby (the room's two
+ * teams: 0 the agents, 1 the counter-ops). The agents play the mission as
+ * online co-op does - bond the first agent's seat, Mission Respawn's team
+ * lives, the dead watching - and every counter-op is Perfect Dark's own
+ * (src/game/coop.c widens g_Vars.anti to a mask of players): a guard's body,
+ * gun and health, a new guard at each death for as long as there are any
+ * (A, B, Z or START), the agents' deaths its win. RULES carry the sides
+ * (the mask by player number); the host takes each counter-op's guard and
+ * the mission block takes the body to the clients.
  *
  * Block body (at netscen.c's OFF_BODY, little-endian):
  *     0  u8  tickmode             g_Vars.tickmode
@@ -101,6 +117,16 @@
  *    62  f32 credspeed            radians a 60th
  *    66  f32 credangle            where it is now
  *    70  f32 credframe            how far the roll is
+ *    74  u16 antimask             (protocol 32) the counter-ops, a bit per
+ *                                 player number (0: a co-op mission)
+ *    76  u8  antispawns[12]       each counter-op's guards taken (counts up)
+ *    88  u8  antiradius[12]       the guard's radius it took (its walk's)
+ *   100  s16 antibody[12]         the guard's body it wears, -1 none yet
+ *   124  s16 antihead[12]         and its head
+ *   148  u8  antitaken[32]        the setup chrs counter-ops have taken this
+ *                                 mission, a bit per chrnum (0-255, the
+ *                                 setup's own numbers): a client takes its
+ *                                 copy out of the world
  */
 
 #define MIS_TICKMODE  0
@@ -128,7 +154,14 @@
 #define MIS_CREDSPEED (MIS_CREDLOOK + 2)
 #define MIS_CREDANGLE (MIS_CREDSPEED + 4)
 #define MIS_CREDFRAME (MIS_CREDANGLE + 4)
-#define MIS_SIZE      (MIS_CREDFRAME + 4)
+#define MIS_ANTIMASK  (MIS_CREDFRAME + 4) // protocol 32: online counter-op
+#define MIS_ANTISPAWN (MIS_ANTIMASK + 2)
+#define MIS_ANTIRAD   (MIS_ANTISPAWN + MAX_PLAYERS)
+#define MIS_ANTIBODY  (MIS_ANTIRAD + MAX_PLAYERS)
+#define MIS_ANTIHEAD  (MIS_ANTIBODY + MAX_PLAYERS * 2)
+#define MIS_ANTITAKEN (MIS_ANTIHEAD + MAX_PLAYERS * 2)
+#define MIS_TAKENCHRS 256
+#define MIS_SIZE      (MIS_ANTITAKEN + MIS_TAKENCHRS / 8)
 
 #define MISC_LEFT     0x01 // the host backed out of the gallery
 #define MISC_ORBIT    0x02 // the credits' camera goes round its pad
@@ -155,6 +188,22 @@ extern struct warpparams *g_WarpType2Params;
 extern s32 g_WarpType2HasDirection;
 
 struct netcoopsetup g_NetCoopSetup = { 0, 0, DIFF_A, 1, 0 };
+
+// online counter-op (protocol 32)
+static s32 s_HostAnti = 0;                 // host: the mission being started or run is counter-op
+static s32 s_HostAntiNext = 0;             // host: ... the start under way is (netCoopHostStart's callers)
+static s32 s_ClientAnti = 0;               // client: RULES said counter-op
+static u16 s_ClientAntiMask = 0;           // client: ... and the sides, by player number
+static u8 s_AntiSpawnSeen[MAX_PLAYERS];    // client: the host's spawn counts taken
+static s16 s_AntiBuiltBody[MAX_PLAYERS];   // client: the body put on the player here
+static s16 s_AntiBuiltHead[MAX_PLAYERS];
+static u32 s_AntiRebuilds = 0;
+static u8 s_HostAntiTaken[MIS_TAKENCHRS / 8];   // host: the setup chrs counter-ops took, by chrnum
+static u8 s_ClientAntiTaken[MIS_TAKENCHRS / 8]; // client: ... and taken out here
+static u32 s_AntiTakenOut = 0;
+
+static void netCoopSetRoles(u32 antimask, s32 numplayers);
+static s32 netCoopPopCount(u32 bits);
 
 static s32 s_HostMatch = 0;       // host: the match H1 is starting (or running) is a co-op mission
 static u32 s_JoinNear = 0;        // host: players a join in progress took, whose next spawn is on a living one's spot
@@ -431,6 +480,11 @@ s32 netCoopRulesOk(const struct netcooprules *r)
 		return 0;
 	}
 
+	// protocol 32: counter-op is a mission's, never a cinema's
+	if (r->anti > 1 || (r->anti && r->cinema) || (!r->anti && r->antimask)) {
+		return 0;
+	}
+
 	// protocol 27: the Cinema page's cinemas are a conversion's
 	if (r->cinema > GECINEMA_NET_CREDITS || r->cinemaloop >= GECINEMA_NUM_LOOPS
 			|| (r->cinema && netCoopIsPdGame(r->game))) {
@@ -460,16 +514,20 @@ void netCoopClientApplyRules(const struct netcooprules *r)
 		g_GexPlusVariant = variant;
 	}
 
-	g_MissionConfig.iscoop = true;
-	g_MissionConfig.isanti = false;
+	g_MissionConfig.iscoop = !r->anti;
+	g_MissionConfig.isanti = r->anti ? true : false;
 	g_MissionConfig.pdmode = false;
 	g_MissionConfig.stageindex = r->stageindex;
 	g_MissionConfig.stagenum = netCoopMissionStage(r->game, r->stageindex);
 	g_MissionConfig.difficulty = r->difficulty;
 	g_Vars.coopradaron = r->radar ? true : false;
+	g_Vars.antiradaron = r->radar ? true : false;
 	g_Vars.coopfriendlyfire = r->friendlyfire ? true : false;
 	g_Vars.numaibuddies = 0;
 	s_ClientMatch = 1;
+	// protocol 32: counter-op, the sides by player number (netCoopClientStage)
+	s_ClientAnti = r->anti != 0;
+	s_ClientAntiMask = r->antimask;
 
 	// protocol 27: the host's Cinema-page cinema, which this machine plays
 	// too, following the host's mission block (the opening's and ending's
@@ -509,9 +567,23 @@ void netCoopClientApplyRules(const struct netcooprules *r)
  */
 void netCoopClientStage(void)
 {
+	s32 i;
+
 	g_Vars.bondplayernum = 0;
 	g_Vars.coopplayernum = 1;
 	g_Vars.antiplayernum = -1;
+	g_CoopAntiMask = 0;
+
+	if (s_ClientAnti) {
+		netCoopSetRoles(s_ClientAntiMask, netCoopPopCount(mpHumanSlotMask()));
+	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		s_AntiSpawnSeen[i] = 0;
+		s_AntiBuiltBody[i] = -1;
+		s_AntiBuiltHead[i] = -1;
+	}
+
 	g_Vars.numaibuddies = 0;
 	g_Vars.perfectbuddynum = 0;
 	lvSetDifficulty(g_MissionConfig.difficulty);
@@ -558,6 +630,128 @@ void netCoopModeName(s32 difficulty, char *out, s32 size)
 }
 
 /**
+ * Online counter-op: the players' parts by their sides (antimask, a bit per
+ * player number). bond is the first agent, g_Vars.anti the first counter-op;
+ * g_Vars.coop is a second agent where there is one, else the first other
+ * seat (coop.c never takes it for "the other player" while counter-ops
+ * play), so online co-op's rules stay on for the agents. A mask of every
+ * player or none is co-op: a mission needs one of each.
+ */
+static void netCoopSetRoles(u32 antimask, s32 numplayers)
+{
+	const u32 all = numplayers >= 32 ? 0xffffffffu : (1u << numplayers) - 1;
+	s32 i;
+
+	antimask &= all;
+
+	g_Vars.bondplayernum = 0;
+	g_Vars.coopplayernum = 1;
+	g_Vars.antiplayernum = -1;
+	g_CoopAntiMask = 0;
+
+	if (antimask == 0 || antimask == all) {
+		if (antimask) {
+			sysLogPrintf(LOG_WARNING, "net: counter-op: every player is a counter-op (mask 0x%x): played as co-op", antimask);
+		}
+
+		return;
+	}
+
+	g_Vars.bondplayernum = -1;
+	g_Vars.coopplayernum = -1;
+
+	for (i = 0; i < numplayers && i < MAX_PLAYERS; i++) {
+		if (antimask & (1u << i)) {
+			if (g_Vars.antiplayernum < 0) {
+				g_Vars.antiplayernum = i;
+			}
+		} else if (g_Vars.bondplayernum < 0) {
+			g_Vars.bondplayernum = i;
+		} else if (g_Vars.coopplayernum < 0) {
+			g_Vars.coopplayernum = i;
+		}
+	}
+
+	if (g_Vars.coopplayernum < 0) {
+		// one agent: the coop slot is a counter-op's seat (coop.c's
+		// questions leave it out by the mask)
+		g_Vars.coopplayernum = g_Vars.bondplayernum == 0 ? 1 : 0;
+	}
+
+	g_CoopAntiMask = antimask;
+	coopAntiResetBodies();
+	memset(s_HostAntiTaken, 0, sizeof(s_HostAntiTaken));
+	memset(s_ClientAntiTaken, 0, sizeof(s_ClientAntiTaken));
+
+	sysLogPrintf(LOG_NOTE, "net: counter-op: %d players, counter-ops 0x%03x: bond is player %d, anti %d, coop %d",
+			numplayers, antimask, g_Vars.bondplayernum, g_Vars.antiplayernum, g_Vars.coopplayernum);
+}
+
+static s32 netCoopPopCount(u32 bits)
+{
+	s32 n = 0;
+
+	for (; bits; bits &= bits - 1) {
+		n++;
+	}
+
+	return n;
+}
+
+/**
+ * netsession.c H1 (netHostMatchStarting), the seats made and before RULES
+ * go: a counter-op mission's sides. Player k is the k-th seat in play; it
+ * is a counter-op when a member holds the seat (taken: occupied) and its
+ * team is the room's second (the launch put each member's room team on its
+ * slot, netlobby.c). An open seat is an agent's, out of play until a join.
+ * --net-test-anti MASK: those seats' (by slot) in a --host session.
+ */
+void netCoopHostSides(u32 bits, u32 occupied)
+{
+	const s32 testmask = sysArgGetInt("--net-test-anti", -1);
+	u32 antimask = 0;
+	s32 k = 0;
+	s32 slot;
+
+	if (g_NetMode != NETMODE_SERVER || !s_HostMatch || !s_HostAnti) {
+		return;
+	}
+
+	for (slot = 0; slot < MAX_PLAYERS; slot++) {
+		if (!(bits & (1u << slot))) {
+			continue;
+		}
+
+		if (testmask >= 0 ? ((u32)testmask & (1u << slot)) != 0
+				: (occupied & (1u << slot)) && (g_PlayerConfigsArray[slot].base.team & 7) == 1) {
+			antimask |= 1u << k;
+		}
+
+		k++;
+	}
+
+	netCoopSetRoles(antimask, k);
+
+	if (g_Vars.antiplayernum < 0) {
+		// nobody on the counter-ops' side: the room plays co-op
+		s_HostAnti = 0;
+		g_MissionConfig.iscoop = true;
+		g_MissionConfig.isanti = false;
+		sysLogPrintf(LOG_NOTE, "net: counter-op: no seat is a counter-op's; the mission is played co-op");
+	}
+}
+
+s32 netCoopHostAnti(void)
+{
+	return s_HostMatch && s_HostAnti;
+}
+
+u16 netCoopHostAntiMask(void)
+{
+	return netCoopHostAnti() ? (u16)g_CoopAntiMask : 0;
+}
+
+/**
  * The host starts a co-op mission for the session (a lobby room's launch,
  * the Carrington Institute's Accept Mission in a --host session, a gate's
  * --net-test-coop): what menuhandlerAcceptMission does for a human buddy,
@@ -588,6 +782,10 @@ s32 netCoopHostStart(const char *game, s32 stageindex, s32 difficulty, s32 radar
 
 	snprintf(s_HostGame, sizeof(s_HostGame), "%s", game);
 
+	// online counter-op: the room's (or the test's); the sides at H1
+	s_HostAnti = s_HostAntiNext;
+	s_HostAntiNext = 0;
+
 	// the Cinema page's start (netCoopAcceptMission) or a mission's
 	s_HostCine = s_HostCineNext;
 	memset(&s_HostCineNext, 0, sizeof(s_HostCineNext));
@@ -598,8 +796,8 @@ s32 netCoopHostStart(const char *game, s32 stageindex, s32 difficulty, s32 radar
 		g_GexPlusVariant = variant;
 	}
 
-	g_MissionConfig.iscoop = true;
-	g_MissionConfig.isanti = false;
+	g_MissionConfig.iscoop = !s_HostAnti;
+	g_MissionConfig.isanti = s_HostAnti ? true : false;
 	// a campaign's host keeps what its folder set (GoldenEye's 007 is
 	// Perfect Dark's PD Mode with its sliders): the host runs the simulation
 	if (!s_Campaign.on) {
@@ -609,12 +807,14 @@ s32 netCoopHostStart(const char *game, s32 stageindex, s32 difficulty, s32 radar
 	g_MissionConfig.stagenum = stagenum;
 	g_MissionConfig.difficulty = difficulty;
 	g_Vars.coopradaron = radar ? true : false;
+	g_Vars.antiradaron = radar ? true : false;
 	g_Vars.coopfriendlyfire = friendlyfire ? true : false;
 	g_Vars.numaibuddies = 0;
 	g_Vars.bondplayernum = 0;
 	g_Vars.coopplayernum = 1;
 	g_Vars.antiplayernum = -1;
 	g_Vars.perfectbuddynum = 0;
+	g_CoopAntiMask = 0;
 
 	if (g_Vars.stagenum == stagenum) {
 		g_Vars.restartlevel = true;
@@ -641,9 +841,10 @@ s32 netCoopHostStart(const char *game, s32 stageindex, s32 difficulty, s32 radar
 		char name[48];
 		char diff[32];
 
-		sysLogPrintf(LOG_NOTE, "net: co-op: starting %s (%s, index %d, stage 0x%02x) on %s with %d players, radar %d, friendly fire %d",
+		sysLogPrintf(LOG_NOTE, "net: co-op: starting %s (%s, index %d, stage 0x%02x) on %s with %d players, radar %d, friendly fire %d%s",
 				netCoopClean(netCoopMissionNameOf(game, stageindex), name, sizeof(name)), netCoopGameName(game), stageindex, stagenum,
-				netCoopClean(netCoopDifficultyName(difficulty), diff, sizeof(diff)), numplayers, radar, friendlyfire);
+				netCoopClean(netCoopDifficultyName(difficulty), diff, sizeof(diff)), numplayers, radar, friendlyfire,
+				s_HostAnti ? ", counter-op" : "");
 	}
 
 	return 1;
@@ -829,6 +1030,12 @@ s32 netCoopCampaignAfterMatch(void)
 // --net-test-coop INDEX (with --net-test-difficulty, --net-test-coop-ff,
 // --net-test-coop-game TAG: a conversion's set, protocol 14): the gates'
 // mission in place of a match; -1 when not asked for
+// a lobby room's (netsession.c) or a resumed one's (netmigrate.c) start is counter-op
+void netCoopHostNextAnti(s32 anti)
+{
+	s_HostAntiNext = anti ? 1 : 0;
+}
+
 s32 netCoopTestStart(void)
 {
 	const s32 index = sysArgGetInt("--net-test-coop", -1);
@@ -837,6 +1044,9 @@ s32 netCoopTestStart(void)
 	if (index < 0) {
 		return 0;
 	}
+
+	// --net-test-anti MASK: counter-op, those slots' players the counter-ops
+	s_HostAntiNext = sysArgGetInt("--net-test-anti", -1) >= 0;
 
 	return netCoopHostStart(game ? game : "", index, sysArgGetInt("--net-test-difficulty", DIFF_A), 1, sysArgCheck("--net-test-coop-ff"));
 }
@@ -981,6 +1191,10 @@ void netCoopMatchStopped(void)
 	memset(&s_ClientCine, 0, sizeof(s_ClientCine));
 
 	s_HostMatch = 0;
+	s_HostAnti = 0;
+	s_ClientAnti = 0;
+	s_ClientAntiMask = 0;
+	g_CoopAntiMask = 0;
 	s_JoinNear = 0;
 	s_StackValid = 0;
 	s_HostGame[0] = '\0';
@@ -1074,6 +1288,141 @@ static s32 netCoopStackable(s32 bn, s32 pn)
  * passed over for one walking on the ground. A death later respawns the
  * mission's way.
  */
+/**
+ * Online counter-op: a join in progress plays the side its room team says
+ * (the Game Lobby's; the seat's old player's is not its). --net-test-anti's
+ * slot mask in a --host session. The mission block takes it to everyone.
+ */
+void netCoopHostLateSide(s32 playernum, const char *account)
+{
+	const s32 testmask = sysArgGetInt("--net-test-anti", -1);
+	s32 anti;
+
+	if (!netCoopHostAnti() || playernum < 0 || playernum >= MAX_PLAYERS) {
+		return;
+	}
+
+	if (testmask >= 0) {
+		anti = ((u32)testmask >> (g_Vars.playerstats[playernum].mpindex % MAX_PLAYERS)) & 1;
+	} else {
+		anti = netLobbyMemberTeam(account) == 1;
+	}
+
+	if (anti) {
+		g_CoopAntiMask |= 1u << playernum;
+	} else {
+		g_CoopAntiMask &= ~(1u << playernum);
+	}
+
+	// never every player: the agents' side is the mission's
+	if (g_CoopAntiMask == ((1u << PLAYERCOUNT()) - 1)) {
+		g_CoopAntiMask &= ~(1u << playernum);
+		anti = 0;
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: counter-op: player %d (\"%s\") joins as %s (counter-ops 0x%03x)",
+			playernum, account ? account : "", anti ? "a counter-op" : "an agent", g_CoopAntiMask);
+}
+
+/**
+ * playerSpawnAnti, the host: a counter-op takes this guard, which goes from
+ * the world next. A setup chr's copy on every client is that machine's own
+ * (mapped by its setup command, posed from the host's records), and a record
+ * that stops coming leaves it standing where it was: the mission block's
+ * bitset of the setup chrs taken takes it out on each client, a join in
+ * progress's too. A chr spawned at run time is a puppet of the client's
+ * making, freed when its id leaves the snapshots.
+ */
+void netCoopAntiTookChr(struct prop *prop)
+{
+	s32 chrnum;
+
+	if (g_NetMode != NETMODE_SERVER || !netCoopHostAnti() || !prop || !prop->chr) {
+		return;
+	}
+
+	// a setup chr: the stage's load (the first guards are taken there,
+	// before the entity table is made), or a setup command's chr since;
+	// by its setup chrnum, the same on every machine
+	chrnum = prop->chr->chrnum;
+
+	if (g_Vars.lvframenum > 0 && netEntsSetupCmdOf(prop - g_Vars.props) < 0) {
+		// one spawned at run time (Guards Alerted!, a mission's
+		// reinforcements): the clients' copy goes with its record
+		sysLogPrintf(LOG_NOTE, "net: counter-op: player %d takes chr %d (spawned%s) at tick %u",
+				g_Vars.currentplayernum, chrnum, modAlarmIsGuard(prop->chr) ? ", Guards Alerted!" : "", g_NetTick);
+		return;
+	}
+
+	if (chrnum < 0 || chrnum >= MIS_TAKENCHRS) {
+		sysLogPrintf(LOG_WARNING, "net: counter-op: the guard taken is chr %d, past the %d the block names: clients keep their copy",
+				chrnum, MIS_TAKENCHRS);
+		return;
+	}
+
+	s_HostAntiTaken[chrnum >> 3] |= 1 << (chrnum & 7);
+	sysLogPrintf(LOG_NOTE, "net: counter-op: player %d takes setup chr %d at tick %u (frame %d)",
+			g_Vars.currentplayernum, chrnum, g_NetTick, g_Vars.lvframenum);
+}
+
+// the client: the setup chrs the host's counter-ops took, out of the world
+// here as playerSpawnAnti takes the host's
+static void netCoopApplyAntiTaken(const u8 *body)
+{
+	s32 i;
+
+	for (i = 0; i < MIS_TAKENCHRS; i++) {
+		struct chrdata *chr;
+		struct prop *prop;
+
+		if (!(body[MIS_ANTITAKEN + (i >> 3)] & (1 << (i & 7))) || (s_ClientAntiTaken[i >> 3] & (1 << (i & 7)))) {
+			continue;
+		}
+
+		s_ClientAntiTaken[i >> 3] |= 1 << (i & 7);
+		chr = chrFindByLiteralId(i);
+		prop = chr ? chr->prop : NULL;
+
+		if (!prop || prop->type != PROPTYPE_CHR || prop->chr != chr) {
+			continue;
+		}
+
+		chrRemove(prop, true);
+		propDeregisterRooms(prop);
+		propDelist(prop);
+		propDisable(prop);
+		propFree(prop);
+		s_AntiTakenOut++;
+		sysLogPrintf(LOG_NOTE, "net: counter-op client: setup chr %d taken by a counter-op: out of the world here (tick %u)", i, g_NetTick);
+	}
+}
+
+s32 netCoopAgentsGone(void)
+{
+	static s32 s_GoneFrame = -1;
+	s32 i;
+
+	if (g_NetMode != NETMODE_SERVER || !netCoopHostAnti() || g_MainIsEndscreen || g_Vars.lvframenum < TICKS(120)
+			|| g_Vars.tickmode != TICKMODE_NORMAL) {
+		return 0;
+	}
+
+	for (i = 0; i < PLAYERCOUNT() && i < MAX_PLAYERS; i++) {
+		if (g_Vars.players[i] && !coopIsAntiNum(i) && !netPlayerOutOfPlay(i)) {
+			return 0;
+		}
+	}
+
+	if (s_GoneFrame == g_Vars.lvframenum) {
+		return 0;
+	}
+
+	s_GoneFrame = g_Vars.lvframenum;
+	sysLogPrintf(LOG_NOTE, "net: counter-op: no agent is left in the room: the mission is the counter-ops' (tick %u)", g_NetTick);
+
+	return 1;
+}
+
 void netCoopHostLateJoin(s32 playernum)
 {
 	if (s_HostMatch && playernum >= 0 && playernum < MAX_PLAYERS) {
@@ -1193,6 +1542,28 @@ void netCoopCapture(u8 *body)
 	put32(body + MIS_FADECOL, s_HostFadeColour);
 	put16(body + MIS_FADELEN, (u16)s_HostFadeFrames);
 
+	// online counter-op (protocol 32): the sides, and each counter-op's guard
+	put16(body + MIS_ANTIMASK, netCoopHostAntiMask());
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		s32 antibody = -1;
+		s32 antihead = -1;
+		const f32 radius = coopAntiRadius(i);
+
+		if (!coopIsAntiNum(i) || !coopAntiGetBody(i, &antibody, &antihead)) {
+			antibody = antihead = -1;
+		}
+
+		body[MIS_ANTISPAWN + i] = (u8)coopAntiSpawnCount(i);
+		body[MIS_ANTIRAD + i] = (u8)(radius < 0 ? 0 : radius > 255 ? 255 : radius);
+		put16(body + MIS_ANTIBODY + i * 2, (u16)(s16)antibody);
+		put16(body + MIS_ANTIHEAD + i * 2, (u16)(s16)antihead);
+	}
+
+	if (netCoopHostAnti()) {
+		memcpy(body + MIS_ANTITAKEN, s_HostAntiTaken, sizeof(s_HostAntiTaken));
+	}
+
 	// the Cinema page's cinema the room watches (protocol 27)
 	if (s_HostMatch && s_HostCine.kind) {
 		u8 cflags = 0;
@@ -1287,7 +1658,10 @@ s32 netCoopDeathRespawns(void)
 	s32 due;
 
 	if (g_NetMode != NETMODE_SERVER || !s_HostMatch || g_Vars.normmplayerisrunning || g_Vars.coopplayernum < 0
-			|| pn < 0 || pn >= MAX_PLAYERS || netSessionVacating() || netPlayerOutOfPlay(pn)) {
+			|| pn < 0 || pn >= MAX_PLAYERS || netSessionVacating() || netPlayerOutOfPlay(pn)
+			// a counter-op comes back by its own rule, a new guard at a press
+			// (player.c), and spends none of the agents' lives
+			|| coopIsAntiNum(pn)) {
 		return 0;
 	}
 
@@ -1369,6 +1743,9 @@ void netCoopPlayerDied(s32 playernum)
 {
 	if (g_NetMode != NETMODE_SERVER || !s_HostMatch || g_Vars.normmplayerisrunning || g_Vars.coopplayernum < 0
 			|| playernum < 0 || playernum >= MAX_PLAYERS || netSessionVacating() || netPlayerOutOfPlay(playernum)
+			// online counter-op: the agents' deaths lose it (coopAllDead()
+			// asks the agents alone), a counter-op's never
+			|| coopIsAntiNum(playernum)
 			|| !coopAllDead() || netCoopAnyRespawnDue()) {
 		return;
 	}
@@ -1405,6 +1782,76 @@ s32 netCoopReplaysDeath(s32 playernum)
 /*
  * The block: client
  */
+
+/**
+ * Online counter-op (protocol 32): the sides as the host has them (a join in
+ * progress may have changed a seat's), and each counter-op in the guard the
+ * host put it in - its body built here when it changes (this machine's own
+ * player too, once its new life is here: the next local block is then taken
+ * outright, the body's build having put the prop on the ground), its walk's
+ * radius the guard's at each new guard
+ */
+static void netCoopApplyAnti(const u8 *body)
+{
+	const u16 mask = get16(body + MIS_ANTIMASK);
+	s32 i;
+
+	if (!s_ClientAnti || mask == 0) {
+		return;
+	}
+
+	netCoopApplyAntiTaken(body);
+
+	if (mask != g_CoopAntiMask) {
+		sysLogPrintf(LOG_NOTE, "net: counter-op client: the counter-ops are 0x%03x (were 0x%03x, tick %u)", mask, g_CoopAntiMask, g_NetTick);
+		g_CoopAntiMask = mask;
+	}
+
+	for (i = 0; i < PLAYERCOUNT() && i < MAX_PLAYERS; i++) {
+		struct player *p = g_Vars.players[i];
+		const s32 bodynum = gets16(body + MIS_ANTIBODY + i * 2);
+		const s32 headnum = gets16(body + MIS_ANTIHEAD + i * 2);
+		const u8 spawns = body[MIS_ANTISPAWN + i];
+
+		if (!p || !p->prop || !p->prop->chr || !(mask & (1u << i)) || bodynum < 0 || headnum < 0) {
+			continue;
+		}
+
+		coopAntiSetBody(i, bodynum, headnum);
+
+		if (p->isdead) {
+			continue;
+		}
+
+		if (bodynum != s_AntiBuiltBody[i] || headnum != s_AntiBuiltHead[i]) {
+			s_AntiBuiltBody[i] = bodynum;
+			s_AntiBuiltHead[i] = headnum;
+			s_AntiRebuilds++;
+			netPupRebuildPlayerBody(i);
+
+			if (i == g_NetLocalSlot) {
+				netPredictForceSnap();
+			}
+
+			sysLogPrintf(LOG_NOTE, "net: counter-op client: player %d in a guard's body %d head %d (spawn %d, tick %u)",
+					i, bodynum, headnum, spawns, g_NetTick);
+		}
+
+		if (spawns != s_AntiSpawnSeen[i]) {
+			const f32 radius = body[MIS_ANTIRAD + i];
+
+			s_AntiSpawnSeen[i] = spawns;
+
+			if (radius > 0 && p->prop->chr) {
+				p->prop->chr->radius = radius;
+
+				if (i == g_NetLocalSlot) {
+					p->bond2.radius = radius;
+				}
+			}
+		}
+	}
+}
 
 s32 netCoopBlockOk(const u8 *body)
 {
@@ -1673,6 +2120,7 @@ void netCoopApply(const u8 *body)
 	}
 
 	netCoopApplyLost(body);
+	netCoopApplyAnti(body);
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		struct player *p = g_Vars.players[i];

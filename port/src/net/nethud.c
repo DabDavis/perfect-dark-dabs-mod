@@ -14,6 +14,7 @@
 #include "system.h"
 #include "input.h"
 #include "lib/vi.h"
+#include "game/coop.h"
 #include "game/game_1531a0.h"
 #include "game/mplayer/setup.h"
 #include "game/menu.h"
@@ -791,6 +792,12 @@ static s32 netHudTagPlayerOf(struct prop *prop)
 	}
 
 	if ((chr->hidden & CHRHFLAG_CLOAKED) && !USINGDEVICE(DEVICE_IRSCANNER)) {
+		return -1;
+	}
+
+	// online counter-op: a counter-op is a guard to the agents, and named
+	// only to its own side
+	if (g_Vars.antiplayernum >= 0 && coopIsAntiNum(pn) != coopIsAntiNum(g_Vars.currentplayernum)) {
 		return -1;
 	}
 

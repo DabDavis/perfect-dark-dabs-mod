@@ -52,6 +52,7 @@
 #include "langpack.h"
 #include "lib/main.h"
 #include "lib/rng.h"
+#include "game/coop.h"
 #include "game/playermgr.h"
 #include "game/player.h"
 #include "game/modghost.h"
@@ -14475,7 +14476,9 @@ static s32 gebeanPlayerWearsGlove(void)
 	// Bond on a converted mission, as player.c dresses the player there:
 	// playerChooseBodyAndHead() answers Joanna, whose hands the watch's
 	// sleeve and the first person hands take their own way
+	// (a counter-op online wears its guard's)
 	if (!g_Vars.normmplayerisrunning
+			&& !coopIsAnti(g_Vars.currentplayer)
 			&& !modGhostGetTrialCharacter(&bodynum, &headnum)
 			&& !modGhostGetMenuCharacter(&bodynum, &headnum)
 			&& gexPlusMissionBond(g_Vars.currentplayer->bondtype, &bodynum, &headnum)) {

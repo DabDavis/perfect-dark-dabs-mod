@@ -193,7 +193,14 @@
 //    block's byte 202 (was 0) holds the player's cloaks on (NETLPDEV_*: the
 //    RC-P120's, the Cloaking Device), the host's word over the client's;
 //    and DEATH ends in a u8 weapon (the kill feed, killfeed.c)
-#define NET_PROTOCOL_VERSION 31
+// 32 (counter-op online, 2026-10-12: CLAUDE-notes/netplay.md "Counter-op
+//    online"): RULES' mission block ends in u8 anti (a counter-op mission)
+//    and u16 antimask (its counter-ops, a bit per player number); SNAP's
+//    mission block grows by 74 bytes at 74: u16 antimask (the sides now: a
+//    join in progress takes its room team's), u8 antispawns[12] (each
+//    counter-op's guards taken), u8 antiradius[12] (the guard's radius),
+//    s16 antibody[12], s16 antihead[12] (the guard's body and head it wears)
+#define NET_PROTOCOL_VERSION 32
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -441,6 +448,12 @@
  *                                 (Cuba); a conversion's set only
  *     u8 cinemaloop               its Loop row (0 off, 1 level, 2 all)
  *     u8 cinemaminutes            and its Time row (Loop All's minutes)
+ *     u8 anti                     (protocol 32) 1: a counter-op mission (the
+ *                                 room's Game "Counter-Op Mission"); never
+ *                                 with a cinema
+ *     u16 antimask                its counter-ops, a bit per player number
+ *                                 (0 unless anti; every player or none is
+ *                                 played as co-op)
  *   content block (protocol 13; netcontent.c):
  *     str(127) mod, u64 modhash   as ACCEPT's (checked again at H3)
  *     str(15) gevariant           the GoldenEye ROM hack whose mode the

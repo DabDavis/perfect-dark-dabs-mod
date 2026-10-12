@@ -303,7 +303,9 @@ char *endscreenMenuTextMissionStatus(struct menuitem *item)
 		return langGet(L_MPWEAPONS_135); // "Cheated"
 	}
 
-	if (g_Vars.coopplayernum >= 0) {
+	// (online counter-op: the agents are co-op beside the counter-ops,
+	// and each side has the counter-op mission's answer, coop.c)
+	if (g_Vars.coopplayernum >= 0 && g_Vars.antiplayernum < 0) {
 		if (coopAnyAborted()) {
 			return langGet(L_OPTIONS_295); // "Aborted"
 		}
@@ -312,24 +314,24 @@ char *endscreenMenuTextMissionStatus(struct menuitem *item)
 			return langGet(L_OPTIONS_293); // "Failed"
 		}
 	} else if (g_Vars.antiplayernum >= 0) {
-		if (g_Vars.currentplayer == g_Vars.bond) {
-			if (g_Vars.bond->aborted) {
+		if (!coopIsAnti(g_Vars.currentplayer)) {
+			if (coopAgentsAborted()) {
 				return langGet(L_OPTIONS_295); // "Aborted"
 			}
 
-			if (g_Vars.anti->aborted) {
+			if (coopAntisAborted()) {
 				return langGet(L_OPTIONS_295); // "Aborted"
 			}
 
-			if (g_Vars.bond->isdead) {
+			if (coopAgentsDead()) {
 				return langGet(L_OPTIONS_293); // "Failed"
 			}
 		} else {
-			if (g_Vars.anti->aborted) {
+			if (coopAntisAborted()) {
 				return langGet(L_OPTIONS_295); // "Aborted"
 			}
 
-			if (!g_Vars.bond->aborted && !g_Vars.bond->isdead) {
+			if (!coopAgentsAborted() && !coopAgentsDead()) {
 				return langGet(L_OPTIONS_293); // "Failed"
 			}
 		}
@@ -1799,11 +1801,11 @@ void endscreenPushAnti(void)
 
 	g_Menus[g_MpPlayerNum].playernum = g_Vars.currentplayernum;
 
-	if (g_Vars.currentplayer == g_Vars.bond) {
+	if (!coopIsAnti(g_Vars.currentplayer)) {
 #if VERSION >= VERSION_NTSC_1_0 && defined(DEBUG)
-		if (!g_Vars.anti->aborted && (g_Vars.bond->isdead || g_Vars.bond->aborted || !objectiveIsAllComplete()) && !debugIsSetCompleteEnabled())
+		if (!coopAntisAborted() && (coopAgentsDead() || coopAgentsAborted() || !objectiveIsAllComplete()) && !debugIsSetCompleteEnabled())
 #else
-		if (!g_Vars.anti->aborted && (g_Vars.bond->isdead || g_Vars.bond->aborted || !objectiveIsAllComplete()))
+		if (!coopAntisAborted() && (coopAgentsDead() || coopAgentsAborted() || !objectiveIsAllComplete()))
 #endif
 		{
 			// Bond - failed or aborted
@@ -1821,12 +1823,16 @@ void endscreenPushAnti(void)
 			}
 		}
 
+#ifndef PLATFORM_N64
+		// netplay: an online mission never writes offline progress
+		if (g_NetMode == NETMODE_NONE)
+#endif
 		filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_SAVE_GAME_000, 0);
 	} else {
 #if VERSION >= VERSION_NTSC_1_0 && defined(DEBUG)
-		if (!g_Vars.anti->aborted && (g_Vars.bond->isdead || g_Vars.bond->aborted || !objectiveIsAllComplete()) && !debugIsSetCompleteEnabled())
+		if (!coopAntisAborted() && (coopAgentsDead() || coopAgentsAborted() || !objectiveIsAllComplete()) && !debugIsSetCompleteEnabled())
 #else
-		if (!g_Vars.anti->aborted && (g_Vars.bond->isdead || g_Vars.bond->aborted || !objectiveIsAllComplete()))
+		if (!coopAntisAborted() && (coopAgentsDead() || coopAgentsAborted() || !objectiveIsAllComplete()))
 #endif
 		{
 			// Anti - completed

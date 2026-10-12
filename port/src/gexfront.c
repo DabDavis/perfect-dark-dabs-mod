@@ -4260,6 +4260,12 @@ s32 gexFrontNetMissionReport(void)
 	aborted = coopAnyAborted();
 	completed = !aborted && !coopAllDead() && objectiveIsAllComplete();
 
+	// online counter-op: a counter-op's mission is the agents' undone
+	// (their every death, or the objectives not met when it ended)
+	if (coopIsAnti(player)) {
+		completed = !aborted && !completed;
+	}
+
 	frontKeepReport(player, !completed && !aborted && player->isdead, aborted, completed, difficulty);
 	g_FrontReport.net = 1;
 	g_FrontReport.variant = g_GexPlusVariant;

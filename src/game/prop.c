@@ -5,6 +5,7 @@
 #include "constants.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
+#include "game/coop.h"
 #include "game/bondwalk.h"
 #include "game/chraction.h"
 #include "game/dlights.h"
@@ -2817,7 +2818,7 @@ void propsTestForPickup(void)
 
 	if (g_Vars.currentplayer->bondmovemode != MOVEMODE_CUTSCENE
 			&& !g_PlayerInvincible
-			&& g_Vars.currentplayer != g_Vars.anti) {
+			&& !coopIsAnti(g_Vars.currentplayer)) {
 		roomsCopy(g_Vars.currentplayer->prop->rooms, allrooms);
 
 		for (i = 0; g_Vars.currentplayer->prop->rooms[i] != -1; i++) {

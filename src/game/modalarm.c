@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "math.h"
+#include "game/coop.h"
 #include "game/body.h"
 #include "game/chr.h"
 #include "game/chraction.h"
@@ -2045,7 +2046,10 @@ static s32 modAlarmNearestPlayer(struct coord *pos, f32 *dist)
 		f32 zdiff;
 		f32 sqdist;
 
-		if (player == NULL || player->prop == NULL || player->isdead) {
+		// a counter-op is the guards' own side: they come for the agents,
+		// and a guard made watching a counter-op (its p1p2, modAlarmArm())
+		// hunted it
+		if (player == NULL || player->prop == NULL || player->isdead || coopIsAntiNum(i)) {
 			continue;
 		}
 

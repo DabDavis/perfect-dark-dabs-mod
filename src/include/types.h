@@ -1453,6 +1453,9 @@ struct chrdata {
 	// The level time a converted mission's chr last had its target player
 	// chosen again past two co-op players (coopRetarget(), coop.c)
 	s32 coopretarget60;
+	// Online counter-op: a bit per agent whose view has the chr on screen
+	// (CHRHFLAG_ONBONDSSCREEN is any agent's: coopNoteChrOnScreen())
+	u16 coopagentseen;
 #endif
 };
 

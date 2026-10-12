@@ -284,8 +284,15 @@ struct netcooprules {
 	u8 cinema;        // protocol 27: GECINEMA_NET_* - the Cinema page's opening, ending or credits, 0 a mission
 	u8 cinemaloop;    // its Loop row (GECINEMA_LOOP_*), an opening's
 	u8 cinemaminutes; // and its Time row (Loop All's minutes a level)
+	u8 anti;          // protocol 32: a counter-op mission (Game "Counter-Op Mission")
+	u16 antimask;     // ... the counter-ops, a bit per player number
 };
 s32 netCoopHostMatch(void);                 // host: the match being started/run is a co-op mission
+s32 netCoopHostAnti(void);                  // host: ... and counter-op (protocol 32)
+u16 netCoopHostAntiMask(void);              // host: its counter-ops, a bit per player number
+void netCoopHostSides(u32 bits, u32 occupied); // H1: the seats in play (slots) and those a member holds: the sides
+void netCoopHostNextAnti(s32 anti);
+void netPupRebuildPlayerBody(s32 playernum); // netpuppets.c: a counter-op's new guard's body, built here         // the start under way is a counter-op mission (lobby room, migration)
 void netCoopHostCinema(u8 *kind, u8 *loop, u8 *minutes); // host: ... and the Cinema page's cinema it is (protocol 27)
 const char *netCoopHostGame(void);          // host: its mission's set tag ("" Perfect Dark's)
 s32 netCoopCampaignOpen(const char *game, s32 radar, s32 friendlyfire); // host: a campaign room's launch
@@ -295,7 +302,8 @@ void netCoopClientStage(void);              // H3's tail on a client
 s32 netRulesCoopOn(void);                   // client: the RULES received say a mission
 s32 netCoopTestStart(void);                 // --net-test-coop: 1 started
 void netCoopMatchStopped(void);             // H12
-void netCoopHostLateJoin(s32 playernum);    // host: a join in progress takes this player; its next spawn is beside a living one
+void netCoopHostLateJoin(s32 playernum);
+void netCoopHostLateSide(s32 playernum, const char *account); // counter-op: a join in progress plays its room team's side    // host: a join in progress takes this player; its next spawn is beside a living one
 void netCoopCapture(u8 *body);              // host: the mission block's body (netscen.c's OFF_BODY)
 s32 netCoopBlockOk(const u8 *body);
 void netCoopApply(const u8 *body);          // client, in tick order with the events

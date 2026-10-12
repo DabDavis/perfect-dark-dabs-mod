@@ -10,6 +10,7 @@
 #include "game/menu.h"
 #include "game/filelist.h"
 #include "game/mainmenu.h"
+#include "game/coop.h"
 #include "game/endscreen.h"
 #include "game/playermgr.h"
 #include "game/lv.h"
@@ -656,7 +657,8 @@ void menuTick(void)
 						}
 
 						if (playernum >= 0) {
-							if (g_Vars.coopplayernum >= 0) {
+							// (online counter-op: a counter-op's is anti's)
+							if (g_Vars.coopplayernum >= 0 && !coopIsAntiNum(playernum)) {
 								s32 prevplayernum = g_Vars.currentplayernum;
 								setCurrentPlayerNum(playernum);
 								endscreenPushCoop();
@@ -760,7 +762,7 @@ void menuTick(void)
 							// netplay: another machine's player has its end screen there
 						} else
 #endif
-						if (g_Vars.coopplayernum >= 0) {
+						if (g_Vars.coopplayernum >= 0 && !coopIsAntiNum(playernum)) {
 							if (g_Vars.stagenum == STAGE_DEEPSEA
 #ifndef PLATFORM_N64
 									&& g_NetMode == NETMODE_NONE // online: the end screen, like any mission

@@ -1691,6 +1691,19 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 
 	mpSetHumanSlotMask(bits);
 
+	// online counter-op (protocol 32): the players' sides, before RULES go
+	{
+		u32 occupied = 0;
+
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			if (s_Seats[i].state == NETSEAT_HOST || s_Seats[i].state == NETSEAT_TAKEN || s_Seats[i].state == NETSEAT_HELD) {
+				occupied |= 1u << i;
+			}
+		}
+
+		netCoopHostSides((u32)bits, occupied);
+	}
+
 	s_MatchId++;
 	s_MatchIdCur = s_MatchId;
 
@@ -2538,7 +2551,9 @@ static void netHostLateGo(s32 peer)
 
 		if (pn >= 0 && g_Vars.players[pn]->isdead) {
 			// back into play at the next respawn point (a co-op mission's:
-			// beside a living player, netCoopJoinSpawn)
+			// beside a living player, netCoopJoinSpawn; a counter-op
+			// mission's on the joiner's side, netcoop.c)
+			netCoopHostLateSide(pn, c->name);
 			netCoopHostLateJoin(pn);
 			g_Vars.players[pn]->dostartnewlife = true;
 		}
@@ -5897,6 +5912,8 @@ void netSessionLobbyStartMatch(void)
 	if (g_NetCoopSetup.on) {
 		sysLogPrintf(LOG_NOTE, "net: lobby: starting the room's co-op mission %d of %s, %d clients", g_NetCoopSetup.stageindex,
 				netCoopGameName(g_NetCoopSetup.game), netSessionHostNumClients());
+		// (a counter-op room's: the members' room teams their sides, netcoop.c)
+		netCoopHostNextAnti(g_NetCoopSetup.anti && !g_NetCoopSetup.campaign);
 		netCoopHostStart(g_NetCoopSetup.game, g_NetCoopSetup.stageindex, g_NetCoopSetup.difficulty, g_NetCoopSetup.radar, g_NetCoopSetup.friendlyfire);
 		menuStop();
 		return;

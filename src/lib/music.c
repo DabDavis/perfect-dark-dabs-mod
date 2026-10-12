@@ -1063,7 +1063,7 @@ void musicTick(void)
 	if (!g_SndDisabled) {
 		if (g_MusicDeathTimer240 > 0
 				&& (g_Vars.normmplayerisrunning
-					|| (g_Vars.antiplayernum >= 0 && !g_Vars.bond->isdead)
+					|| (g_Vars.antiplayernum >= 0 && !coopAgentsDead())
 					|| (g_Vars.coopplayernum >= 0 && !coopAllDead()))) {
 			// Someone is dying in MP, or anti is dying, or *one* person is dying in coop
 			g_MusicSilenceTimer60 = 0;

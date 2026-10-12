@@ -432,12 +432,20 @@ struct netcoopsetup {
 	s32 friendlyfire;
 	char game[16];    // the set: "" Perfect Dark's, else a conversion's tag ("ge", "gf64", "tnd64": protocol 14)
 	s32 campaign;     // the host picks the missions in its own menus (the set's folder); each one is the session's next match
+	s32 anti;         // a counter-op mission (protocol 32): each member's side its room team, 0 agent and 1 counter-op
 };
 extern struct netcoopsetup g_NetCoopSetup;
 // Room Settings: a hash of the host's rules (the SYNC keys and Simulant AI), to see the Room Rules page changed one
 u32 netRulesSyncHash(void);
 // mainmenu.c Accept Mission in a net session: 1 handled (started, or refused with a notice)
 s32 netCoopAcceptMission(void);
+// player.c, the host: an online counter-op mission none of whose agents is
+// in play any more (every one left): 1 once, to end it
+s32 netCoopAgentsGone(void);
+// player.c playerSpawnAnti, the host: a counter-op takes this guard (freed
+// next); a setup chr's copy goes from every client too (netcoop.c)
+struct prop;
+void netCoopAntiTookChr(struct prop *prop);
 // mainmenu.c Abort Mission: 1 handled (a client leaves; the host's abort ends it for all)
 s32 netCoopClientAbort(void);
 // pdmain.c mainEndStage's co-op branch: MATCH_END from the host, the final block on a client

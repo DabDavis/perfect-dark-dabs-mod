@@ -2024,7 +2024,8 @@ bool aiIfDistanceFromTargetToPadLessThan(void)
 		s32 i;
 
 		for (i = 0; i < PLAYERCOUNT(); i++) {
-			if (g_Vars.players[i] && g_Vars.players[i]->prop && !g_Vars.players[i]->isdead) {
+			// (online counter-op: an agent, never a counter-op)
+			if (g_Vars.players[i] && g_Vars.players[i]->prop && !g_Vars.players[i]->isdead && !coopIsAntiNum(i)) {
 				f32 d;
 				chr->p1p2 = i;
 				d = chrGetDistanceFromTargetToPad(chr, pad);
@@ -2068,7 +2069,8 @@ bool aiIfDistanceFromTargetToPadGreaterThan(void)
 		s32 i;
 
 		for (i = 0; i < PLAYERCOUNT(); i++) {
-			if (g_Vars.players[i] && g_Vars.players[i]->prop && !g_Vars.players[i]->isdead) {
+			// (online counter-op: an agent, never a counter-op)
+			if (g_Vars.players[i] && g_Vars.players[i]->prop && !g_Vars.players[i]->isdead && !coopIsAntiNum(i)) {
 				f32 d;
 				chr->p1p2 = i;
 				d = chrGetDistanceFromTargetToPad(chr, pad);
@@ -2157,7 +2159,7 @@ bool aiIfTargetInRoom(void)
 		for (i = 0; i < PLAYERCOUNT(); i++) {
 			struct player *p = g_Vars.players[i];
 
-			if (p && p->prop && !p->isdead && p->prop->rooms[0] == room_id) {
+			if (p && p->prop && !p->isdead && p->prop->rooms[0] == room_id && !coopIsAntiNum(i)) {
 				prop = p->prop;
 				break;
 			}
@@ -2198,7 +2200,7 @@ bool aiIfChrHasObject(void)
 		s32 i;
 
 		for (i = 0; i < PLAYERCOUNT() && !hasprop; i++) {
-			if (g_Vars.players[i] && g_Vars.players[i]->prop) {
+			if (g_Vars.players[i] && g_Vars.players[i]->prop && !coopIsAntiNum(i)) {
 				setCurrentPlayerNum(i);
 				hasprop = invHasProp(obj->prop);
 			}
@@ -2319,7 +2321,7 @@ bool aiIfChrHasWeaponEquipped(void)
 		s32 i;
 
 		for (i = 0; i < PLAYERCOUNT() && !passes; i++) {
-			if (g_Vars.players[i] && g_Vars.players[i]->prop && !g_Vars.players[i]->isdead) {
+			if (g_Vars.players[i] && g_Vars.players[i]->prop && !g_Vars.players[i]->isdead && !coopIsAntiNum(i)) {
 				setCurrentPlayerNum(i);
 				passes = bgunGetWeaponNum(HAND_RIGHT) == cmd[3];
 			}

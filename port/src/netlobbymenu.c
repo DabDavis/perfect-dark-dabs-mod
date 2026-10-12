@@ -2337,7 +2337,7 @@ static s32 gameOptions(void)
 	for (n = 0; netCoopGameTag(n, tag, sizeof(tag)); n++) {
 	}
 
-	return 2 + n;
+	return 3 + n;
 }
 
 static MenuItemHandlerResult handlerGame(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -2349,8 +2349,11 @@ static MenuItemHandlerResult handlerGame(s32 operation, struct menuitem *item, u
 	if (g_GexPlusMode) {
 		g_NetCoopSetup.on = 0;
 		g_NetCoopSetup.campaign = 0;
+		g_NetCoopSetup.anti = 0;
 	}
 
+	// 0 Combat Simulator, 1 Co-op Mission, 2 Counter-Op Mission (protocol
+	// 32: the members' room teams their sides), then each set's campaign
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = gameOptions();
@@ -2364,7 +2367,11 @@ static MenuItemHandlerResult handlerGame(s32 operation, struct menuitem *item, u
 			return (intptr_t)"Co-op Mission";
 		}
 
-		if (!netCoopGameTag(data->dropdown.value - 2, tag, sizeof(tag))) {
+		if (data->dropdown.value == 2) {
+			return (intptr_t)"Counter-Op Mission";
+		}
+
+		if (!netCoopGameTag(data->dropdown.value - 3, tag, sizeof(tag))) {
 			tag[0] = '\0';
 		}
 
@@ -2372,10 +2379,11 @@ static MenuItemHandlerResult handlerGame(s32 operation, struct menuitem *item, u
 		return (intptr_t)text;
 	case MENUOP_SET:
 		g_NetCoopSetup.on = data->dropdown.value >= 1 && !g_GexPlusMode;
-		g_NetCoopSetup.campaign = data->dropdown.value >= 2 && !g_GexPlusMode;
+		g_NetCoopSetup.anti = data->dropdown.value == 2 && !g_GexPlusMode;
+		g_NetCoopSetup.campaign = data->dropdown.value >= 3 && !g_GexPlusMode;
 
 		if (g_NetCoopSetup.campaign) {
-			if (!netCoopGameTag(data->dropdown.value - 2, tag, sizeof(tag))) {
+			if (!netCoopGameTag(data->dropdown.value - 3, tag, sizeof(tag))) {
 				tag[0] = '\0';
 			}
 
@@ -2388,9 +2396,11 @@ static MenuItemHandlerResult handlerGame(s32 operation, struct menuitem *item, u
 		if (g_NetCoopSetup.on && g_NetCoopSetup.campaign) {
 			for (n = 0; netCoopGameTag(n, tag, sizeof(tag)); n++) {
 				if (strcasecmp(tag, g_NetCoopSetup.game) == 0) {
-					data->dropdown.value = 2 + n;
+					data->dropdown.value = 3 + n;
 				}
 			}
+		} else if (g_NetCoopSetup.on && g_NetCoopSetup.anti) {
+			data->dropdown.value = 2;
 		} else if (g_NetCoopSetup.on) {
 			data->dropdown.value = 1;
 		}
@@ -2953,10 +2963,31 @@ static const char *ruleValue(const char *key)
  * "teams" rule says (netlobby.c). A co-op room has none. A host older than
  * the rule sends none: no teams then.
  */
+static s32 lobbyCounterOpOf(const struct netlobbyroom *room)
+{
+	const char *anti = ruleValueOf(room, "counterop");
+
+	return anti && strcmp(anti, "0") != 0 && strcmp(anti, "false") != 0;
+}
+
+/**
+ * A counter-op room (protocol 32, netcoop.c): its two sides are the room's
+ * two teams, 0 the agents and 1 the counter-ops - grouped and named so on
+ * the roster, picked with Change Side
+ */
+static s32 lobbyCounterOp(void)
+{
+	return lobbyCounterOpOf(netLobbyGetRoom());
+}
+
 static s32 lobbyTeamsOnOf(const struct netlobbyroom *room)
 {
 	const char *teams = ruleValueOf(room, "teams");
 	const char *key = ruleValueOf(room, "stage_key");
+
+	if (lobbyCounterOpOf(room)) {
+		return 1;
+	}
 
 	if (key && (strncmp(key, "mission:", 8) == 0 || strncmp(key, "campaign:", 9) == 0)) {
 		return 0;
@@ -2968,6 +2999,20 @@ static s32 lobbyTeamsOnOf(const struct netlobbyroom *room)
 static s32 lobbyTeamsOn(void)
 {
 	return lobbyTeamsOnOf(netLobbyGetRoom());
+}
+
+/**
+ * A member's team as the roster groups it: a counter-op room has two sides,
+ * team 1 the counter-ops and any other the agents (a host's profile team
+ * may be another colour; it plays an agent, netcoop.c)
+ */
+static s32 lobbyTeamOf(const struct netlobbymember *m)
+{
+	if (lobbyCounterOp()) {
+		return (m->team & 7) == 1 ? 1 : 0;
+	}
+
+	return m->team & 7;
 }
 
 /**
@@ -3011,7 +3056,7 @@ static s32 rosterOrder(const struct netlobbymember **order, s32 teams)
 		for (i = 0; i < room->nmembers && n < NETLOBBY_MAXMEMBERS; i++) {
 			const struct netlobbymember *m = &room->members[i];
 
-			if (!m->spectator && (!teams || (m->team & 7) == t)) {
+			if (!m->spectator && (!teams || lobbyTeamOf(m) == t)) {
 				order[n++] = m;
 			}
 		}
@@ -3056,7 +3101,7 @@ static Gfx *lobbyRosterHeader(Gfx *gdl, struct menudialog *dialog, s32 x, s32 y,
 	}
 
 	for (i = 0; i < n; i++) {
-		count[order[i]->team & 7]++;
+		count[lobbyTeamOf(order[i])]++;
 	}
 
 	for (t = 0; t < 8; t++) {
@@ -3069,8 +3114,13 @@ static Gfx *lobbyRosterHeader(Gfx *gdl, struct menudialog *dialog, s32 x, s32 y,
 		}
 
 		// the colour's own name ("Red"): a team's name is each machine's
-		// own to change (the boss file), the colour is the same everywhere
-		snprintf(name, sizeof(name), "%s", langGet(L_OPTIONS_008 + t));
+		// own to change (the boss file), the colour is the same everywhere;
+		// a counter-op room's sides by their names
+		if (lobbyCounterOp() && t <= 1) {
+			snprintf(name, sizeof(name), "%s", t == 0 ? "Agents" : "Counter-Ops");
+		} else {
+			snprintf(name, sizeof(name), "%s", langGet(L_OPTIONS_008 + t));
+		}
 		nl = strchr(name, '\n');
 
 		if (nl) {
@@ -3389,10 +3439,10 @@ static Gfx *lobbyRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1,
 			s32 row = 0;
 
 			for (i = 0; i < nplayers; i++) {
-				if (teams && (i == 0 || (order[i]->team & 7) != (order[i - 1]->team & 7))) {
+				if (teams && (i == 0 || lobbyTeamOf(order[i]) != lobbyTeamOf(order[i - 1]))) {
 					s32 g = 1;
 
-					while (i + g < nplayers && (order[i + g]->team & 7) == (order[i]->team & 7)) {
+					while (i + g < nplayers && lobbyTeamOf(order[i + g]) == lobbyTeamOf(order[i])) {
 						g++;
 					}
 
@@ -3422,7 +3472,7 @@ static Gfx *lobbyRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1,
 			const struct netlobbymember *m = order[i];
 			const s32 cx = tx + cellcol[i] * colw;
 			const s32 cy = y + cellrow[i] * rowh;
-			const u32 col = teams ? lobbyTeamColour(m->team, m->ready || m->host, alpha) : m->ready || m->host ? bright : dim;
+			const u32 col = teams ? lobbyTeamColour(lobbyTeamOf(m), m->ready || m->host, alpha) : m->ready || m->host ? bright : dim;
 			char tag[16];
 			s32 tagw;
 
@@ -3966,6 +4016,10 @@ static s32 roomIsOpen(void)
  */
 static char *textTeam(struct menuitem *item)
 {
+	if (lobbyCounterOp()) {
+		return "Change Side\n";
+	}
+
 	if (lobbyTeamsOn()) {
 		return "Change Team\n";
 	}
@@ -4016,6 +4070,9 @@ static MenuItemHandlerResult handlerReady(s32 operation, struct menuitem *item, 
 			netLobbySetReady(!netLobbyMyReady());
 		} else if (netLobbyLaunchState() == 1) {
 			netLobbyCancelLaunch();
+		} else if (lobbyCounterOp() && !netLobbySidesOk()) {
+			// a counter-op mission is played by both sides
+			netLobbySetMessage("A counter-op mission needs an agent and a counter-op: Change Side.");
 		} else {
 			netLobbyLaunch(0);
 		}

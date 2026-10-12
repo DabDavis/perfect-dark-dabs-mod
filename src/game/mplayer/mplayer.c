@@ -1970,8 +1970,10 @@ Gfx *mpRenderModalText(Gfx *gdl)
 			// (gedeathcam.c)
 			&& !geDeathCamHolds()
 #endif
-			&& !(g_Vars.coopplayernum >= 0 && (coopAllDead() || !g_Vars.currentplayer->coopcanrestart || g_InCutscene))
-			&& !(g_Vars.antiplayernum >= 0 && ((g_Vars.currentplayer != g_Vars.anti || g_InCutscene)))
+			// (online counter-op: a counter-op by the counter-op's rule,
+			// the agents by co-op's)
+			&& !(g_Vars.coopplayernum >= 0 && !coopIsAnti(g_Vars.currentplayer) && (coopAllDead() || !g_Vars.currentplayer->coopcanrestart || g_InCutscene))
+			&& !(g_Vars.antiplayernum >= 0 && ((!coopIsAnti(g_Vars.currentplayer) || g_InCutscene)))
 			&& g_NumReasonsToEndMpMatch == 0) {
 #ifndef PLATFORM_N64
 		if (geHudActive() && geWatchMpModalString(false)) {

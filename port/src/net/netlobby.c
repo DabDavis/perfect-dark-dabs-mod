@@ -1813,6 +1813,43 @@ void netLobbyClearMessage(void)
 	s_MainMessage[0] = '\0';
 }
 
+void netLobbySetMessage(const char *text)
+{
+	snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", text ? text : "");
+}
+
+/**
+ * A counter-op room (netcoop.c) launches with somebody on each side: a
+ * player (the host or a member, not watching) on team 0, the agents, and
+ * one on team 1, the counter-ops
+ */
+s32 netLobbySidesOk(void)
+{
+	s32 agents = 0;
+	s32 antis = 0;
+	s32 i;
+
+	if (!s_InRoom || !s_Room.valid) {
+		return 0;
+	}
+
+	for (i = 0; i < s_Room.nmembers; i++) {
+		const struct netlobbymember *m = &s_Room.members[i];
+
+		if (m->spectator) {
+			continue;
+		}
+
+		if ((m->team & 7) == 1) {
+			antis++;
+		} else {
+			agents++;
+		}
+	}
+
+	return agents > 0 && antis > 0;
+}
+
 void netLobbyRefresh(void)
 {
 	lobbyQueue(JOB_LIST, "", NULL);
@@ -2037,6 +2074,14 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 		char mode[40];
 
 		netCoopModeName(g_NetCoopSetup.difficulty, mode, sizeof(mode));
+
+		// a counter-op mission (protocol 32): "Counter-Op Agent"
+		if (g_NetCoopSetup.anti && !g_NetCoopSetup.campaign && strncmp(mode, "Co-op ", 6) == 0) {
+			char diff[40];
+
+			snprintf(diff, sizeof(diff), "%s", mode + 6);
+			snprintf(mode, sizeof(mode), "Counter-Op %s", diff);
+		}
 		lobbyCleanName(netCoopMissionNameOf(g_NetCoopSetup.game, g_NetCoopSetup.stageindex), stage, 33);
 		lobbyCleanName(mode, scenario, 33);
 		// "mission:NN" Perfect Dark's, "mission:ge:NN" a conversion's; a
@@ -2053,8 +2098,9 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 
 		// what the Game Lobby's summary says of a co-op room in place of
 		// the limits and the simulants
-		snprintf(extra, sizeof(extra), ",\"radar\":%d,\"friendly_fire\":%d", g_NetCoopSetup.radar ? 1 : 0,
-				g_NetCoopSetup.friendlyfire ? 1 : 0);
+		snprintf(extra, sizeof(extra), ",\"radar\":%d,\"friendly_fire\":%d%s", g_NetCoopSetup.radar ? 1 : 0,
+				g_NetCoopSetup.friendlyfire ? 1 : 0,
+				g_NetCoopSetup.anti && !g_NetCoopSetup.campaign ? ",\"counterop\":1" : "");
 	} else {
 		lobbyCleanName(mpMenuTextArenaName(NULL), stage, 33);
 		lobbyCleanName(mpMenuTextScenarioShortName(NULL), scenario, 33);
@@ -2263,6 +2309,29 @@ s32 netLobbyMyReady(void)
 	const struct netlobbymember *m = lobbyMe();
 
 	return m ? m->ready : 0;
+}
+
+/**
+ * A room member's team by account (a join in progress's side in a
+ * counter-op room, netcoop.c): -1 not in the room, or watching
+ */
+s32 netLobbyMemberTeam(const char *user)
+{
+	s32 i;
+
+	if (!s_InRoom || !user) {
+		return -1;
+	}
+
+	for (i = 0; i < s_Room.nmembers; i++) {
+		const struct netlobbymember *m = &s_Room.members[i];
+
+		if (strcasecmp(m->user, user) == 0) {
+			return m->spectator ? -1 : m->team;
+		}
+	}
+
+	return -1;
 }
 
 s32 netLobbyMyTeam(void)
@@ -3762,6 +3831,9 @@ void netLobbyShutdown(void)
  *   --net-lobby-keep-endscreen     an end screen stays up (the script closes it otherwise)
  *   --net-lobby-rules K=V,...      host: the room's Room Rules set so (they start at stock)
  *   --net-lobby-teams              host: the room's match is a team match
+ *   --net-lobby-anti               host, with --net-lobby-coop: a counter-op mission
+ *   --net-lobby-side N             join: its room team (a counter-op room's side, 1 the
+ *                                  counter-ops) set before it says READY
  *   --net-lobby-menus              host: the room made from the Perfect Menu's Online
  *                                  Game, its Game Lobby up, as a player makes one
  *
@@ -3991,6 +4063,8 @@ static void lobbyScriptTick(void)
 				// --net-lobby-coop INDEX: the room is a co-op mission (netcoop.c)
 				if (sysArgGetInt("--net-lobby-coop", -1) >= 0) {
 					g_NetCoopSetup.on = 1;
+					// --net-lobby-anti: a counter-op mission (protocol 32)
+					g_NetCoopSetup.anti = sysArgCheck("--net-lobby-anti");
 					g_NetCoopSetup.stageindex = sysArgGetInt("--net-lobby-coop", 0);
 					g_NetCoopSetup.difficulty = sysArgGetInt("--net-test-difficulty", DIFF_A);
 					// --net-test-coop-game TAG: a conversion's set (protocol 14)
@@ -4246,6 +4320,26 @@ static void lobbyScriptTick(void)
 			// up), so the launch never waits on it
 			if (s_InRoom && s_Room.valid && !s_Room.launched
 					&& (netRdvLadder() == NETRDV_LADDER_DONE || netRdvLadder() == NETRDV_LADDER_FAILED || now - s_ScriptAt > 20000)) {
+				// --net-lobby-side N: this member's room team first (a
+				// counter-op room's side), asked once and waited for
+				{
+					static u64 s_SideAskedAt = 0;
+					const s32 side = sysArgGetInt("--net-lobby-side", -1);
+
+					if (side >= 0 && side <= 7 && netLobbyMyTeam() != side) {
+						if (s_SideAskedAt == 0 || now - s_SideAskedAt > 3000) {
+							char body[48];
+
+							snprintf(body, sizeof(body), "{\"team\":%d,\"spectator\":false}", side);
+							lobbyAction("team", body);
+							s_SideAskedAt = now;
+							sysLogPrintf(LOG_NOTE, "lobby script: join: asking for team %d", side);
+						}
+
+						break;
+					}
+				}
+
 				if (netRdvLadder() == NETRDV_LADDER_DONE) {
 					snprintf(text, sizeof(text), "join: path to the host is %s, %d ms; READY", netRdvPathName(netRdvPath()), netRdvPing());
 				} else {

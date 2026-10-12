@@ -1036,8 +1036,7 @@ void explosionInflictDamage(struct prop *expprop)
 
 						minfrac = (minfrac * 0.7f + 0.3f) * type->damage;
 
-						if (g_Vars.antiplayernum >= 0
-								&& g_Vars.antiplayernum == exp->owner
+						if (coopIsAntiNum(exp->owner)
 								&& (obj->flags2 & OBJFLAG2_IMMUNETOANTI)) {
 							// anti cannot damage this obj
 						} else if (isfirstframe) {
@@ -1449,8 +1448,9 @@ u32 explosionTick(struct prop *prop)
 
 			if (g_Vars.normmplayerisrunning) {
 				chr = mpGetChrFromPlayerIndex(exp->owner);
-			} else if (g_Vars.antiplayernum >= 0 && exp->owner == g_Vars.antiplayernum) {
-				chr = g_Vars.anti->prop->chr;
+			} else if (coopIsAntiNum(exp->owner) && exp->owner < MAX_PLAYERS && g_Vars.players[exp->owner]
+					&& g_Vars.players[exp->owner]->prop) {
+				chr = g_Vars.players[exp->owner]->prop->chr; // any counter-op's (coop.c)
 			} else if (g_Vars.coopplayernum >= 0 && exp->owner >= 0 && exp->owner < MAX_PLAYERS && g_Vars.players[exp->owner]
 					&& g_Vars.players[exp->owner]->prop) {
 				chr = g_Vars.players[exp->owner]->prop->chr; // any coop player's (coop.c)

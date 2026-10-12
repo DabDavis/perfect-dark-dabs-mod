@@ -134,6 +134,8 @@ s32 netLobbySignedIn(void);
 s32 netLobbyBusy(void);              // a sign-in, list, create or join in flight
 const char *netLobbyMessage(void);   // what the last of those said ("" if nothing)
 void netLobbyClearMessage(void);
+void netLobbySetMessage(const char *text);
+s32 netLobbySidesOk(void);           // a counter-op room: somebody on each side (team 0 agents, 1 counter-ops)
 
 void netLobbyRefresh(void);
 s32 netLobbyRoomMaxHumans(void); // the hosted room's size (0: none)
@@ -149,6 +151,7 @@ s32 netLobbyInRoom(void);
 const struct netlobbyroom *netLobbyGetRoom(void);
 s32 netLobbyIsHost(void);
 s32 netLobbyMyReady(void);
+s32 netLobbyMemberTeam(const char *user); // a member's team by account, -1 none or watching
 s32 netLobbyMyTeam(void);            // 0, 1, or -1 a spectator
 void netLobbySetReady(s32 ready);
 void netLobbyCycleTeam(void);        // team 1 -> team 2 -> spectator -> team 1

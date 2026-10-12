@@ -36,6 +36,14 @@
   seats that kept a room played alone on black for ever, the dead watching
   the others with Mission Respawn off (`netspec.c`'s cameras), the last
   death's GoldenEye replay before the end (`gedeathcam.c`).
+- **Counter-op online (protocol 32, 2026-10-12)** — the section of that
+  name: a room's Counter-Op Mission, each player's side its room team; the
+  game's one `g_Vars.anti` widened to a mask (`coop.c`), the agents online
+  co-op as before; the host takes each guard (its own random sequence and
+  `g_RngSeed` put back: the load's takeover had split the stage hash's rng),
+  the clients follow by the mission block (body, radius, the setup chrs
+  taken, by chrnum); which converted guard may be taken; Guards Alerted!'s
+  guards as bodies too; `netantitest.sh`.
 - **Content follows the host** — the section of that name (`netcontent.c`,
   protocols 13 and 14): a client plays the host's overlay mod, Stage Loader
   maps, conversions and ROM hack mode from its own copies (the content
@@ -3662,3 +3670,83 @@ and a client cannot work it out (its `chrDamage()` returns at once), so DEATH en
 explosion's from what made it, a projectile named by its launcher, a GoldenEye gun by itself); 0xfe an explosion
 nothing named, 0xff none. The client hands it to the replay through `killfeedSetWireWeapon()`. Tested in
 `neteventtest.sh` (`--killfeed-log` on both machines: the client's list equals the host's, sims' kills among it).
+
+## Counter-op online (protocol 32, 2026-10-12)
+
+The user: "lets add counter-ops to online play for PD, GE, etc.", then mid-build "also counter-ops should
+work with Guards Alerted! so players on the counter-ops side can use the additional guard bodies". Picks
+(asked): each player picks a side in the Game Lobby (any split up to twelve, one of each to launch); a
+room's Game "Counter-Op Mission" beside Co-op Mission (not campaign rooms); stock lives (a counter-op's death
+is a press away from the next guard, for as long as there are guards; the agents keep online co-op's Mission
+Respawn rules and lives).
+
+- **Many counter-ops in a game of one.** Perfect Dark's counter-op is one player, `g_Vars.anti`
+  (`antiplayernum`), against bond, and its code asks "is this g_Vars.anti". Online a mask of player
+  numbers (`g_CoopAntiMask`, coop.c) says who the counter-ops are; `coopIsAntiNum()`/`coopIsAnti()`/
+  `coopIsAntiProp()`/`coopIsAgentProp()` give the game's own answer whenever the mask is empty, which it
+  always is offline (the replay gate, and the same with `EXTRA="-play2 -anti"`, identical to the build
+  before). The agents are online co-op as it was - `coopplayernum >= 0`, so the mission block, the dead
+  watching, Mission Respawn and the guards' turns among the players all stay on - with bond the first
+  agent's seat (the host may be a counter-op: bond is then a client's) and `g_Vars.coop` a second agent, or
+  the first other seat when there is one agent (a counter-op's: `coopTwoRules()` keeps coop.c off the game's
+  "the other player is coop" answers while counter-ops play). Each place that branched "coop, else anti"
+  asks per player now: the team (`playerReset`), the spawn (agents stacked, counter-ops into guards), the
+  damage rules (friendly fire by side, `coopSameSide()`; the anti branch's "bond" any agent; "anti shooting
+  other enemies is lethal" the guards only, not another counter-op), the sight's colour, the end screens
+  (`endscreenPushAnti` for a counter-op's machine, its outcome the agents' undone, `coopAgentsDead()` etc.),
+  who a guard watches (`coopPlayerTargetable()` never a counter-op), GoldenEye's "any player is Bond"
+  checks (agents only), and the end: `coopAllDead()` is the agents', any agent's pass may end the mission
+  (bond may have left - an open seat's fall never finishes), and a room whose agents have all left is the
+  counter-ops' (`netCoopAgentsGone()`).
+- **The host takes the guard; clients follow.** `playerAntiTakeGuard()` (the game's choice, moved out of
+  `playerSpawn` unchanged) runs on the host only: near the nearest living agent, off every agent's screen
+  and aim where it can (`CHRHFLAG_ONBONDSSCREEN` is any agent's view, `chr->coopagentseen`). Trap met: the
+  first guards are taken in the stage's load, and both the choice and the body built draw from
+  `rngRandom()` - the client, taking no guard, was refused "The stage loaded differently here: its rng".
+  The choice draws from a sequence of its own online (`coopAntiRandom()`) and `g_RngSeed` is put back
+  after the takeover. The mission block (74 bytes more) carries the sides, each counter-op's guard
+  count, radius, body and head; a client rebuilds a player's body when it changes
+  (`netPupRebuildPlayerBody`, as `playerSpawnAnti` builds the host's: `chrRemove` + `playerTickChrBody`)
+  and, for its own player, takes the next local block outright (the build sets the prop on the ground).
+  Its guns, health and place come in the local block as any respawn's.
+- **The guard taken goes from every client.** A setup chr's copy on a client is the client's own, mapped
+  by its setup command, and when its records stop it stands where it was (only puppets the client made
+  are freed when their id leaves). The block's bitset of setup chrs taken (by **chrnum** below 256, the
+  setup's own numbers, the same everywhere) takes the client's copy out as `playerSpawnAnti` takes the
+  host's; a join in progress too. Trap met: keyed first by setup command, nothing was recorded for the
+  load's takeovers - the entity table is built after the load, so `netEntsSetupCmdOf()` said -1. A chr
+  spawned at run time (5000 up: Guards Alerted!, reinforcements) is a client's own puppet and goes with
+  its records.
+- **Which converted guard.** A conversion never sets `CHRHFLAG_BASICGUARD` (and the flag changes AI, so
+  it is not set). `coopConvertedGuard()`: not the players' side or non-combatant, not a civilian
+  (GoldenEye's civilian bit is `CHRCFLAG_KILLCOUNTABLE`), invincible, hidden or unplayable (now or by its
+  own list's `set_self_chrflag`, as the load's takeover runs before any list), holding something that
+  shoots, a guard's body (on GoldenEye's own conversion its character number 0-4, 17-21 or 37-40; on a
+  hack a body without its own head), and no list of the stage names its chrnum (a list asking "is chr N
+  dead" passes on a chr that is gone: a named one would fire its death scripts). Census across nine of
+  GoldenEye's missions: Ourumov, Trevelyan, Natalya, Valentin, Xenia, Boris, Jaws, scientists and the
+  guards the lists name never eligible. Statue has none at the start (its guards come later): a
+  counter-op whose spawn found no guard is looked for one each second on the host
+  (`playerAntiRetryTick()`), standing as its own character until then.
+- **Guards Alerted!** Its guards (`modAlarmIsGuard()`) are hostable, armed; a wave a counter-op thins
+  the mod fills. `modAlarmNearestPlayer()` skips counter-ops: a new guard watches the nearest player
+  (`p1p2`, `modAlarmArm()`), and one made watching a counter-op hunted it (offline counter-op too).
+- **Respawn.** A dead counter-op's A, Z or START (`0xb000`) on the host is its new life (a dead player's
+  START is let through), no Mission Respawn, none of the agents' lives spent, no watching; a client's own
+  respawn is the host's (lv.c). The suicide pill works as offline.
+- **The lobby.** A counter-op room's sides are its two teams (pdlobbyd unchanged: team 0-7 per member, a
+  newcomer on the smaller team): the room's rule `counterop` 1, the roster grouped "Agents"/"Counter-Ops"
+  (any team but 1 an agent's), **Change Side** (agent, counter-op, watching), Launch refused without one
+  of each (`netLobbySidesOk()`). The launch puts each member's team on its slot, and H1
+  (`netCoopHostSides`) makes the mask from the seats a member holds; a join in progress plays its room
+  team's side (`netCoopHostLateSide`); host migration restarts the mission as counter-op. `--host`
+  sessions: `--net-test-anti SLOTMASK`; the lobby script: `--net-lobby-anti`, `--net-lobby-side N`.
+- **Gate:** `tools/ci/netantitest.sh` (in netallgates): pair3 (Defection, host and a client agents, a
+  client counter-op: sides, the load's takeover and every client's copy out, the guard alike on three
+  machines, no guard after the counter-op, the respawn's second guard, the agents' win its "failed",
+  prediction), ga (Guards Alerted!: the mod's guards taken, none after the counter-op), ge (Dam: a plain
+  guard's body), hostanti (the host a counter-op, bond the client's seat), lobby (a room with a local
+  pdlobbyd).
+- **Left as stock:** the radar shows the players to each other when the room's Radar is on (Perfect
+  Dark's counter-op radar); the kill feed names a counter-op's kills; a counter-op waiting for a guard
+  is visible as its own character.

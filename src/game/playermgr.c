@@ -77,6 +77,14 @@ void playermgrAllocatePlayers(s32 count)
 		if (g_Vars.coopplayernum >= 0) {
 			g_Vars.coop = g_Vars.players[g_Vars.coopplayernum];
 			g_Vars.anti = NULL;
+
+#ifndef PLATFORM_N64
+			// online counter-op: the agents are co-op and the counter-ops
+			// beside them (netcoop.c), g_Vars.anti the first of those
+			if (g_Vars.antiplayernum >= 0) {
+				g_Vars.anti = g_Vars.players[g_Vars.antiplayernum];
+			}
+#endif
 		} else if (g_Vars.antiplayernum >= 0) {
 			g_Vars.coop = NULL;
 			g_Vars.anti = g_Vars.players[g_Vars.antiplayernum];

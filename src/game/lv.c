@@ -21,6 +21,7 @@
 #include "game/bondgun.h"
 #include "game/bondhead.h"
 #include "game/bondmove.h"
+#include "game/coop.h"
 #include "game/bondview.h"
 #include "game/bondwalk.h"
 #include "game/camdraw.h"
@@ -352,6 +353,9 @@ void lvReset(s32 stagenum)
 	g_Vars.totalkills = 0;
 	g_Vars.antiheadnum = -1;
 	g_Vars.antibodynum = -1;
+#ifndef PLATFORM_N64
+	coopAntiResetBodies();
+#endif
 	g_Vars.dontplaynrg = false;
 	g_Vars.in_cutscene = false;
 	g_Vars.autocutplaying = false;

@@ -2834,6 +2834,36 @@ s32 netClientPuppetPlayerTick(s32 playernum)
 	return 1;
 }
 
+/**
+ * Online counter-op (netcoop.c): a player whose counter-op went into another
+ * guard wears that guard's body here too - built again from
+ * playerChooseBodyAndHead() (the counter-op's guard, coop.c) the way the host's
+ * playerSpawnAnti() builds it, the same prop and still live.
+ */
+void netPupRebuildPlayerBody(s32 playernum)
+{
+	const s32 prevplayernum = g_Vars.currentplayernum;
+	struct player *player = playernum >= 0 && playernum < PLAYERCOUNT() ? g_Vars.players[playernum] : NULL;
+	s32 idx;
+
+	if (!player || !player->prop || !player->prop->chr || !player->prop->chr->model) {
+		return;
+	}
+
+	setCurrentPlayerNum(playernum);
+	idx = netPupLocalIndex(player->prop);
+	player->haschrbody = false;
+	player->model00d4 = NULL;
+	chrRemove(player->prop, false);
+	playerTickChrBody();
+
+	if (idx >= 0 && idx < s_LiveMax) {
+		s_LiveGen[idx] = netEntsPropGen(idx);
+	}
+
+	setCurrentPlayerNum(prevplayernum);
+}
+
 s32 netClientRenderPass(s32 order, s32 count, s32 *islast)
 {
 	s32 j;

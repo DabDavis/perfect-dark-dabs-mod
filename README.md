@@ -215,6 +215,22 @@ towards your own solo progress. Without the lobby, a `--host` session
 starts one from the Carrington Institute's mission briefing with
 Co-Operative and a human buddy.
 
+**Counter-op missions.** Set **Game** to Counter-Op Mission and the room's
+players pick a side: in the Game Lobby, **Change Side** moves you between
+the **Agents** and the **Counter-Ops** (a newcomer joins the smaller side),
+and the host can launch once each side has a player. The agents play the
+mission together as in a co-op mission, Mission Respawn and its lives
+included. Every counter-op is Perfect Dark's own counter-operative: they
+take over one of the mission's living guards - its body, its gun and its
+health - and when that guard dies, **A**, **Z** or **START** puts them in
+the next one, for as long as the mission has guards to give (Guards
+Alerted!'s count too, so its waves keep the counter-ops in bodies). The
+guards never go after a counter-op, the agents see no name over one, and
+on GoldenEye's, Goldfinger 64's and Tomorrow Never Dies 64's missions a
+counter-op only ever takes an ordinary armed guard, never Ourumov, Natalya
+or anyone the mission needs. The agents win by completing the mission, the
+counter-ops by killing every agent with no lives left.
+
 **Campaigns.** Set **Game** to a campaign instead (Perfect Dark, GoldenEye,
 Goldfinger 64 or Tomorrow Never Dies 64) and the room's launch puts the
 host in that game's own menus rather than a match: GoldenEye's folder, or
