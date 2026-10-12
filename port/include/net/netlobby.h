@@ -190,6 +190,27 @@ s32 netLobbyCampaignState(void);     // a launched campaign room: 1 its host, 2 
 s32 netLobbyJoinedWait(void);        // a launched room's member in with the host, no match here: 1 its match was over (in for the next), 2 waiting for it to start; else 0
 s32 netLobbyCountdownMs(void);       // the launch countdown left, -1 if none
 
+// Players online (pdlobbyd API 7, GET /players): who is signed in to the
+// lobby now and where, for the Briefing Room's Players Online page. The page
+// says it is up every frame; the lobby is asked at once and every 5 s while
+// it is
+#define NETLOBBY_MAXPLAYERS  100
+#define NETLOBBY_WHERE_MENU  0 // in no room: the Briefing Room
+#define NETLOBBY_WHERE_ROOM  1 // in a room's Game Lobby
+#define NETLOBBY_WHERE_MATCH 2 // in a launched room: its match
+
+struct netlobbyplayer {
+	char user[NETLOBBY_MAXUSER + 1];
+	char room[NETLOBBY_MAXROOMNAME + 1]; // the room's name ("" in none)
+	s32 where;                           // NETLOBBY_WHERE_*
+	s32 host;
+	s32 spectator;
+};
+
+void netLobbyPlayersWant(void);
+s32 netLobbyPlayersState(void); // 1 a list came, -1 the lobby has none (before API 7), 0 not heard yet
+s32 netLobbyPlayersGet(struct netlobbyplayer *out, s32 max, s32 *total, char *err, s32 errsize); // the last list, by name: how many; *total the lobby's count; err why the last ask failed ("" it did not)
+
 // The session's side (netsession.c): the room's roster for ticket check 5
 s32 netLobbyRosterHas(const char *user); // a non-host member, case-insensitive
 // Host migration: the room's id ("" none); a client lost its host (the lobby is told)

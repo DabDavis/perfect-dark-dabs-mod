@@ -144,6 +144,13 @@
   (pdlobbyd API 4), whose keys release 57 never read (`netHudFrame()`'s
   offline return), and the server's notices (API 5: "Server: ..." in the
   match's chat, said on a loopback port and before every restart).
+- **Players Online (pdlobbyd API 7, 2026-10-12, no wire change)** — the
+  section of that name: Select, L2 or the players key on the Briefing Room
+  opens a page of everyone signed in to the lobby and where (the Briefing
+  Room, a room's Game Lobby, a match); `GET /players`, presence by a
+  session's last request (60 s), a dedicated host left out, no address;
+  the footer's hints drawn smaller when longer than the screen leaves;
+  `netplayersonlinetest.sh`.
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -3410,6 +3417,59 @@ Briefing Room or Create Room. `--net-lobby-teams` makes a scripted host's
 room a team match.
 `netlobbyuitest.sh` still shoots both sides' Game Lobby at 640x480.
 
+
+## Players Online (pdlobbyd API 7, 2026-10-12, no wire change)
+
+F3 20261012-115245 (the owner: "need a button to show players online in
+the main menu, ie select or L2"). On the Briefing Room, Select or L2 on the
+menu's pad or the players key (Net.PlayersKey, P: the match's players
+panel's key) opens PLAYERS ONLINE and closes it again; B or Esc goes back.
+It is a page in the windows' style (an entry of `s_LobbyPages`, centred: the
+header, one dialog, the hints), a line a player: the name (this player's
+own in gold), then where - Briefing Room, "In room: NAME" (its Game Lobby),
+"In a match: NAME", "Watching: NAME" (a spectator of a running match) - and
+over the list how many are where. Nothing offline: only the Briefing Room
+opens it.
+
+- **The buttons are the controller's own**, read as menu.c reads its
+  shoulder buttons (`VK_JOY1_BEGIN + 4`, SDL's BACK: Select, View, Share;
+  `VK_JOY1_LTRIG`; the menu player's pad), not through the N64 binds: in
+  the PC pad layout BACK is the Third Person bind and LT is R (aim), in the
+  N64 layout LT is nothing; on the online pages neither does anything else.
+  The key is a letter while the chat line or a keyboard is being typed
+  into (`netHudChatOpen`, `inputIsTextInputActive`, `g_MenuKeyboardPlayer`).
+  The press is edge-detected here, not with `inputKeyJustPressed` (whose
+  state is per key for every caller), and a look after a gap only notes
+  what is down: a button held on the way to the page does not count.
+- **The list is pdlobbyd's `GET /players`** (README "Players online"):
+  every room's members and every other account whose session asked the
+  lobby anything in the last 60 s - which the Briefing Room's main menu chat
+  poll (every 2 s) keeps fresh - once each, by name; a dedicated host is a
+  server and left out; never an address, token or ping. The game asks on
+  the action thread (JOB_PLAYERS through `lobbySessionRequest`, so a 401
+  signs in again) as the page opens and every 5 s while it is up
+  (`netLobbyPlayersWant()`, the main chat's want pattern: opened anew asks at
+  once and forgets the last list). An older lobby answers 404: the page
+  says the lobby server has no list yet, and it is not asked again until the
+  page opens anew. The log has "lobby: N players online" when the count
+  changes, not every poll.
+- **Four hints are longer than the screen.** The footer is drawn at the
+  fonts' full size, where "A / Enter: Join  Select / P: Players  Space or T:
+  Chat  B / Esc: Back" is about 390 units against the 300 the 320-unit frame
+  leaves (less at 4:3, where the frame's edges are off the screen). A footer
+  longer than its line is now drawn at the scale that fits, in pieces
+  (`lobbyTextLong`, which reaches past the 320 units); a footer that fits is
+  drawn as before.
+- **Testing it**: `tools/ci/netplayersonlinetest.sh` (under the net lock): a
+  local pdlobbyd with accounts put in each place over its HTTP API, one game
+  offscreen with `--net-test-players-online` under a join script whose room
+  never comes (which keeps `netPump` ticking the lobby, and
+  `netLobbyMenuFrame` the test with it): the Briefing Room over the boot's
+  menus, the players key held through `inputTestHoldKey` (the real key
+  path), the rows logged and the page shot, the key again closing it; then
+  the same against OLD's pdlobbyd (API 6): "no players list yet". SIZE=
+  picks the window. The pad's buttons are not exercised headless: every net
+  test's SDL hints ignore the box's controllers.
 
 ## F3 pass 37 (2026-10-11, no wire change, protocol stays 30)
 

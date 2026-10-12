@@ -80,6 +80,7 @@ empty body is `{}`.
 | `GET /rooms?proto=&build=` | anyone | `proto` filters to that protocol; `build` adds `same_build` to each | `rooms: [summary]`, newest first |
 | `GET /chat?since=N` | session | | `version`, `chat: [{v, user, text, t, system?}]` after `N` (every kept line for 0); see **Main menu chat** |
 | `POST /chat` | session | `text` | `version` |
+| `GET /players` | session | | `count`, `players: [{user, where, room?, room_id?, host?, spectator?}]` by name, at most 200; see **Players online** |
 | `POST /rooms` | session | see **Create** | `room`, `token` (host's member token), `secret` (64 hex), `udp_id` (16 hex), `udp_key` (64 hex), `version`, `time` |
 | `POST /rooms/<id>/join` | session | `proto`, `build`, `content`, `password`?, `spectator`?, `can_host`? | `room`, `token`, `udp_id`, `udp_key`, `version`, `time`; plus `ticket`, `ticket_expires` when the room is counting down or launched (a re-join of your own seat) |
 | `GET /rooms/<id>/state?since=N&wait=S` | member | | see **State** |
@@ -276,6 +277,44 @@ joiner connecting, a member back in the Game Lobby after End Game - the game
 offers it back into the match). A host without `seated` (older games), a
 stale list, or a list from a host since replaced reaps nobody mid-match, as
 before. A new launch forgets the last one's list.
+
+## Players online
+
+API 7. Who is signed in to the lobby now and where they are, for the game's
+Players Online list on its Briefing Room (the owner, F3 20261012-115245: "a
+button to show players online in the main menu"). `GET /players` with a
+session answers every account once, sorted by name (case folded):
+
+```json
+{"ok": true, "count": 3,
+ "players": [{"user": "dab", "where": "menu"},
+             {"user": "joiner", "where": "room", "room": "Dab's Room", "room_id": "0a1b2c3d",
+              "host": false, "spectator": false},
+             {"user": "ZaileX", "where": "match", "room": "Join ZaileX", "room_id": "4e5f6a7b",
+              "host": true, "spectator": false}]}
+```
+
+- `"room"`: a member of a room that is open or counting down (its Game
+  Lobby); `"match"`: a member of a launched room (its match is on, until its
+  host reopens the room after it). `room` is the room's name as the list
+  shows it, `room_id` its id, `host` and `spectator` the member's seat. A
+  dedicated room's host is a server, not a player, and is left out.
+- `"menu"`: an account in no room whose session asked the lobby for
+  anything in the last `presence_ttl` (60 s). The game's Briefing Room asks
+  for the main menu's chat every 2 s, so that is where such a player is (or
+  a page on from it, Create Room, for up to a minute); a game that left the
+  online pages or quit drops out a minute later, and a `logout` at once.
+- `count` is every one of them; the list holds the first `players_max`
+  (200) by name.
+
+Nothing else about anyone: no address (the per-address limits key on one,
+the list never shows it), no session, token, path or ping. The names are the
+ones the lobby let sign in and the room names the ones it let be made, so the
+name filter (**Names and chat that offend**) has passed them all: its lists
+are this process's, and a change to them is a restart, which empties the
+sessions and the rooms. A plain request on the request bucket, no parked
+wait: the game asks once as the list opens and every 5 s while it is up. A
+server before API 7 answers 404, and the game says the lobby has no list.
 
 ## Host migration
 
@@ -592,11 +631,14 @@ and nonces come from `os.urandom`.
 python3 tools/pdlobbyd/test_pdlobbyd.py
 ```
 
-100 cases in about twenty-seven seconds, each against its own server (an event
+121 cases in about forty seconds, each against its own server (an event
 loop on a background thread, HTTP and UDP on ports the kernel picks, timeouts
 cut to fractions of a second): create/list/filters, validation, join with
 password, the protocol and content refusals, the wrong-password limiter, full
 rooms and spectators, ready/team/chat with sanitising and the chat limiter,
+the players online list (where each is, one line an account, a dedicated host
+left out, no address or token in it, presence lapsing and back, signed out,
+the reply's cap),
 host-only settings (refused settings leave the room untouched) and kick, the
 launch countdown (refused while unready, cancelled by an unready, forced, run
 out into launched with filtered endpoints and a ticket, reopened), leaving,
