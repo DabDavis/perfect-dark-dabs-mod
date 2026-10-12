@@ -3538,6 +3538,11 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 						context.width = context.width * 100 / itempct;
 						context.height = context.height * 100 / itempct;
 						gDPSetRectScaleEXT(gdl++, itempct / 100.0f, context.x, context.y);
+
+						// its text laid out past the 320 units is still
+						// drawn: scaled, it is inside the row (a right-hand
+						// value at a small text size, game_1531a0.c)
+						g_TextMaxX = 960;
 					}
 #endif
 
@@ -3634,6 +3639,7 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 #ifndef PLATFORM_N64
 					if (itempct != 100) {
 						gDPSetRectScaleEXT(gdl++, 1.0f, 0, 0);
+						g_TextMaxX = 0;
 					}
 #endif
 
@@ -3697,13 +3703,35 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 							// list keeps itself between, in the row's frame for it
 							const s32 savedy = dialog->y;
 							const s32 savedheight = dialog->height;
+							// and no lower than the screen in that frame: a
+							// list's scissor is held to the 220 units there
+							// (menuitemListRender()) and its glyphs to them
+							// (text0f15568c()) before the renderer scales it
+							// about the row, so a list laid out past them was
+							// cut off short of the dialog's foot, the options
+							// under the cut never shown and never scrolled to
+							// (F3 20261012-104020: the co-op Mission list)
+							const s32 bufh = viGetBufHeight();
+							s32 top = cury + (savedy - cury) * 100 / itempct;
+							s32 bottom = cury + (savedy + savedheight - cury) * 100 / itempct;
 
-							dialog->y = cury + (savedy - cury) * 100 / itempct;
-							dialog->height = cury + (savedy + savedheight - cury) * 100 / itempct - dialog->y;
+							if (top < 0) {
+								top = 0;
+							}
+
+							// a list opened under the row ends 2 past it
+							if (bottom > bufh - 2) {
+								bottom = bufh - 2;
+							}
+
+							dialog->y = top;
+							dialog->height = bottom - top;
 
 							gDPSetRectScaleEXT(gdl++, itempct / 100.0f, curx, cury);
+							g_TextMaxX = 960;
 							gdl = menuitemOverlay(gdl, curx, cury, overlaywidth * 100 / itempct,
 									menu->rows[rowindex].height * 100 / itempct, item, dialog, itemdata);
+							g_TextMaxX = 0;
 							gDPSetRectScaleEXT(gdl++, 1.0f, 0, 0);
 
 							dialog->y = savedy;
@@ -5493,6 +5521,9 @@ void menuProcessInput(void)
 	s32 stickintervalbase;
 	s32 ystickintervalmult;
 	s32 allowdiagonal;
+#ifndef PLATFORM_N64
+	s32 rstickfree;
+#endif
 
 	yhelddir = 0;
 	xhelddir = 0;
@@ -5502,6 +5533,12 @@ void menuProcessInput(void)
 
 	menu = &g_Menus[g_MpPlayerNum];
 	dialog = g_Menus[g_MpPlayerNum].curdialog;
+
+#ifndef PLATFORM_N64
+	// the online pages with a chat window scroll it with the right stick
+	// (netlobbymenu.c), which moves no cursor there
+	rstickfree = !(dialog && netLobbyMenuChatScrolls(dialog->definition));
+#endif
 
 	if (g_MenuData.root == MENUROOT_MPPAUSE) {
 		g_AmIndex = g_Vars.currentplayernum;
@@ -5543,6 +5580,11 @@ void menuProcessInput(void)
 			// that far from where its x says (menuRenderDialog())
 			if (dialog) {
 				inputs.mousex -= netLobbyMenuDialogAlignOffset(dialog->definition);
+			}
+
+			// the wheel over an online page's chat scrolls that, not the page
+			if (inputs.mousescroll && netLobbyMenuChatWheel(dialog, inputs.mousex, inputs.mousey, inputs.mousescroll)) {
+				inputs.mousescroll = 0;
 			}
 		}
 		if (dialog && inputs.mousemoved) {
@@ -5656,7 +5698,7 @@ void menuProcessInput(void)
 			}
 
 #ifndef PLATFORM_N64
-			if ((stickx < 0 ? -stickx : stickx) < (thisrstickx < 0 ? -thisrstickx : thisrstickx)) {
+			if (rstickfree && (stickx < 0 ? -stickx : stickx) < (thisrstickx < 0 ? -thisrstickx : thisrstickx)) {
 				stickx = thisrstickx;
 			}
 #endif
@@ -5666,7 +5708,7 @@ void menuProcessInput(void)
 			}
 
 #ifndef PLATFORM_N64
-			if ((sticky < 0 ? -sticky : sticky) < (thisrsticky < 0 ? -thisrsticky : thisrsticky)) {
+			if (rstickfree && (sticky < 0 ? -sticky : sticky) < (thisrsticky < 0 ? -thisrsticky : thisrsticky)) {
 				sticky = thisrsticky;
 			}
 #endif

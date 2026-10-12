@@ -10,6 +10,8 @@
 #include "data.h"
 #include "system.h"
 #include "modloader.h"
+#include "fs.h"
+#include "langpack.h"
 #include "modmode.h"
 #include "gexplusrom.h"
 #include "gexfront.h"
@@ -621,12 +623,137 @@ const char *netCoopMissionName(s32 stageindex)
 	return langGet(g_SoloStages[stageindex].name3);
 }
 
-// "Co-op Agent" and the like, for the lobby's MODE column (no newline)
-void netCoopModeName(s32 difficulty, char *out, s32 size)
-{
-	char name[32];
+/*
+ * A set's own names for the three difficulties online plays (F3
+ * 20261012-103630: a GoldenEye room said Special Agent and Perfect Agent).
+ * Perfect Dark's Agent, Special Agent and Perfect Agent; a conversion's as
+ * its own folder names them, from its title bank (menu/LtitleE slots 19-21,
+ * gexfront.c's TITLE_DIFF_FIRST): GoldenEye's and Goldfinger 64's Agent,
+ * Secret Agent and 00 Agent, Tomorrow Never Dies 64's Easy, Normal and Hard.
+ * GoldenEye's own in the language picked where the pack has them. Read once
+ * a set.
+ */
+#define NETCOOP_TITLE_DIFF_FIRST 19
 
-	snprintf(out, size, "Co-op %s", netCoopClean(netCoopDifficultyName(difficulty), name, sizeof(name)));
+struct netcoopdiffnames {
+	char tag[16];
+	char names[3][32];
+	s32 ok;
+};
+
+static struct netcoopdiffnames s_DiffNames[8];
+static s32 s_NumDiffNames;
+
+// a title bank's string (an offset table, then the strings), its line alone
+static s32 netCoopTitleString(const u8 *bank, u32 len, s32 slot, char *out, s32 size)
+{
+	u32 at;
+
+	if (!bank || (u32)(slot + 1) * 4 > len) {
+		return 0;
+	}
+
+	at = (u32)bank[slot * 4] << 24 | (u32)bank[slot * 4 + 1] << 16 | (u32)bank[slot * 4 + 2] << 8 | bank[slot * 4 + 3];
+
+	if (at == 0 || at >= len) {
+		return 0;
+	}
+
+	{
+		s32 i = 0;
+
+		while (at + i < len && bank[at + i] && bank[at + i] != '\n' && i + 1 < size) {
+			out[i] = bank[at + i];
+			i++;
+		}
+
+		out[i] = '\0';
+		return i > 0;
+	}
+}
+
+// 0 when the set's folder is not here (yet: a set a host serves comes later)
+static s32 netCoopReadDiffNames(const char *game, struct netcoopdiffnames *d)
+{
+	char path[FS_MAXPATH + 1];
+	const char *dir = NULL;
+	u8 *bank;
+	u32 len = 0;
+	s32 stage = 0;
+	s32 i;
+
+	// the conversion's folder: the one its missions are in
+	for (i = 0; i < MODLOADER_MAX_MISSIONS && stage <= 0; i++) {
+		stage = netCoopMissionStage(game, i);
+	}
+
+	if (stage > 0 && modloaderGetStageModDirIndex(stage) >= 0) {
+		dir = fsGetModDirAt(modloaderGetStageModDirIndex(stage));
+	}
+
+	if (!dir) {
+		return 0;
+	}
+
+	snprintf(path, sizeof(path), "%s/menu/LtitleE", dir);
+	bank = fsFileLoad(path, &len);
+	d->ok = 1;
+
+	for (i = 0; i < 3; i++) {
+		d->ok &= netCoopTitleString(bank, len, NETCOOP_TITLE_DIFF_FIRST + i, d->names[i], sizeof(d->names[i]));
+	}
+
+	sysMemFree(bank);
+
+	return 1;
+}
+
+const char *netCoopDifficultyNameOf(const char *game, s32 difficulty)
+{
+	static char name[32];
+	const s32 diff = difficulty > DIFF_A && difficulty <= DIFF_PA ? difficulty : DIFF_A;
+	s32 i;
+
+	if (!netCoopIsPdGame(game)) {
+		if (strcasecmp(game, geconvertGoldenEyeTag()) == 0 && langpackActive()) {
+			const char *tr = langpackGeFile("LtitleE", NETCOOP_TITLE_DIFF_FIRST + diff);
+
+			if (tr && tr[0]) {
+				return netCoopClean(tr, name, sizeof(name));
+			}
+		}
+
+		for (i = 0; i < s_NumDiffNames; i++) {
+			if (strcasecmp(s_DiffNames[i].tag, game) == 0) {
+				break;
+			}
+		}
+
+		// a set not converted here yet is asked again next time
+		if (i == s_NumDiffNames && i < (s32)ARRAYCOUNT(s_DiffNames)) {
+			struct netcoopdiffnames *d = &s_DiffNames[i];
+
+			memset(d, 0, sizeof(*d));
+
+			if (netCoopReadDiffNames(game, d)) {
+				snprintf(d->tag, sizeof(d->tag), "%s", game);
+				s_NumDiffNames++;
+			}
+		}
+
+		if (i < s_NumDiffNames && s_DiffNames[i].ok) {
+			return s_DiffNames[i].names[diff];
+		}
+	}
+
+	return netCoopClean(netCoopDifficultyName(diff), name, sizeof(name));
+}
+
+// "Co-op Agent" and the like, for the lobby's MODE column (no newline):
+// the set's own name for the difficulty ("Co-op Secret Agent")
+void netCoopModeName(const char *game, s32 difficulty, char *out, s32 size)
+{
+	snprintf(out, size, "Co-op %s", netCoopDifficultyNameOf(game, difficulty));
 }
 
 /**

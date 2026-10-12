@@ -2073,7 +2073,7 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 		// difficulty as the mode, "mission:N" as the key
 		char mode[40];
 
-		netCoopModeName(g_NetCoopSetup.difficulty, mode, sizeof(mode));
+		netCoopModeName(g_NetCoopSetup.game, g_NetCoopSetup.difficulty, mode, sizeof(mode));
 
 		// a counter-op mission (protocol 32): "Counter-Op Agent"
 		if (g_NetCoopSetup.anti && !g_NetCoopSetup.campaign && strncmp(mode, "Co-op ", 6) == 0) {

@@ -543,7 +543,8 @@ s32 netCoopCampaignOn(void);
 void netCoopCampaignEnd(void);                       // the room is left
 s32 netCoopCampaignAfterMatch(void);                 // host, after a match: back to the set's menus; 1 handled
 void netCoopCampaignMenusOpen(void);                 // host: the set's menus again (the Game Lobby's row)
-void netCoopModeName(s32 difficulty, char *out, s32 size); // "Co-op Agent"
+void netCoopModeName(const char *game, s32 difficulty, char *out, s32 size); // "Co-op Agent", "Co-op Secret Agent"
+const char *netCoopDifficultyNameOf(const char *game, s32 difficulty); // a set's own name for it ("Secret Agent"), no newline
 
 // The session's hooks (H1-H14, HA-HD)
 #include "net/netsession.h"

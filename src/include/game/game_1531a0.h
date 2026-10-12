@@ -8,6 +8,10 @@
 #define DIAGMODE_REDRAW  1
 #define DIAGMODE_FADEOUT 2
 
+#ifndef PLATFORM_N64
+extern s32 g_TextMaxX; // how far right a glyph is drawn (0: viGetWidth()), menu.c's scaled online rows
+#endif
+
 void textInit(void);
 void textSetRotation90(bool rotated);
 void textSetWrapIndent(s32 count);
