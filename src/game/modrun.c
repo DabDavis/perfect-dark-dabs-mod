@@ -341,6 +341,13 @@ struct modruncarry {
 };
 
 static struct modruncarry g_ModRunCarry;
+
+// Each waypoint's room, for modRunZoneWalksOut(); dropped at every roll
+static s16 *g_ModRunWpRooms;
+static const struct waypoint *g_ModRunWpRoomsFor;
+static s32 g_ModRunWpRoomsNum;
+// The level's props stand, so a link out can be tested for glass across it
+static bool g_ModRunWalkLines;
 static bool g_ModRunHasCarry;
 
 /**
@@ -1016,19 +1023,29 @@ static bool modRunRoomNearBare(s32 room)
 	return false;
 }
 
+static bool modRunLandingWalksOut(s32 room, s32 padnum);
+
 static void modRunChooseLanding(void)
 {
 	const s32 numwaypoints = modRunCountWaypoints();
 	const bool checkpads = modRandomGetVersion() >= 3;
+	bool checkwalk = modRandomGetVersion() >= 7;
+	s8 *walkout = NULL;
 	s32 chosen = -1;
 	s32 count = 0;
 	s32 unusable = 0;
+	s32 shut = 0;
 	s32 i;
 
 	g_ModRunLandPad = -1;
 	g_ModRunLandRoom = -1;
 	g_ModRunNumZone = 0;
 
+	if (checkwalk && numwaypoints > 0) {
+		walkout = calloc(numwaypoints, 1);
+	}
+
+again:
 	// A landing dealt again for a dark room draws from a stream of its own,
 	// so the first draw of every hop is the one the seed always dealt.
 	if (g_ModRunLandTry > 0) {
@@ -1066,7 +1083,8 @@ static void modRunChooseLanding(void)
 
 #ifndef PLATFORM_N64
 		// --run-room: the first landing in this room, for testing one room
-		if (g_ModRunFirstRoom > 0 && g_ModRunHop == 0 && room != g_ModRunFirstRoom) {
+		// (a dark room's landing again goes anywhere, so it can be tested)
+		if (g_ModRunFirstRoom > 0 && g_ModRunHop == 0 && g_ModRunLandTry == 0 && room != g_ModRunFirstRoom) {
 			continue;
 		}
 #endif
@@ -1076,12 +1094,42 @@ static void modRunChooseLanding(void)
 			continue;
 		}
 
+		// v7: a room whose zone no chr could walk out of is one the player
+		// cannot leave once it is won - the firing range lane behind its
+		// glass (F3 20261011-004012).
+		if (checkwalk && walkout) {
+			if (walkout[i] == 0) {
+				walkout[i] = modRunLandingWalksOut(room, padnum) ? 1 : 2;
+			}
+
+			if (walkout[i] == 2) {
+				shut++;
+				continue;
+			}
+		}
+
 		count++;
 
 		if (modRunBelow(count) == 0) {
 			chosen = padnum;
 		}
 	}
+
+	// Every room shut in: deal as before rather than not at all.
+	if (chosen < 0 && checkwalk && shut > 0) {
+		checkwalk = false;
+		count = 0;
+		unusable = 0;
+		goto again;
+	}
+
+	free(walkout);
+
+#ifndef PLATFORM_N64
+	if (shut) {
+		sysLogPrintf(0, "run: stage 0x%02x - %d waypoint(s) in a room with no way out once it is won", g_ModRunStage, shut);
+	}
+#endif
 
 #ifndef PLATFORM_N64
 	if (unusable) {
@@ -1290,6 +1338,8 @@ void modRunRoll(void)
 	}
 
 	g_ModRunObjCmds = NULL;
+	g_ModRunWpRoomsFor = NULL;
+	g_ModRunWalkLines = false;
 	g_ModRunOverTicks = 0;
 	g_ModRunObjective.done = false;
 	g_ModRunLandTry = 0;
@@ -2071,6 +2121,29 @@ static void modRunOpenDoors(bool exits, bool inside)
 					door->keyflags = 0;
 					opened++;
 				}
+			} else if (door->keyflags && door->base.prop) {
+				// A door standing in no portal is judged by the rooms it
+				// stands in. GoldenEye Arenas' Statue Park has its locked
+				// gates between rooms 10 and 11 so (key 1, no portal), both
+				// in one zone: the run sealed the player behind them and
+				// they never opened (F3 20261011-012920).
+				const RoomNum *rooms = door->base.prop->rooms;
+				bool anyin = false;
+				bool allin = true;
+				s32 k;
+
+				for (k = 0; k < 8 && rooms[k] != -1; k++) {
+					if (modRunZoneHas(rooms[k])) {
+						anyin = true;
+					} else {
+						allin = false;
+					}
+				}
+
+				if ((exits && anyin && !allin) || (inside && anyin && allin)) {
+					door->keyflags = 0;
+					opened++;
+				}
 			}
 		}
 
@@ -2176,12 +2249,183 @@ static void modRunBuildRing(void);
  * map small enough for that - an arena of three rooms all touching - the zone
  * is the landing room alone, which is the mode as it was.
  */
-static void modRunBuildZone(void)
+/**
+ * Whether a chr could walk out of the zone: a waypoint link from a waypoint in
+ * it to one in a room outside it (not room 0), and not a link that only goes
+ * the other way (the bottom of a ledge, WPSEGFLAG_INWARDSONLY in the walker's
+ * own list). A portal out of the zone is not that on its own: Carrington
+ * Institute's firing range lane (room 10 on Defense) leaves only through the
+ * booth's window, which is a portal behind bulletproof glass, and a landing
+ * there had no way on once the room was won (F3 20261011-004012). A stage with
+ * no waypoint graph answers yes - there is nothing to judge by.
+ */
+
+static s32 modRunWaypointRoom(s32 index)
 {
+	const struct waypoint *waypoints = g_StageSetup.waypoints;
+
+	if (g_ModRunWpRoomsFor != waypoints || g_ModRunWpRooms == NULL) {
+		const s32 num = modRunCountWaypoints();
+		s32 i;
+
+		free(g_ModRunWpRooms);
+		g_ModRunWpRooms = num > 0 ? malloc(num * sizeof(*g_ModRunWpRooms)) : NULL;
+		g_ModRunWpRoomsFor = waypoints;
+		g_ModRunWpRoomsNum = g_ModRunWpRooms ? num : 0;
+
+		for (i = 0; i < g_ModRunWpRoomsNum; i++) {
+			g_ModRunWpRooms[i] = modRunPadRoom(waypoints[i].padnum);
+		}
+	}
+
+	if (index < 0 || index >= g_ModRunWpRoomsNum) {
+		return -1;
+	}
+
+	return g_ModRunWpRooms[index];
+}
+
+/**
+ * Whether a waypoint link is not shut by a pane nothing can break: a path
+ * blocker immune to gunfire and to explosions standing across it. The firing
+ * range's glass is one (OBJFLAG_PATHBLOCKER, OBJFLAG2_IMMUNETOGUNFIRE and
+ * OBJFLAG2_IMMUNETOEXPLOSIONS) and the waypoint graph links the lane to the
+ * room behind it straight through it. Props, so asked only once they stand.
+ */
+static bool modRunLinkIsOpen(s32 pada, s32 padb)
+{
+	struct pad a;
+	struct pad b;
+	RoomNum rooms[2];
+	RoomNum torooms[8];
+
+	padUnpack(pada, PADFIELD_POS | PADFIELD_ROOM, &a);
+	padUnpack(padb, PADFIELD_POS | PADFIELD_ROOM, &b);
+
+	if (a.room <= 0 || a.room >= g_Vars.roomcount) {
+		return true;
+	}
+
+	a.pos.y += 50;
+	b.pos.y += 50;
+	rooms[0] = a.room;
+	rooms[1] = -1;
+
+	return cdTestLos11(&a.pos, rooms, &b.pos, torooms,
+			CDTYPE_PATHBLOCKER | CDTYPE_OBJSIMMUNETOGUNFIRE | CDTYPE_OBJSIMMUNETOEXPLOSIONS) != CDRESULT_COLLISION;
+}
+
+static bool modRunZoneWalksOut(void)
+{
+	const struct waypoint *waypoints = g_StageSetup.waypoints;
+	s32 num;
+	s32 *queue;
+	u8 *seen;
+	s32 head = 0;
+	s32 tail = 0;
+	bool out = false;
 	s32 i;
+	s32 j;
+
+	// A graph made from the pads links only what its walk could join -
+	// GoldenEye Arenas' Statue Park has its park and the lawns beyond it in
+	// separate pieces - so it says nothing about where a player can go.
+	if (waypoints == NULL || waypoints[0].padnum < 0 || modAlarmIsPadGraph()) {
+		return true;
+	}
+
+	num = modRunCountWaypoints();
+	modRunWaypointRoom(0);
+
+	if (g_ModRunWpRoomsNum != num) {
+		return true;
+	}
+
+	queue = malloc(num * sizeof(*queue));
+	seen = calloc(num, 1);
+
+	if (queue == NULL || seen == NULL) {
+		free(queue);
+		free(seen);
+		return true;
+	}
+
+	// From the landing's own waypoint: the piece of the graph the player
+	// stands on. The lane of Carrington Institute's firing range is one zone
+	// with the room behind its glass and the glass is across the links
+	// between them, so the zone walking out somewhere is not the player
+	// walking out (F3 20261011-004012).
+	for (i = 0; i < num && g_ModRunLandPad >= 0; i++) {
+		if (waypoints[i].padnum == g_ModRunLandPad && modRunZoneHas(g_ModRunWpRooms[i])) {
+			seen[i] = 1;
+			queue[tail++] = i;
+			break;
+		}
+	}
+
+	// A landing that is not a waypoint: every waypoint in the zone.
+	for (i = 0; tail == 0 && i < num; i++) {
+		if (modRunZoneHas(g_ModRunWpRooms[i])) {
+			seen[i] = 1;
+			queue[tail++] = i;
+		}
+	}
+
+	// No waypoint in the zone at all: nothing to judge by.
+	if (tail == 0) {
+		out = true;
+	}
+
+	while (head < tail && !out) {
+		const s32 cur = queue[head++];
+		const s32 *nb = waypoints[cur].neighbours;
+
+		for (j = 0; nb && nb[j] >= 0; j++) {
+			const s32 next = nb[j] & 0x3fff;
+			s32 room;
+
+			if ((nb[j] & 0x8000) || next >= num || seen[next]) {
+				continue;
+			}
+
+			room = g_ModRunWpRooms[next];
+
+			if (room <= 0) {
+				continue;
+			}
+
+			if (g_ModRunWalkLines && !modRunLinkIsOpen(waypoints[cur].padnum, waypoints[next].padnum)) {
+				continue;
+			}
+
+			if (!modRunZoneHas(room)) {
+				out = true;
+				break;
+			}
+
+			seen[next] = 1;
+			queue[tail++] = next;
+		}
+	}
+
+	free(queue);
+	free(seen);
+
+	return out;
+}
+
+/**
+ * The zone a landing in g_ModRunLandRoom seals, into g_ModRunZone: Large two
+ * doors deep when that is the setting, else one door deep, else the room
+ * alone - the first of them that has a portal out of it and a waypoint link
+ * walking out (modRunZoneWalksOut()). When none walks out, the first with a
+ * portal out, which is what this always was.
+ */
+static void modRunBuildZoneRooms(void)
+{
+	s32 pass;
 
 	g_ModRunNumZone = 0;
-	g_ModRunNumRing = 0;
 
 	if (g_ModRunLandRoom < 0) {
 		return;
@@ -2194,32 +2438,82 @@ static void modRunBuildZone(void)
 		return;
 	}
 
-	// Large (tester 2026-09-28, "bigger rooms"): two doors deep, capped so a
-	// small map is not all one room. A zone with no door out of it cannot be
-	// left once it is won, so a Large one that has none is built again one
-	// door deep, and that again as the landing room alone.
-	if (modGetRunRoomSize() == MODRUN_ROOMS_LARGE) {
-		s32 cap = g_Vars.roomcount / 3;
+	for (pass = 0; pass < 2; pass++) {
+		const bool walk = pass == 0;
 
-		if (cap > MODRUN_LARGEZONE) {
-			cap = MODRUN_LARGEZONE;
+		// Large (tester 2026-09-28, "bigger rooms"): two doors deep, capped
+		// so a small map is not all one room.
+		if (modGetRunRoomSize() == MODRUN_ROOMS_LARGE) {
+			s32 cap = g_Vars.roomcount / 3;
+
+			if (cap > MODRUN_LARGEZONE) {
+				cap = MODRUN_LARGEZONE;
+			}
+
+			if (cap > 4) {
+				g_ModRunNumZone = modRunWalkRooms(g_ModRunZone, 1, cap, 2, modRunRoomIsBare);
+
+				if (modRunZoneExitPortal(NULL) >= 0 && (!walk || modRunZoneWalksOut())) {
+					return;
+				}
+			}
 		}
 
-		if (cap > 4) {
-			g_ModRunNumZone = modRunWalkRooms(g_ModRunZone, 1, cap, 2, modRunRoomIsBare);
+		g_ModRunNumZone = modRunWalkRooms(g_ModRunZone, 1, MODRUN_MAXZONE, 1, modRunRoomIsBare);
 
-			if (modRunZoneExitPortal(NULL) < 0) {
-				g_ModRunNumZone = 1;
-			}
+		if (modRunZoneExitPortal(NULL) >= 0 && (!walk || modRunZoneWalksOut())) {
+			return;
+		}
+
+		g_ModRunNumZone = 1;
+
+		if (modRunZoneExitPortal(NULL) >= 0 && (!walk || modRunZoneWalksOut())) {
+			return;
 		}
 	}
 
-	if (g_ModRunNumZone == 1) {
-		g_ModRunNumZone = modRunWalkRooms(g_ModRunZone, 1, MODRUN_MAXZONE, 1, modRunRoomIsBare);
+	g_ModRunNumZone = 1;
+}
 
-		if (modRunZoneExitPortal(NULL) < 0) {
-			g_ModRunNumZone = 1;
-		}
+/**
+ * Whether a landing in this room would have a way out once it is won (v7):
+ * the zone it would seal walks out. Asked at the roll, where the bg and the
+ * waypoints are this stage's already (see modRunBuildZone()).
+ */
+static bool modRunLandingWalksOut(s32 room, s32 padnum)
+{
+	RoomNum zone[MODRUN_MAXZONE];
+	const s32 numzone = g_ModRunNumZone;
+	const s32 landroom = g_ModRunLandRoom;
+	const s32 landpad = g_ModRunLandPad;
+	bool ok;
+
+	memcpy(zone, g_ModRunZone, sizeof(zone));
+
+	g_ModRunLandRoom = room;
+	g_ModRunLandPad = padnum;
+	modRunBuildZoneRooms();
+	ok = modRunZoneWalksOut();
+
+	memcpy(g_ModRunZone, zone, sizeof(zone));
+	g_ModRunNumZone = numzone;
+	g_ModRunLandRoom = landroom;
+	g_ModRunLandPad = landpad;
+
+	return ok;
+}
+
+static void modRunBuildZone(void)
+{
+	s32 i;
+
+	g_ModRunNumRing = 0;
+
+	modRunBuildZoneRooms();
+
+	if (g_ModRunNumZone <= 1 && (g_ModRunLandRoom <= 0 || g_ModRunLandRoom >= g_Vars.roomcount
+			|| g_Rooms == NULL || g_RoomPortals == NULL || g_BgPortals == NULL)) {
+		return;
 	}
 
 	modRunBuildRing();
@@ -2976,6 +3270,10 @@ void modRunTick(void)
 						g_ModRunStage, player->prop->rooms[0], g_ModRunLandPad);
 #endif
 
+				// The kit again: the first new life's modRunRestoreHealth()
+				// spent g_ModRunKitDue, and a new life without it is a
+				// player with bare hands (F3 20261011-015550).
+				g_ModRunKitDue = true;
 				g_ModRunSpawnState = 1;
 				return;
 			}
@@ -2985,15 +3283,26 @@ void modRunTick(void)
 		// same map, a new life like the landing itself. Its room has to be
 		// loaded to be judged, which it is a frame or two after the player is
 		// stood in it.
+		//
+		// And from v7 one whose zone has no way out once it is won, now that
+		// the props stand and a pane nothing breaks can be seen across the
+		// waypoint links out (modRunLinkIsOpen()).
+		g_ModRunWalkLines = true;
+
 		if (modRandomGetVersion() >= 4 && g_ModRunLandPad >= 0 && g_ModRunLandTry < MODRUN_MAXDARK) {
 			const s32 room = player->prop->rooms[0];
 			const s32 dark = modRunRoomIsDark(room);
+			bool shut = false;
 
 			if (dark < 0 && ++g_ModRunLandWait < 30) {
 				return;
 			}
 
-			if (dark > 0) {
+			if (dark == 0 && modRandomGetVersion() >= 7 && room > 0 && room < g_Vars.roomcount) {
+				shut = !modRunLandingWalksOut(room, g_ModRunLandPad);
+			}
+
+			if (dark > 0 || shut) {
 				const s32 oldpad = g_ModRunLandPad;
 
 				g_ModRunDarkRooms[g_ModRunLandTry] = room;
@@ -3003,8 +3312,9 @@ void modRunTick(void)
 				modRunChooseLanding();
 
 #ifndef PLATFORM_N64
-				sysLogPrintf(0, "run: room %d on stage 0x%02x has no light; landing again on pad %d room %d",
-						room, g_ModRunStage, g_ModRunLandPad, g_ModRunLandRoom);
+				sysLogPrintf(0, "run: room %d on stage 0x%02x has %s; landing again on pad %d room %d",
+						room, g_ModRunStage, shut ? "no way out once it is won" : "no light",
+						g_ModRunLandPad, g_ModRunLandRoom);
 #endif
 
 				if (g_ModRunLandPad >= 0) {
@@ -3014,6 +3324,10 @@ void modRunTick(void)
 						modRunDealFight(modRunBelow(2) != 0);
 					}
 
+					// The carried kit goes back through this new life too,
+					// or the dark room's re-landing leaves the player
+					// unarmed (F3 20261011-015550).
+					g_ModRunKitDue = true;
 					g_ModRunSpawnState = 1;
 					return;
 				}

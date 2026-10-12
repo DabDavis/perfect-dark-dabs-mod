@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "game/bg.h"
 #include "game/chraction.h"
+#include "game/chr.h"
 #include "game/game_0b0fd0.h"
 #include "game/hudmsg.h"
 #include "game/lang.h"
@@ -152,6 +153,11 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
  * could not be finished (F3 20261002-224232). And a run's landing on the Duel
  * keeps out of, and a door away from, the three rooms whose doorways show the
  * sky there (modrun.c, modRunRoomIsBare(); F3 20261002-082816).
+ *
+ * Version 7 never lands a run in a room whose sealed zone no chr could walk
+ * out of: a waypoint link has to leave it (modrun.c, modRunZoneWalksOut()).
+ * Carrington Institute's firing range lane leaves only through the booth's
+ * glass, and a landing there could not be left once won (F3 20261011-004012).
  */
 #define MODRANDOM_VERSION MODRANDOM_VERSION_DEFAULT
 
@@ -2120,6 +2126,87 @@ static void modRandomTickEndless(void)
  * (geStanTeleportSpot()). Which pad the seed dealt does not change, only where
  * on it the player stands, as with the floor's own y above.
  */
+/**
+ * The same on Perfect Dark's own levels, where what stands on a pad is
+ * furniture: Carrington Institute's sofa covers a waypoint the run landed on,
+ * and the player started inside it, every step a collision (F3
+ * 20261011-012426). The pad is dealt at the roll, before the props stand, so
+ * this asks once they do: the body's own volume clear of everything but
+ * players (the player's own prop is still wherever the last life left it),
+ * and if not, the nearest of eight directions at 60, 120, 180 and 240 units
+ * that the bg lets a line reach from the pad, that has a floor within a step
+ * of the pad's and is clear. chrAdjustPosForSpawn()'s search, wider, since a
+ * sofa is longer than 60 units. Nothing clear leaves the spot as it was.
+ */
+#ifndef PLATFORM_N64
+static void modRandomSpawnClearProps(struct coord *pos, RoomNum *rooms, f32 angle)
+{
+	const u32 types = CDTYPE_ALL & ~CDTYPE_PLAYERS;
+	s32 ring;
+	s32 i;
+
+	if (cdTestVolume(pos, 30, rooms, types, CHECKVERTICAL_YES, 200, -200) != CDRESULT_COLLISION) {
+		return;
+	}
+
+	for (ring = 1; ring <= 4; ring++) {
+		f32 curangle = angle;
+
+		for (i = 0; i < 8; i++) {
+			struct coord testpos;
+			RoomNum testrooms[8];
+			f32 ground;
+
+			testpos.x = pos->x + sinf(curangle) * (60.0f * ring);
+			testpos.y = pos->y;
+			testpos.z = pos->z + cosf(curangle) * (60.0f * ring);
+
+			curangle += M_BADTAU / 8;
+
+			if (curangle >= M_BADTAU) {
+				curangle -= M_BADTAU;
+			}
+
+			testrooms[0] = -1;
+
+			if (!cdTestLos11(pos, rooms, &testpos, testrooms, CDTYPE_BG) || testrooms[0] <= 0) {
+				continue;
+			}
+
+			chr0f021fa8(NULL, &testpos, testrooms);
+
+			if (testrooms[0] <= 0) {
+				continue;
+			}
+
+			ground = cdFindGroundAtCyl(&testpos, 30, testrooms, NULL, NULL);
+
+			if (ground < -100000 || ground + MODRANDOM_SPAWNLIFT - pos->y > 40
+					|| pos->y - (ground + MODRANDOM_SPAWNLIFT) > 40) {
+				continue;
+			}
+
+			testpos.y = ground + MODRANDOM_SPAWNLIFT;
+
+			if (cdTestVolume(&testpos, 30, testrooms, types, CHECKVERTICAL_YES, 200, -200) == CDRESULT_COLLISION) {
+				continue;
+			}
+
+			sysLogPrintf(LOG_NOTE, "randomizer: the spot (%.0f %.0f %.0f) is inside a prop; standing at (%.0f %.0f %.0f) in room %d",
+					pos->x, pos->y, pos->z, testpos.x, testpos.y, testpos.z, testrooms[0]);
+
+			*pos = testpos;
+			rooms[0] = testrooms[0];
+			rooms[1] = -1;
+			return;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "randomizer: the spot (%.0f %.0f %.0f) is inside a prop and nothing near it is clear",
+			pos->x, pos->y, pos->z);
+}
+#endif
+
 void modRandomSpawnClear(struct coord *pos, RoomNum *rooms, f32 angle)
 {
 #ifndef PLATFORM_N64
@@ -2127,7 +2214,12 @@ void modRandomSpawnClear(struct coord *pos, RoomNum *rooms, f32 angle)
 	struct coord spot;
 	s32 room;
 
-	if (!geRoomActive() || rooms[0] <= 0) {
+	if (rooms[0] <= 0) {
+		return;
+	}
+
+	if (!geRoomActive()) {
+		modRandomSpawnClearProps(pos, rooms, angle);
 		return;
 	}
 

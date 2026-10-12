@@ -1593,7 +1593,10 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 					if (info->gunctrl->wantammo) {
 						func = weaponGetFunction(&hand->gset, 1 - hand->gset.weaponfunc);
 
-						if ((func->type & 0xff) != INVENTORYFUNCTYPE_MELEE) {
+						// A gun with one function (GoldenEye's) has no other
+						// to switch to: bgun0f0990b0() calls a NULL function
+						// usable, and this read it (crash 20261011-181759).
+						if (func == NULL || (func->type & 0xff) != INVENTORYFUNCTYPE_MELEE) {
 							sp30 = -1;
 						}
 					} else {
