@@ -1130,6 +1130,19 @@ GoldenEye's knife (it is thrown as slot 186, which is the arena's there).
 - **Grounds' Aston Martin floats (F3 20261010-230956)**: world diff against
   the cartridge has every car where GoldenEye puts it (no obj.pos finding) -
   the float is the hack's model, as the tester says of the original.
-- **Grounds pop-in (F3 20261010-230108, -230442)**: the reporter had Disable
-  Fog on; props are drawn to the level's fog distance as on the cartridge,
-  where the fog hides them. Drawing them farther with fog off is a feature.
+- **Grounds pop-in (F3 20261010-230108, -230442), built on the owner's word
+  (feat/f3-1011-drawdist).** The reporter had Disable Fog on. Not a distance
+  cut at all: GoldenEye's portal walk (bgTickPortalsWalkGe()) rejects portal
+  97 (room 43 -> 42) at the report's spot because its screen box misses the
+  box room 43 was reached through, so room 42 is never on screen, and its
+  trees, tall enough to rise over the nearer ground, popped in when the walk
+  reached it (not the walk's depth cap of 15 or its queue: raising both
+  changed nothing). Under the cartridge's fog nothing that far is seen.
+  objDrawnPastPortals() (propobj.c): with the fog off on a converted level
+  func0f08e8ac() draws a chr or object in the view's frustum whatever its
+  rooms, and lifts the 32000 cut; a chr drawn only that way gets
+  CHRH2FLAG_PASTLEVELFOG (chr.c), so aiIfOnScreen and the cap of 30 are as
+  before. Cost, fog off, `videoGetFrameHistory()` work: Grounds median 3.35
+  -> 3.55 ms; GE Facility's spawn 0.72 -> 1.08 ms (props behind walls,
+  hidden by depth: the picture identical). Perfect Dark's stages are left
+  alone: their walk is the snake, whose portals bound what they draw.
