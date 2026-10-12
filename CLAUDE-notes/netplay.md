@@ -44,6 +44,14 @@
   the clients follow by the mission block (body, radius, the setup chrs
   taken, by chrnum); which converted guard may be taken; Guards Alerted!'s
   guards as bodies too; `netantitest.sh`.
+- **A long link's walk (F3 pass 38, 2026-10-12, no wire change)** — the
+  section "F3 pass 38": the host walks a client's player by its commands
+  alone (a dry tick waits, a fold walks each folded command first:
+  `netPlayersHostWalk`), a setup object keeps its own place on a client
+  (the wire's eighth of a unit had moved a table's collision), the link
+  simulator's stalls (`--net-sim ...,EVERY,STALL`, netpredicttest's
+  `relay`), no team score limit online with teams off; doors a client opens
+  are still a round trip late (a plan there).
 - **Content follows the host** — the section of that name (`netcontent.c`,
   protocols 13 and 14): a client plays the host's overlay mod, Stage Loader
   maps, conversions and ROM hack mode from its own copies (the content
@@ -3750,3 +3758,92 @@ Respawn rules and lives).
 - **Left as stock:** the radar shows the players to each other when the room's Radar is on (Perfect
   Dark's counter-op radar); the kill feed names a counter-op's kills; a counter-op waiting for a guard
   is visible as its own character.
+
+## F3 pass 38 (2026-10-12, no wire change, protocol stays 32)
+
+The owner as a client of a European host over the VPS relay (219 ms; GoldenEye Arenas' Bunker 1, Combat,
+one simulant): F3 20261012-123035 "lagging with the EU player" (prediction 94.39%, 77 corrections, up to
+305 units), -123231/-123411 the body armour on a table "acting weird to pick up", -123611 a shield and
+body armour in one match, -123523 the shield sounding like body armour, -123437 "is lag comp working for
+sims?".
+
+- **The host walks a client's player by its commands alone** (`netPlayersHostWalk()`, called first in
+  `bmoveTick`). The host plays one command a tick. Where a command had not come (a dry tick) it walked
+  the player on by the last command's sticks - a step the client never took - and the commands that
+  then came together were folded into one tick: the buttons ORed, the mouse summed, one step for many.
+  On a link with stalls (a relay's; the puppets' `held past 100 ms` is their sign the other way) each
+  stall was a correction for the guess and another for the fold - the log's pairs (313 then 85, 128
+  then 150). Now a dry tick's walk waits: `bmoveTick` runs as on a frame drawn between ticks, at a level
+  clock of zero with the walk's state put back after (`netPredictWalkHold()`, the present pass's way),
+  so the input is still read (the gun's trigger as held, nothing pressed) and the player stays put. The
+  commands folded into a tick are walked first, oldest first, each as a sample of its own
+  (`joyNetInjectSample`, the prediction replay's way, under `g_NetReplaying` so nothing but the walk
+  happens), the tick's own last by its own sticks and mouse; commands declared lost walk first as the
+  dry ticks once walked them (the last command's sticks, no mouse). Only for a steady walk (the
+  prediction's replayable one: walk mode, alive, no tank ride) and a run that presses and lets go of
+  nothing after its first command (a press at the first is the tick's own, as the fold has it; not
+  after lost commands, where it would be met twice) - anything else holds and folds as before. Others
+  see a lagging player pause and catch up rather than run on. Measured at 220 ms with a 300 ms stall
+  about every 3 s each way (open ground, the prediction script): 97.72% -> 99.65% matched, 27 -> 4
+  corrections (one is the match start's); with steady 0-25 ms jitter both walks were 99.9% (the queue's
+  1.5 commands cover it). The trace's slot line counts "the walk waited N ticks, walked M folded
+  commands first".
+- **A setup object keeps its own place on a client.** A record carries a place in eighths of a unit
+  (`putPos`), and the first record moved every setup object onto it (`netPupObj`): up to a sixteenth off
+  the host's, its collision with it. Bunker 1's armour table stood 0.05 nearer the player on the
+  client: pushing along its edge the client's walk stopped at the corner where the host's slid on, a
+  correction every two ticks for as long as the player pushed (12 in three seconds with no lag at all).
+  A record whose place and turn are the object's own as the wire carries them (`netPosWire()`,
+  `netRotSameOnWire()`) now leaves it where this machine's setup put it (12 corrections -> the two the
+  test's own teleport made). netpuppettest checks every setup object the host never moved stands at
+  the host's place to the trace's print (the base build: 34 of 35 on Skedar, 2 of 6 on Area 52 off by
+  up to 0.048). An object the host moved is still the wire's place.
+- **The link simulator's stalls**: `--net-sim DROP,DELAY,JITTER,KBPS,EVERY,STALL` holds what comes in
+  for STALL ms about every EVERY ms (three quarters to five quarters of it) and lets it through
+  together; datagrams due together go in arrival order (`seq`: the swap-remove had shuffled a burst,
+  and a later packet first makes the host skip commands as lost). netpredicttest's `relay` case: 220
+  ms, a 300 ms stall about every 3 s.
+- **Doors a client opens are a round trip late** (measured, not changed). The host opens the door on
+  the client's command; the client's copy opens when the snapshots say so, a round trip and the
+  puppets' delay later, so the client stands at the shut door while the host's copy of it walks through
+  (Bunker 1 at 220 ms: the host's player through at command 126, the client's own at 144, eased
+  corrections of 12-22 units every block). The plan: the client opens the door its own use press
+  reaches, at the press, as the host does on the same command (doorsRequestMode on its copy and its
+  own `doorsCalcFrac` each tick), holds the records' older states off that door until they show it
+  opening, and a replay poses it at each replayed tick's frac. It changes how a client poses doors
+  (netpuppettest's doors case compares fracs at the render tick), so it is a pass of its own.
+- **No team score limit online with teams off** (`mpApplyLimits()`; the owner's coordinator, from
+  pdplay's offline 80-simulant find, 19a68320d). Perfect Dark checks each team
+  number's summed score against the team limit teams or not (`lvTick`, `mpGetTeamRankings`), and online
+  a team number with teams off is nothing a player chose: pdlobbyd deals a room's members onto teams 0
+  and 1 (`quietest_team`) and the host puts them on the seats, and a seat past the fourth of a direct
+  session is team 0 - so half a room's kills summed to the limit (default 20) and ended a free-for-all
+  before anyone reached the score limit. The gates had set `--net-test-teamscorelimit 400` round it.
+  Offline (the clock test too) is the cartridge's. netpredicttest's `teamlimit` case (the time case
+  with teams off, a team limit of 3 and the client's seat given 4 kills at tick 600): before, the host
+  ended the match at tick 600 by the team limit; now the clock ends it at 3600. A probe of a direct
+  session of five (gdb on the host, `[Net] MaxPlayers=8`): every seat team 0 (clients take the host's
+  through RULES), two seats given three kills each against a team limit of 6 ended the match at once;
+  now it runs on.
+- **A Perfect Dark shield on a GoldenEye arena is a shield** (gesfx.c, propobj.c, bot.c).
+  e03d577a7/12b45b28e gave GoldenEye's body armour its own sound and words on a converted level by
+  `SFX_PICKUP_SHIELD` and `geRoomActive()`, so every shield there - the Perfect Dark weapon set's too -
+  sounded and read as body armour. The armour is the converted setup's shield in `MODEL_BODYARMOUR`
+  (geconvert.c's objects(), 0x182); its pickup sound is `GESFX_PICKUP_ARMOUR`, the shield's number with
+  a bit `sndStart` never reads (a sound that is not an MP3 plays by its id field), so it travels in E8
+  like any sound and is the shield's own wherever `geSfxPickup` does not answer for it.
+- Not bugs: the armour on Bunker 1's table is worth half a shield (its setup's 0.5; the level's other
+  is 1.0) and stays on the table while the player wears as much - GoldenEye's own rule (`amount <=
+  currentPlayerGetArmor()`) and Perfect Dark's for its shield - so a set's full shield picked up first
+  keeps it there; the host picks it up for a client within GoldenEye's 100 units, and the table lets a
+  player within 73. Both on one map: GoldenEye lays its armour in every arena whatever the weapon set,
+  and a Perfect Dark set brings its shield (the owner's call).
+- Lag compensation rewinds every chr slot, simulants and co-op guards as well as players
+  (`netLagCompHostTickEnd` records each chr's pose, `netLcRewindScreen` takes PROPTYPE_CHR and
+  PROPTYPE_PLAYER alike). At the owner's 207-219 ms the cap binds: the network's share is capped at
+  Net.LagCompMaxMs (200 ms, 12 ticks) where the link's is ~16-17, and the interpolation allowance comes
+  from ENet's RTT variance (8-10 ticks) where the client's own render delay ran 6-11 ticks. Measured
+  with netlagcomptest's on run at 220 ms (`--net-sim 0,110`): every shot capped (rewind 20.00 ticks),
+  81.7% of the 82 hits the shooter saw scored; with Net.LagCompMaxMs=300 none capped and 96.0% of 50.
+  Raising the default is the owner's call (a cutoff by design: past it a laggy shooter is no longer
+  fully favoured over the victim).
