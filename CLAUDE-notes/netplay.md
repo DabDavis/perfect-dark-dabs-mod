@@ -3372,3 +3372,27 @@ Briefing Room or Create Room. `--net-lobby-teams` makes a scripted host's
 room a team match.
 `netlobbyuitest.sh` still shoots both sides' Game Lobby at 640x480.
 
+
+## F3 pass 37 (2026-10-11, no wire change, protocol stays 30)
+
+- **A view drawn before its gun's first tick (crash 20261011-070303,
+  GoldenEye Bunker co-op).** `player->visionmode` was never set at
+  allocation before the JPN version (`playermgrAllocatePlayer`), and the
+  stage pool is not cleared, so it held the last stage's bytes until
+  `bgunTick` wrote it. Offline nothing draws first; a host draws a client
+  seat's view before that seat's first command reaches it (the stage
+  barrier), and a leftover 1 drew it in x-ray, whose `epcol_*` (equally
+  stale, measured 243/248/142 on a host) index `chrRender`'s `colour[4]`:
+  the write broke `propsRender`'s saved registers and it walked off the
+  stack at prop.c:568. Both are set at allocation on PC now.
+- **Every body is built on the level's first frame online** (the others
+  see it), before GoldenEye's opening: `playerTickChrBody` gave it the
+  hands' gun (none yet) and `gecinemaEnter`'s put-away emptied it anyway,
+  so Bond met the swirl unarmed (F3 20261011-065958). The swirl's tick
+  gives the own player's body the mission's starting gun when its hand is
+  empty (offline the body is built in the swirl holding it: a no-op).
+- The online pages' settings measure a pair as drawn (label and value
+  apart): measured whole, a short value lost a unit and drew as ".."
+  ("Simulants: ..", F3 20261011-214715). Name Entry and the Game Lobby
+  have a Player Setup row (the Combat Simulator's, player 1's: character,
+  Control's Reverse Pitch), which is what `netWriteSlotCfg` sends.
