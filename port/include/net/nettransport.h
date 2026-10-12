@@ -189,5 +189,8 @@ void netHostSetSim(struct nethost *h, s32 droppct, s32 delayms, s32 jitterms, u3
 // The simulator's bottleneck: what this host receives goes through a link of
 // that many bytes a second, queued (0 none)
 void netHostSetSimRate(struct nethost *h, u32 bytespersec);
+// The simulator's stalls: about every everyms (0 none) what this host receives
+// is held for lenms and let through at once (a relay's hiccup), for tests
+void netHostSetSimSpikes(struct nethost *h, s32 everyms, s32 lenms);
 
 #endif

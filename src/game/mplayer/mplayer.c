@@ -1072,6 +1072,19 @@ void mpApplyLimits(void)
 	} else {
 		lvSetMpTeamScoreLimit(mpCalculateTeamScoreLimit() + 1);
 	}
+
+#ifndef PLATFORM_N64
+	// Online with teams off a team number means nothing a player chose: a
+	// lobby room deals its members onto teams 0 and 1 (pdlobbyd's
+	// quietest_team) and a seat past the fourth is team 0, so half a room's
+	// kills summed to Perfect Dark's team limit (lvTick checks it teams or
+	// not) and ended a free-for-all long before anyone reached the score
+	// limit. No team limit then; offline is the cartridge's (the clock test
+	// is offline)
+	if (g_NetMode != NETMODE_NONE && !g_NetClockTest && (g_MpSetup.options & MPOPTION_TEAMSENABLED) == 0) {
+		lvSetMpTeamScoreLimit(0);
+	}
+#endif
 }
 
 /**

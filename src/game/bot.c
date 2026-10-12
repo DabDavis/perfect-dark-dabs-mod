@@ -694,7 +694,7 @@ u32 botPickupProp(struct prop *prop, struct chrdata *chr)
 			struct shieldobj *shield = (struct shieldobj *)prop->obj;
 
 #ifndef PLATFORM_N64
-			if (!geSfxPickup(SFX_PICKUP_SHIELD, prop))
+			if (!geSfxPickup(geSfxShieldPickupSound(&shield->base), prop))
 #endif
 			{
 				psCreate(NULL, prop, SFX_PICKUP_SHIELD, -1,

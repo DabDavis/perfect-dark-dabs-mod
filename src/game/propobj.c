@@ -19954,7 +19954,13 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 			playerSetShieldFrac(((struct shieldobj *) prop->obj)->amount);
 
 			if (!g_Vars.in_cutscene) {
+#ifndef PLATFORM_N64
+				// GoldenEye's body armour sounds as GoldenEye's on a
+				// converted level, Perfect Dark's shield as its own
+				objPlayPickupSfx(geSfxShieldPickupSound(obj));
+#else
 				objPlayPickupSfx(SFX_PICKUP_SHIELD);
+#endif
 			}
 
 			if (showhudmsg) {
@@ -19973,8 +19979,10 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 					// GoldenEye's is body armour, and says so in its own words
 					// (propobj.c's PROPDEF_ARMOUR: PROPOBJ_STR_3D "Picked up
 					// some body armor.", or 3E "body armor." for three players
-					// and more). F3 20260926-203211/225220.
-					if (geRoomActive()) {
+					// and more). F3 20260926-203211/225220. Perfect Dark's own
+					// shield, a Perfect Dark weapon set's on a converted level,
+					// is a shield (F3 20261012-123523)
+					if (geRoomActive() && obj->modelnum == MODEL_BODYARMOUR) {
 						const char *getext = geHudPropobjString(playercount < 3 ? 0x3d : 0x3e);
 
 						if (getext) {

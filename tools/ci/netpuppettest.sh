@@ -379,6 +379,27 @@ if not shown or noroom > 0.01 * len(shown):
     print(f"FAIL {label}: {noroom} of {len(shown)} shown puppet poses in no room"); sys.exit(1)
 print(f"ok   {label}: {len(shown) - noroom} of {len(shown)} shown puppet poses (chrs and objects) in a room")
 status = 0
+# setup objects the host never moved stand where the host has them, to the
+# trace's print: the record's place is the wire's (eighths of a unit), and
+# put there a table's collision moved, and a client's walk along it stopped
+# where the host's slid on (F3 20261012-123411)
+still = {}
+for eid, v in H.items():
+    if v and v[0][10] == 1 and v[0][2] == 2 and all(s[4] == v[0][4] and s[1] == v[0][1] for s in v):
+        still[eid] = v[0][4]
+OP = [line.split() for line in open(tpath) if line.startswith('O ')]
+offs = []
+for p in OP:
+    eid = int(p[3])
+    if eid in still and int(p[4]) == 1 and p[8] == '0':
+        offs.append((max(abs(float(p[5 + k]) - still[eid][k]) for k in range(3)), eid))
+if offs:
+    worst = max(offs)
+    nbad = len({e for d, e in offs if d > 0.002})
+    if nbad:
+        print(f"FAIL {label}: {nbad} of {len({e for d, e in offs})} setup objects the host never moved stand elsewhere here (worst {worst[0]:.4f} units, id {worst[1]})"); status = 1
+    else:
+        print(f"ok   {label}: {len({e for d, e in offs})} setup objects the host never moved stand where the host has them ({len(offs)} poses, worst {worst[0]:.4f} units)")
 if mode in ('full', 'lossy'):
     # sims' deaths and respawns: the host's life bits against the client's actions
     hdeath = []; hresp = []

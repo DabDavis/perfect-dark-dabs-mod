@@ -83,6 +83,12 @@ s32 netLocalUiIndex(s32 playernum);
 void netMouseDelta(s32 playernum, f32 *dx, f32 *dy);
 void netMouseAbsDelta(s32 playernum, f32 *dx, f32 *dy);
 s32 netMouseLocked(s32 playernum);
+// bmoveTick on the host: a client's player walks by its commands alone - a
+// tick whose command has not come waits (1: no walk now), commands folded
+// into the tick walk first, each as the client walked it (netplayers.c)
+s32 netPlayersHostWalk(s32 allowc1x, s32 allowc1y, s32 allowc1buttons, s32 ignorec2);
+// ... and the walk of a tick that waits: as on a frame drawn between ticks, put back after (netpredict.c)
+void netPredictWalkHold(s32 begin);
 
 // player0f0bd358: the aspect of the screen this player is seen on
 f32 netSlotAspect(s32 playernum);

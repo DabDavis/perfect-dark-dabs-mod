@@ -284,6 +284,15 @@ void netQuatWire(f32 *q)
 	getQuat(p, q);
 }
 
+f32 netPosWire(f32 v)
+{
+	u8 p[3];
+
+	putPos(p, v);
+
+	return getPos(p);
+}
+
 static void getQuat(const u8 *p, f32 *q)
 {
 	u64 bits = 0;

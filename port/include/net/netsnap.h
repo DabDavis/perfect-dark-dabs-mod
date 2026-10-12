@@ -184,6 +184,7 @@ void netRecUnpack(s32 rec, const u8 *in, struct netentstate *out);
 void netQuatFromMatrix(const f32 m[3][3], f32 *q);  // q x y z w, unit, largest component >= 0
 void netQuatCanon(f32 *q);
 void netQuatWire(f32 *q);   // q as it comes off the wire (quantized there and back)
+f32 netPosWire(f32 v);      // a place's coordinate as it comes off the wire (eighths of a unit)
 
 /**
  * The local-player block: the receiving client's own player at full
