@@ -32,9 +32,18 @@
 #         tick 60 to 240 of each match and must walk in both (F3
 #         20261012-021339: the dead keyboard's typing outlived its dialog).
 #
+#   "seat" (after the pairs; SEAT=0 skips it; F3 20261012-020922): a room
+#         of three (host, alpha, bravo) launches on 0x32; a newcomer
+#         (charlie) is turned away while the match has every seat (409
+#         full); alpha quits the game at frame 900 (the lobby told on the
+#         way out); charlie joins again and is taken into the running match
+#         in alpha's seat, plays it to the host's end (frame 2400) and is
+#         back in the room.
+#
 #   netlobbytest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: OUT (build/netlobby-out), GPORT (27180: the hosts' game ports, +1),
+# ONLY (seat: the seat case alone), SEAT (0: without it),
 # MODDIR (mod_allinone), FRAME (600).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
@@ -92,6 +101,7 @@ game() {
 	exec timeout -k 5 "$t" stdbuf -oL -eL "$BIN" --savedir "$save" --skip-intro --no-sound --moddir "$MODDIR" "$@" > "$OUT/$label.log" 2>&1
 }
 
+if [ "${ONLY:-}" != seat ]; then
 game leave-host hostguy "$GPORT" 240 --net-lobby-script host --net-lobby-room "Leave Test" \
 	--net-test-stage 0x32 --net-test-sims 2 --rng-seed 7 &
 P1=$!
@@ -126,8 +136,42 @@ PY
 PN=$!
 wait $P1; r1=$?; wait $P2; r2=$?; wait $P3; r3=$?; wait $P4; r4=$?; wait $P5; r5=$?; wait $P6; r6=$?
 wait $PN
+fi
+# the seat case (F3 20261012-020922): a room of three fills and launches;
+# a newcomer is turned away while it is full; a player quits mid-match and the
+# newcomer, joining again, is taken into the running match in that seat
+if [ "${SEAT:-1}" = 1 ]; then
+	# a lobby of its own: the pairs' sign-ins from 127.0.0.1 used up the
+	# sign-in limit (429 for the late newcomer)
+	python3 -u "$ROOT/tools/pdlobbyd/pdlobbyd.py" --host 127.0.0.1 --port 0 --udp-host 127.0.0.1 --udp-port 0 --auth open --relay-ports 0 \
+		> "$OUT/pdlobbyd-seat.log" 2>&1 &
+	SLOBBY=$!
+	waitfor "$OUT/pdlobbyd-seat.log" "pdlobbyd listening on" 20 || fail "seat: its pdlobbyd did not start"
+	LPORT=$(sed -n 's/.*listening on 127.0.0.1:\([0-9]*\).*/\1/p' "$OUT/pdlobbyd-seat.log" | head -1)
+	SP=$((GPORT + 3))
+	game seat-host seathost "$SP" 300 --net-lobby-script host --net-lobby-room "Seat Test" --net-lobby-size 3 --net-lobby-wait 2 \
+		--net-lobby-end-frame 2400 --net-test-stage 0x32 --net-test-sims 0 --rng-seed 10 &
+	S1=$!
+	game seat-alpha seatalpha $((SP + 1)) 300 --net-lobby-script join --net-lobby-room "Seat Test" --net-lobby-leave-frame 0 --net-lobby-quit-frame 900 &
+	S2=$!
+	sleep 3
+	game seat-bravo seatbravo $((SP + 2)) 300 --net-lobby-script join --net-lobby-room "Seat Test" --net-lobby-leave-frame 0 &
+	S3=$!
+	# the newcomer while all three seats are taken: the lobby says full
+	waitfor "$OUT/seat-alpha.log" "net: match 1: GO" 200
+	game seat-full seatcharlie $((SP + 3)) 60 --net-lobby-script join --net-lobby-room "Seat Test" &
+	S4=$!
+	wait $S2; rs2=$?
+	wait $S4; rs4=$?
+	# the same account again once alpha has quit
+	game seat-charlie seatcharlie $((SP + 3)) 200 --net-lobby-script join --net-lobby-room "Seat Test" --net-lobby-leave-frame 0 &
+	S5=$!
+	wait $S1; rs1=$?; wait $S3; rs3=$?; wait $S5; rs5=$?
+	kill $SLOBBY 2>/dev/null; wait $SLOBBY 2>/dev/null
+	echo "     seat: exits host $rs1 alpha $rs2 bravo $rs3 full $rs4 charlie $rs5"
+fi
 kill $LOBBY 2>/dev/null; wait $LOBBY 2>/dev/null
-echo "     exits: leave host $r1 join $r2, rematch host $r3 join $r4"
+[ "${ONLY:-}" != seat ] && echo "     exits: leave host $r1 join $r2, rematch host $r3 join $r4"
 
 L=$OUT/pdlobbyd.log
 line() { grep -m1 -o -- "$2.*" "$1"; }
@@ -160,6 +204,7 @@ meet() {
 		&& pass "$label: stage hash equal ($(wc -l < "$OUT/$label-host.stage") components)" || fail "$label: stage hash differs"
 }
 
+if [ "${ONLY:-}" != seat ]; then
 meet leave joiner
 H=$OUT/leave-host.log; J=$OUT/leave-join.log
 grep -q "join: frame $FRAME; End Game" "$J" && pass "leave: join played to frame $FRAME and left the match" || fail "leave: join did not reach frame $FRAME in the match"
@@ -231,4 +276,31 @@ fi
 b=$(grep -o "host: setup before the room: .*" "$H" | cut -d: -f3-); a=$(grep -o "host: setup after the rooms: .*" "$H" | cut -d: -f3-)
 [ -n "$b" ] && [ "$b" = "$a" ] && pass "rules: the Combat Simulator setup is the host's own again:$a" || fail "rules: setup before '$b', after '$a'"
 [ "$r5" = 0 ] || fail "rules: host exit $r5"
+fi
+
+if [ "${SEAT:-1}" = 1 ]; then
+	H=$OUT/seat-host.log; A=$OUT/seat-alpha.log; F=$OUT/seat-full.log; C=$OUT/seat-charlie.log
+	room=$(sed -n 's/.*lobby: made room \([0-9a-f]*\).*/\1/p' "$H" | head -1)
+	[ -n "$room" ] && pass "seat: host made room $room (3 players)" || fail "seat: host made no room"
+	grep -q "match 1: every machine has loaded; GO" "$H" && pass "seat: $(line "$H" "net: match 1 starting on" | sed 's/, seeds.*//')" \
+		|| fail "seat: the first match never passed GO"
+	aslot=$(sed -n 's/.*net: slot \([0-9]\): "seatalpha" joined.*/\1/p' "$H" | head -1)
+	grep -q 'net: slot [0-9]: "seatbravo" joined' "$H" && [ -n "$aslot" ] && pass "seat: alpha in slot $aslot, bravo in too" \
+		|| fail "seat: alpha or bravo never seated"
+	grep -q "lobby: join failed (409)" "$F" && [ "$rs4" = 4 ] && pass "seat: a newcomer while full: $(line "$F" "lobby: join failed")" \
+		|| fail "seat: the newcomer was not turned away while full (exit $rs4): $(line "$F" "lobby: join")"
+	grep -q "join: frame 900, level time [0-9]*; quitting the game" "$A" && grep -q "lobby: left room $room on the way out" "$A" \
+		&& pass "seat: alpha quit mid-match, the lobby told" || fail "seat: alpha did not quit mid-match"
+	grep -q "lobby: joined room $room" "$C" && pass "seat: charlie joined the launched room" || fail "seat: charlie could not join: $(line "$C" "lobby: join")"
+	grep -q "join: in the room's match in progress" "$C" && pass "seat: charlie launched into the running match" \
+		|| fail "seat: charlie was never launched into the running match"
+	grep -q "(an open seat of the match in progress)" "$C" && pass "seat: charlie: $(line "$C" "net: accepted by")" \
+		|| fail "seat: charlie not accepted into an open seat: $(line "$C" "net: accepted")"
+	grep -q "net: slot $aslot (\"seatcharlie\") is in the match in progress" "$H" \
+		&& pass "seat: host: $(line "$H" "net: slot $aslot (\"seatcharlie\")")" || fail "seat: charlie not in alpha's seat $aslot: $(line "$H" "(\"seatcharlie\") is in")"
+	grep -q "net: match 1: GO, in progress" "$C" && pass "seat: $(line "$C" "net: match 1: GO, in progress" | cut -c1-120)" || fail "seat: charlie had no GO in progress"
+	grep -q "join: the host ended the match" "$C" && grep -q "client back in room $room" "$C" && pass "seat: charlie played to the host's end and is back in the room" \
+		|| fail "seat: charlie not back in the room after the match"
+	[ "$rs1" = 0 ] && [ "$rs2" = 0 ] && [ "$rs3" = 0 ] && [ "$rs5" = 0 ] || fail "seat: exit codes host $rs1 alpha $rs2 bravo $rs3 charlie $rs5"
+fi
 exit $status

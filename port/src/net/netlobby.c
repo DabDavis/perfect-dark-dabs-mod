@@ -4254,6 +4254,15 @@ static void lobbyScriptTick(void)
 				break;
 			}
 
+			// --net-lobby-quit-frame on a joiner: it quits the game mid-match
+			// the way a player does (the lobby told on the way out, LEAVE sent)
+			if (!s_ScriptHosting && netSessionMatchActive() && !netSessionBarrierHeld()
+					&& sysArgGetInt("--net-lobby-quit-frame", 0) > 0 && g_Vars.lvframenum >= sysArgGetInt("--net-lobby-quit-frame", 0)) {
+				sysLogPrintf(LOG_NOTE, "lobby script: join: frame %d, level time %d; quitting the game", g_Vars.lvframenum, lvGetStageTime60());
+				fflush(stdout);
+				exit(0);
+			}
+
 			if (netSessionMatchActive() && s_ScriptLeaveFrame > 0 && g_Vars.lvframenum >= s_ScriptLeaveFrame) {
 				snprintf(text, sizeof(text), "join: frame %d; End Game", g_Vars.lvframenum);
 				lobbyScriptStep(5, text);
