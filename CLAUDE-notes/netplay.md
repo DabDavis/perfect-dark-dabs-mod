@@ -151,6 +151,13 @@
   session's last request (60 s), a dedicated host left out, no address;
   the footer's hints drawn smaller when longer than the screen leaves;
   `netplayersonlinetest.sh`.
+- **F3 pass 38: the online pages** — the section of that name: the Room
+  Info window following the list's own cursor, "Rooms (N)", the chat
+  wrapped at its drawn width, scrolled (right stick, PgUp/PgDn, the wheel)
+  and its senders coloured, a dropdown in a scaled row cut by the 320x220
+  units of its laid-out frame (`g_TextMaxX`), Create Room fitting its
+  column, a conversion's own difficulty names (LtitleE 19-21), the roster's
+  checkboxes.
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -3156,10 +3163,11 @@ and the windows around it. Online Game: Rooms Open on the left (the room
 list asked for every 10 s while the page is up, two lines a room), the
 account over the buttons on the right. The Briefing Room: the dialog (its
 buttons and the room list, a line a room, sized to the column every tick:
-`briefingListFit`) is the left column; on the right the Room window (the
-room the cursor is on, else the one Join would take, else the first: its
-arena, mode, counts, password, state and its mods with where this machine
-stands) and a Lobby status window sized to its text. Create Room and Room
+`briefingListFit`) is the left column; on the right the Room Info window
+(the room under the cursor: its arena, mode, counts, password, state and
+its mods with where this machine stands; with Create Room or Refresh List
+under it, what that card does - F3 pass 38 below) and a Lobby status window
+sized to its text. Create Room and Room
 Settings: the setup's rows on the left (they scroll), on the right a
 preview of the room as the lobby will list it - `netLobbyPreviewRoom()`
 reads back the very JSON the create or a settings change sends - and a
@@ -3280,8 +3288,8 @@ moved to the footer, in the hints' place in the notices' gold until the
 cursor moves (which clears it, as it cleared the status line), drawn at the
 windows' text size in pieces (`lobbyTextLong()`, text-rendering.md: a line
 longer than the 320 units at full size needs them). "Rooms: N. Pick one to
-join" went (the header counts the rooms; the cards say Can't join), and so
-did the empty chat's placeholders.
+join" went (the list's title counts the rooms, "Rooms (3)", since F3 pass
+38; the cards say Can't join), and so did the empty chat's placeholders.
 
 **The server's notices (pdlobbyd API 5, same day).** The owner asked for an
 in-game "Server: Restarting Server for Update, apologies for the
@@ -3494,6 +3502,69 @@ opens it.
   ("Simulants: ..", F3 20261011-214715). Name Entry and the Game Lobby
   have a Player Setup row (the Combat Simulator's, player 1's: character,
   Control's Reverse Pitch), which is what `netWriteSlotCfg` sends.
+
+## F3 pass 38: the online pages (2026-10-12, no wire change)
+
+- **Room Info follows the cursor.** The Briefing Room's right window showed
+  the top room with Create Room or Refresh List highlighted (034534): it
+  kept the last room's index from `MENUOP_LISTITEMFOCUS`, which is not
+  called as the page opens, and fell back to the first room. It reads the
+  list's own `list.index` from the menu's blocks every frame now
+  (`briefingFocusIndex()`, as `listClamp()` finds the row) and says what
+  the card does when it is not a room. Its title is "Room Info"; the list's
+  title is a function, "Rooms (N)" (a dialog title that is a function is
+  `menuResolveText()`'s, so the dialog loses `MENUDIALOGFLAG_LITERAL_TEXT`
+  and translates "Rooms" itself), and the header's right is the account
+  alone (a long name cut "3 rooms" to "3 roo..").
+- **Wrap at the drawn width.** The chat windows wrapped with `textWrapN` at
+  the window's width in the font's own measure while drawing the text at
+  Net.LobbyTextScale: the lines stopped at three quarters of the window.
+  `lobbyWrapWidth()`, as the paragraphs had it.
+- **A dropdown in a scaled row is cut by the 320x220 units of its laid-out
+  frame**, not the screen's (104020: the co-op Mission list stopped at Mr.
+  Blonde's Revenge, Down walked into invisible rows). `menuitemListRender()`
+  clamps its scissor to the buffer and `text0f15568c()` drops a glyph past
+  `viGetWidth()`/`viGetHeight()`, both in the frame the row is laid out in
+  before G_SETRECTSCALE_EXT scales it about the row; the list was 20 lines
+  tall on paper, so it never scrolled. dialogRender's overlay pass holds the
+  dialog's top and foot it gives the list inside 0-218 of that frame (the
+  list fits and scrolls, its view the lines that show), and lets x run past
+  320 (`g_TextMaxX`, game_1531a0.c, 960 around a scaled row and its
+  overlay; the list's scissor the same in menuitem.c): a row's right-hand
+  value at a small Online Text Size or on an ultrawide window ("Com" for
+  Combat Simulator at 50%) had lost its letters the same way.
+- **Create Room fits its column at the default 75%** with Create and Back
+  centred in the small font (no rule over them): Room Rules had made the
+  rows 13 units taller than the column, and the big font's Create is drawn
+  45 units in from the left, never centred (`menuitemSelectableRender()`).
+  At 85% and over the page scrolls, as it always did.
+- **A set's own difficulty names** (103630): `netCoopDifficultyNameOf()`
+  reads a conversion's menu/LtitleE slots 19-21 (gexfront.c's
+  TITLE_DIFF_FIRST; GoldenEye and Goldfinger 64: Agent, Secret Agent, 00
+  Agent; TND64: Easy, Normal, Hard) from the folder its missions are in;
+  the Difficulty row and the room's mode ("Co-op Secret Agent", "Counter-Op
+  00 Agent") use them, so the preview, the Briefing Room and the Game
+  Lobby say them. Old hosts still send PD's names: the mode is the host's
+  string.
+- **The roster's ready mark is the menus' checkbox** (`rosterBox()`:
+  `menugfxDrawCheckbox()`, the red fill ticked, the cyan edge empty).
+- **Chat history scrolls (owner-approved, 115320/115403)**: the right stick
+  (menuProcessInput merges both sticks for navigation; on the Briefing Room
+  and the Game Lobby, `netLobbyMenuChatScrolls()`, the right one is the
+  chat's alone), PgUp/PgDn (`inputKeyPressedThisFrame` on SDL's scancodes
+  75 and 78) and the wheel over the chat window
+  (`netLobbyMenuChatWheel()`, the window as last drawn, in the right
+  column's space: the pointer moved by the dialog's side offset and back by
+  the right side's). Scrolled up, the last line is "Newer below" and the
+  window holds its lines as new ones come; opening the line to type goes
+  back to the newest. The wrapped history is kept whole (256 lines, the
+  oldest let go): the old 64 dropped the *newest* lines once a narrow
+  window wrapped 24 messages to more.
+- **Sender colours (owner-approved, 120642)**: each name a colour of its
+  own from an FNV hash of the name, case folded, into eight that read on
+  the windows and stay apart from the messages' cyan and the server's gold;
+  this player's own name white. The in-match HUD chat (nethud.c) is drawn
+  apart and keeps its colours.
 
 ## Riding on a tank (protocol 31, 2026-10-12)
 

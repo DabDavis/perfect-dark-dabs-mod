@@ -87,6 +87,22 @@ s32 g_WrapIndentCount = 0;
 s32 var8007fad0 = 1;
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * How far right a glyph is laid out and still drawn; viGetWidth() when 0.
+ * menu.c raises it around the online pages' rows, which are laid out bigger
+ * than they are drawn and scaled back into their column (G_SETRECTSCALE_EXT):
+ * a value laid out past the 320 units there had its letters dropped although
+ * it was drawn well inside the screen ("Com" for Combat Simulator at a small
+ * Online Text Size, F3 pass 38). Never past the 1023 units a texture
+ * rectangle's x can hold.
+ */
+s32 g_TextMaxX = 0;
+#define TEXT_MAXX() (g_TextMaxX > 0 ? g_TextMaxX : viGetWidth())
+#else
+#define TEXT_MAXX() viGetWidth()
+#endif
+
 s32 var8007fad4 = -1;
 u32 var8007fad8 = 0x00000000;
 s32 var8007fadc = 0;
@@ -1830,7 +1846,7 @@ Gfx *text0f15568c(Gfx *gdl, s32 *x, s32 *y, struct fontchar *curchar, struct fon
 	width *= xscale;
 	height *= yscale;
 
-	if (g_TextRotated90 || (*x > 0 && *x <= viGetWidth() && sp90 + curchar->baseline <= viGetHeight())) {
+	if (g_TextRotated90 || (*x > 0 && *x <= TEXT_MAXX() && sp90 + curchar->baseline <= viGetHeight())) {
 		if (savedx + width >= *x
 				&& savedy + height >= curchar->baseline + sp90
 				&& *x >= savedx
@@ -1970,7 +1986,7 @@ Gfx *text0f15568c(Gfx *gdl, s32 *x, s32 *y, struct fontchar *curchar, struct fon
 	*x -= (tmp - 1) * xscale;
 	width *= xscale;
 
-	if (g_TextRotated90 || (*x > 0 && *x <= viGetWidth() && sp90 + curchar->baseline <= viGetHeight())) {
+	if (g_TextRotated90 || (*x > 0 && *x <= TEXT_MAXX() && sp90 + curchar->baseline <= viGetHeight())) {
 		if (savedx + width >= *x
 				&& savedy + height >= curchar->baseline + sp90
 				&& *x >= savedx

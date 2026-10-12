@@ -324,6 +324,23 @@ Gfx *menuitemListRender(Gfx *gdl, struct menurendercontext *context)
 		g_ScissorY2 = 0;
 	}
 
+#ifndef PLATFORM_N64
+	{
+		// a list laid out bigger than it is drawn (an online page's
+		// dropdown, menu.c's g_TextMaxX) reaches past the 320 units here, and
+		// is scaled back inside the screen with its scissor (whose x holds
+		// 1023 at most)
+		const s32 maxx = g_TextMaxX > 0 ? MIN(g_TextMaxX * g_ScaleX, 1020) : viGetBufWidth();
+
+		if (g_ScissorX1 > maxx) {
+			g_ScissorX1 = maxx;
+		}
+
+		if (g_ScissorX2 > maxx) {
+			g_ScissorX2 = maxx;
+		}
+	}
+#else
 	if (g_ScissorX1 > viGetBufWidth()) {
 		g_ScissorX1 = viGetBufWidth();
 	}
@@ -331,6 +348,7 @@ Gfx *menuitemListRender(Gfx *gdl, struct menurendercontext *context)
 	if (g_ScissorX2 > viGetBufWidth()) {
 		g_ScissorX2 = viGetBufWidth();
 	}
+#endif
 
 	if (g_ScissorY1 > viGetBufHeight()) {
 		g_ScissorY1 = viGetBufHeight();

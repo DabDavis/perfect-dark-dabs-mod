@@ -29,6 +29,7 @@
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/scenarios.h"
 #include "lib/vi.h"
+#include "lib/joy.h"
 #include "game/lang.h"
 #include "modloader.h"
 #include "mod.h"
@@ -40,6 +41,7 @@
 #include "screenshot.h"
 #include "xblamesh.h"
 #include "config.h"
+#include "langpack.h"
 #include "gexplusrom.h"
 #include "net/net.h"
 #include "net/netlobby.h"
@@ -75,7 +77,6 @@ static char s_RoomPassword[NETLOBBY_MAXPASSWORD + 1];
 static char s_JoinPassword[NETLOBBY_MAXPASSWORD + 1];
 static char s_ChatLine[NETLOBBY_MAXCHATTEXT + 1];
 static struct netlobbycreate s_Create = { "", "", 4 };
-static s32 s_SelectedRoom = -1;
 static char s_JoinId[9];
 static s32 s_WaitingForRoom = 0; // a join or create is in flight from these pages
 static char s_Status[320];
@@ -182,7 +183,13 @@ void netLobbyMenuSetTextScale(s32 pct)
 
 static const struct lobbypage *lobbyPageOf(struct menudialogdef *def);
 static Gfx *lobbyChatLines(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2,
-		const struct netlobbychat *chat, s32 nchat, const char *empty, const char *status);
+		const struct netlobbychat *chat, s32 nchat, const char *empty, const char *status, s32 which);
+
+// the two chat windows (lobbyChatLines(), their scroll: s_ChatScroll)
+#define LOBBYCHAT_MAIN 0 // the Briefing Room's Main Menu Chat
+#define LOBBYCHAT_ROOM 1 // the Game Lobby's room chat
+static void lobbyChatScrollReset(s32 which);
+static void lobbyChatScrollTick(s32 which);
 
 /**
  * The online pages' own dialogs draw their stock items - Create Room's
@@ -1648,10 +1655,8 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 		data->list.groupstartindex = 0;
 		break;
 	case MENUOP_LISTITEMFOCUS:
-		// the Room window shows the room the cursor is on; a reason from
-		// the last card picked goes with the cursor
-		index = (s32)data->list.value;
-		s_SelectedRoom = index < n ? index : -1;
+		// the Room Info window follows the cursor (briefingFocusIndex()); a
+		// reason from the last card picked goes with the cursor
 		netLobbyClearMessage();
 		s_BriefingNote[0] = '\0';
 		break;
@@ -1672,7 +1677,6 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 			break;
 		}
 
-		s_SelectedRoom = index;
 		r = netLobbyRoomAt(index);
 
 		if (r == NULL) {
@@ -1782,21 +1786,6 @@ static const char *briefingFootMessage(void)
 	return s_BriefingNote[0] ? s_BriefingNote : NULL;
 }
 
-static const struct netlobbyroomsum *joinTarget(void)
-{
-	const struct netlobbyroomsum *r = netLobbyRoomAt(s_SelectedRoom);
-	s32 i;
-
-	// no row picked yet: the first room this game can join
-	for (i = 0; r == NULL && i < netLobbyNumRooms(); i++) {
-		if (netLobbyRoomAt(i)->compat == NETLOBBY_COMPAT_OK) {
-			r = netLobbyRoomAt(i);
-		}
-	}
-
-	return r;
-}
-
 /**
  * A plain list scrolls its focused row to the middle of its view, so with
  * the first row focused half the view is empty above it. Held like a
@@ -1881,10 +1870,10 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 {
 	if (operation == MENUOP_OPEN) {
 		s_BriefingNote[0] = '\0';
-		s_SelectedRoom = -1;
 		netLobbyClearMessage();
 		netLobbyRefresh();
 		s_BriefingListAt = sysGetMicroseconds();
+		lobbyChatScrollReset(LOBBYCHAT_MAIN);
 	}
 
 	if (operation == MENUOP_TICK && g_Menus[g_MpPlayerNum].curdialog
@@ -1897,9 +1886,11 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 		netLobbyTick();
 
 		// the main menu's chat: asked for while the page is up, and its
-		// line opens with Space or the chat key (nethud.c)
+		// line opens with Space or the chat key (nethud.c); its history
+		// scrolls with the right stick
 		netLobbyMainChatWant();
 		netHudMainChatFrame();
+		lobbyChatScrollTick(LOBBYCHAT_MAIN);
 
 		// Players Online: Select, L2 or the players key
 		briefingOnlineKey();
@@ -1935,35 +1926,101 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 	return 0;
 }
 
+/**
+ * The list's title with how many rooms are open (F3 20261012-115104 and
+ * 120224: the header's "3 rooms" was cut to "3 roo.." by a long name at
+ * 1280x800, and Shockwave's "Rooms (25)" here was the owner's pick). The
+ * header's right is the account alone now.
+ */
+static char *briefingTitle(struct menudialogdef *dialogdef)
+{
+	static char title[48];
+
+	snprintf(title, sizeof(title), "%s (%d)", langTr("Rooms"), netLobbyNumRooms());
+
+	return title;
+}
+
 struct menudialogdef g_NetBriefingMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Rooms",
+	(uintptr_t)&briefingTitle,
 	s_BriefingItems,
 	dialogBriefing,
-	MENUDIALOGFLAG_LITERAL_TEXT,
+	0,
 	NULL,
 };
 
 /**
- * The room the cursor is on (or the first this game can join): its name,
- * why this game cannot join it, its host, arena, mode and counts, and what
- * it plays with and where this machine stands with each
+ * The card under the list's cursor (a room's, then Create Room's and
+ * Refresh List's), read from the list every frame; -1 while the cursor is on
+ * another of the page's rows. The Room Info window shows the room only
+ * while the cursor is on one (F3 20261012-034534: it had kept the top room
+ * up with Create Room and Refresh List highlighted).
  */
-// The room the Briefing Room's Room window shows: the one under the cursor,
-// else the one Join would join, else the first in the list
-static const struct netlobbyroomsum *briefingShownRoom(void)
+static s32 briefingFocusIndex(struct menudialog *dialog)
 {
-	const struct netlobbyroomsum *r = netLobbyRoomAt(s_SelectedRoom);
+	struct menu *menu = &g_Menus[g_MpPlayerNum];
+	struct menuitem *item = &s_BriefingItems[BRIEFING_LIST];
+	s32 col;
+	s32 j;
 
-	if (r == NULL) {
-		r = joinTarget();
+	if (dialog == NULL || dialog->definition != &g_NetBriefingMenuDialog || dialog->focuseditem != item) {
+		return -1;
 	}
 
-	if (r == NULL) {
-		r = netLobbyRoomAt(0);
+	for (col = dialog->colstart; col < dialog->colstart + dialog->numcols; col++) {
+		for (j = 0; j < menu->cols[col].numrows; j++) {
+			const s32 row = menu->cols[col].rowstart + j;
+
+			if (&dialog->definition->items[menu->rows[row].itemindex] == item && menu->rows[row].blockindex != -1) {
+				return ((union menuitemdata *)&menu->blocks[menu->rows[row].blockindex])->list.index;
+			}
+		}
 	}
 
-	return r;
+	return -1;
+}
+
+// The room the Room Info window shows: the one under the cursor, or none
+static const struct netlobbyroomsum *briefingShownRoom(struct menudialog *dialog)
+{
+	const s32 index = briefingFocusIndex(dialog);
+
+	return index >= 0 && index < netLobbyNumRooms() ? netLobbyRoomAt(index) : NULL;
+}
+
+/**
+ * What the Room Info window says with no room under the cursor: what the
+ * card there does (*title its name), or how to see a room
+ */
+static const char *briefingCardText(struct menudialog *dialog, const char **title)
+{
+	const s32 n = netLobbyNumRooms();
+	const s32 index = briefingFocusIndex(dialog);
+
+	*title = NULL;
+
+	if (index == n) {
+		*title = "Create Room";
+
+		// the GoldenEye mode's rooms are matches on its arenas (gameOptions())
+		if (g_GexPlusMode) {
+			return n == 0 && !netLobbyBusy() ? "No rooms open now. Make one for a match: everyone sees it in this list."
+				: "Make a room of your own for a match. Everyone sees it in this list.";
+		}
+
+		return n == 0 && !netLobbyBusy()
+			? "No rooms open now. Make one: a Combat Simulator match, a co-op or counter-op mission, or a campaign. Everyone sees it in this list."
+			: "Make a room of your own: a Combat Simulator match, a co-op or counter-op mission, or a campaign. Everyone sees it in this list.";
+	}
+
+	if (index == n + 1) {
+		*title = "Refresh List";
+
+		return "Ask the lobby for the rooms again. The list also refreshes itself every 10 seconds.";
+	}
+
+	return netLobbyBusy() && n == 0 ? "Asking the lobby..." : "Highlight a room to see it here.";
 }
 
 // Its details, most important first (a narrow window shows the first)
@@ -1990,9 +2047,9 @@ static s32 briefingPairs(const struct netlobbyroomsum *r, struct lobbysetting *p
  * line for line): the main menu's chat under it has the rest of the column.
  * At 4:3 the details are a column of eight and the window takes most of it.
  */
-static s32 briefingRoomHeight(const struct lobbylayout *l)
+static s32 briefingRoomHeight(struct menudialog *dialog, const struct lobbylayout *l)
 {
-	const struct netlobbyroomsum *r = briefingShownRoom();
+	const struct netlobbyroomsum *r = briefingShownRoom(dialog);
 	const s32 inner = l->rx2 - l->rx1 - 2 * LOBBY_INSET;
 	struct lobbysetting pairs[LOBBY_MAXSETTINGS];
 	struct netcontentrow rows[8];
@@ -2001,7 +2058,11 @@ static s32 briefingRoomHeight(const struct lobbylayout *l)
 	s32 nrows;
 
 	if (r == NULL) {
-		return h + 3 * LOBBY_XSROW + 6;
+		const char *title;
+		const char *text = briefingCardText(dialog, &title);
+
+		return h + (title ? (lobbyTextWidth(title, LOBBYFONT_MD) <= inner ? LOBBY_MDROW : LOBBY_SMROW + 2) : 0)
+			+ lobbyParagraphLines(text, inner) * LOBBY_XSROW + 6;
 	}
 
 	h += lobbyTextWidth(r->name, LOBBYFONT_MD) <= inner ? LOBBY_MDROW : LOBBY_SMROW + 2;
@@ -2021,7 +2082,7 @@ static s32 briefingRoomHeight(const struct lobbylayout *l)
 
 static Gfx *lobbyBriefingRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
 {
-	const struct netlobbyroomsum *r = briefingShownRoom();
+	const struct netlobbyroomsum *r = briefingShownRoom(dialog);
 	const u32 normal = MIXCOLOUR(dialog, item_unfocused);
 	const u32 alpha = (MIXCOLOUR(dialog, item_unfocused)) & 0xff;
 	const s32 inner = x2 - x1 - 2 * LOBBY_INSET;
@@ -2034,9 +2095,15 @@ static Gfx *lobbyBriefingRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1,
 	s32 lines;
 
 	if (r == NULL) {
-		gdl = lobbyParagraph(gdl, netLobbyBusy() ? "Asking the lobby..." : "No rooms open now. Create one: everyone sees it here.",
-				tx, &y, inner, normal, 3);
-		return gdl;
+		// Create Room or Refresh List under the cursor: what it does
+		const char *title;
+		const char *text = briefingCardText(dialog, &title);
+
+		if (title) {
+			gdl = lobbyTitleLine(gdl, title, "", tx, &y, inner, normal);
+		}
+
+		return lobbyParagraph(gdl, text, tx, &y, inner, normal, (y2 - 2 - y) / LOBBY_XSROW);
 	}
 
 	gdl = lobbyTitleLine(gdl, r->name, "", tx, &y, inner, normal);
@@ -2084,7 +2151,7 @@ static Gfx *lobbyBriefingChatWindow(Gfx *gdl, struct menudialog *dialog, s32 x1,
 	static struct netlobbychat chat[NETLOBBY_MAXCHAT];
 	const s32 n = netLobbyMainChatAvailable() > 0 ? netLobbyMainChatLines(chat, NETLOBBY_MAXCHAT) : 0;
 
-	return lobbyChatLines(gdl, dialog, x1, y1, x2, y2, chat, n, NULL, NULL);
+	return lobbyChatLines(gdl, dialog, x1, y1, x2, y2, chat, n, NULL, NULL, LOBBYCHAT_MAIN);
 }
 
 // The list and its buttons: the whole of the left column
@@ -2101,7 +2168,7 @@ static Gfx *lobbyBriefingPanels(Gfx *gdl, const struct lobbydraw *d, const struc
 	// the room's details as tall as they are, the chat the rest, the chat
 	// never less than a third of the column
 	const s32 column = l->bottom - l->top;
-	s32 roomh = briefingRoomHeight(l);
+	s32 roomh = briefingRoomHeight(d->dialog, l);
 	s32 chaty1;
 
 	if (roomh > column * 2 / 3 - LOBBY_VGAP) {
@@ -2110,8 +2177,9 @@ static Gfx *lobbyBriefingPanels(Gfx *gdl, const struct lobbydraw *d, const struc
 
 	chaty1 = l->top + roomh + LOBBY_VGAP;
 
+	// "Room Info": what the window shows (the owner, F3 20261012-120256)
 	gdl = lobbyAlign(gdl, G_ASPECT_RIGHT_EXT);
-	gdl = lobbyPanel(gdl, d, l->rx1, l->top, l->rx2, chaty1 - LOBBY_VGAP, "Room", lobbyBriefingRoomWindow);
+	gdl = lobbyPanel(gdl, d, l->rx1, l->top, l->rx2, chaty1 - LOBBY_VGAP, "Room Info", lobbyBriefingRoomWindow);
 	gdl = lobbyPanel(gdl, d, l->rx1, chaty1, l->rx2, l->bottom, "Main Menu Chat", lobbyBriefingChatWindow);
 
 	return gdl;
@@ -2545,9 +2613,15 @@ static MenuItemHandlerResult handlerMission(s32 operation, struct menuitem *item
 	return 0;
 }
 
+/**
+ * The mission set's own names (netCoopDifficultyNameOf(): Perfect Dark's
+ * Agent, Special Agent and Perfect Agent, GoldenEye's Agent, Secret Agent
+ * and 00 Agent, F3 20261012-103630), and the room's mode says the same
+ */
 static MenuItemHandlerResult handlerDifficulty(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	static const u16 names[3] = { L_OPTIONS_251, L_OPTIONS_252, L_OPTIONS_253 }; // "Agent", "Special Agent", "Perfect Agent"
+	static char text[3][40];
+	s32 d;
 
 	switch (operation) {
 	case MENUOP_CHECKHIDDEN:
@@ -2556,7 +2630,9 @@ static MenuItemHandlerResult handlerDifficulty(s32 operation, struct menuitem *i
 		data->dropdown.value = 3;
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		return (intptr_t)langGet(names[data->dropdown.value < 3 ? data->dropdown.value : 0]);
+		d = data->dropdown.value < 3 ? data->dropdown.value : 0;
+		snprintf(text[d], sizeof(text[d]), "%s\n", netCoopDifficultyNameOf(g_NetCoopSetup.game, d));
+		return (intptr_t)text[d];
 	case MENUOP_SET:
 		g_NetCoopSetup.difficulty = data->dropdown.value < 3 ? data->dropdown.value : DIFF_A;
 		break;
@@ -2828,16 +2904,20 @@ static MenuItemHandlerResult handlerSetupRules(s32 operation, struct menuitem *i
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Room Rules\n", 0, handlerSetupRules }
 
 // The room's setup: the dialog, the whole of the left column (its preview
-// and what the lobby says are windows: lobbyCreatePanels)
+// and what the lobby says are windows: lobbyCreatePanels). Create and Back
+// centred as Name Entry's Next and Back are, and no rule over them: the big
+// font's Create stood 45 units in from the left (menuitemSelectableRender()
+// never centres it) and with the rule took 13 units more than the column has
+// at the windows' text size, so the page scrolled with Create half off its
+// foot (F3 20261012-120550, 1280x800)
 static struct menuitem s_CreateItems[] = {
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textCreateName, 0, handlerCreateName },
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textCreatePassword, 0, handlerCreatePassword },
 	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Max Players", 0, handlerMaxPlayers },
 	{ MENUITEMTYPE_SEPARATOR, 0, 0, 0, 0, NULL },
 	NETLOBBY_SETUP_ITEMS,
-	{ MENUITEMTYPE_SEPARATOR, 0, 0, 0, 0, NULL },
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_BIGFONT, (uintptr_t)"Create\n", 0, handlerCreateGo },
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE, (uintptr_t)"Create\n", 0, handlerCreateGo },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
 	{ MENUITEMTYPE_END },
 };
 
@@ -2935,16 +3015,41 @@ static void rosterNet(const struct netlobbymember *m, char *out, s32 size, s32 n
 }
 
 /**
+ * The ready mark before a roster name: the menus' own checkbox, ticked (red)
+ * when ready and empty when not (the owner, F3 20261012-122747: the '*' was
+ * hard to see). Its side, a little under the row's text, and the room it
+ * takes before the name.
+ */
+static s32 rosterBoxSize(s32 font)
+{
+	return lobbyRow(font == LOBBYFONT_SM ? 7 : 5);
+}
+
+static s32 rosterMarkWidth(s32 font)
+{
+	return rosterBoxSize(font) + 4;
+}
+
+static Gfx *rosterBox(Gfx *gdl, struct menudialog *dialog, s32 x, s32 y, s32 font, s32 ticked)
+{
+	const u32 alpha = (MIXCOLOUR(dialog, item_unfocused)) & 0xff;
+	const u32 edge = ticked ? MIXCOLOUR(dialog, checkbox_checked_unfocused) : MIXCOLOUR(dialog, item_unfocused);
+	const s32 size = rosterBoxSize(font);
+	const s32 rowh = font == LOBBYFONT_SM ? LOBBY_SMROW : LOBBY_XSROW;
+
+	// the checkbox's own red (menuitemCheckboxRender()), faded with the dialog
+	gdl = text0f153780(gdl);
+	gdl = menugfxDrawCheckbox(gdl, x, y + (rowh - size - 1) / 2, size, ticked, edge, 0xff002f00 | (0xaf * alpha / 0xff));
+	gdl = text0f153628(gdl);
+
+	return gdl;
+}
+
+/**
  * A roster cell's tag (rosterNet: the ping alone in a narrow column) and the
  * room it takes from the name. The name comes first: a tag that would cut
  * a name that is whole without it is left out.
  */
-// the room a roster name's ready mark takes before it
-static s32 rosterMarkWidth(s32 font)
-{
-	return lobbyTextWidth("*", font) + 3;
-}
-
 static s32 rosterCellTag(const struct netlobbymember *m, s32 cw, s32 font, char *tag, s32 size)
 {
 	const s32 namew = lobbyTextWidth(m->user, font);
@@ -3507,13 +3612,10 @@ static Gfx *lobbyRoomWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1,
 				break;
 			}
 
-			// the ready mark, the name, the path and ping at the column's
-			// right; the name cut to what is left
+			// the ready box (the host's ticked: it launches), the name, the
+			// path and ping at the column's right; the name cut to what is left
 			tagw = rosterCellTag(m, colw, nfont, tag, sizeof(tag));
-
-			if (m->ready || m->host) {
-				gdl = lobbyText(gdl, cx, cy, "*", nfont, col, 0);
-			}
+			gdl = rosterBox(gdl, dialog, cx, cy, nfont, m->ready || m->host);
 
 			gdl = lobbyText(gdl, cx + rosterMarkWidth(nfont), cy, m->user, nfont, col, colw - 3 - rosterMarkWidth(nfont) - tagw);
 
@@ -3667,7 +3769,7 @@ static void lobbyStatusText(char *out, s32 size)
 		if (netLobbyMessage()[0]) {
 			snprintf(out, size, "%s", netLobbyMessage());
 		} else if (netLobbyIsHost()) {
-			snprintf(out, size, "%s", "Launch when everyone is ready (* = ready).");
+			snprintf(out, size, "%s", "Launch when everyone is ready (a ticked box).");
 		} else {
 			snprintf(out, size, "%s", netLobbyMyReady() ? "Ready: waiting for the host to launch." : "Select Ready when you are.");
 		}
@@ -3689,42 +3791,231 @@ const char *netLobbyMenuStatusText(void)
 	return text;
 }
 
-#define LOBBY_MAXCHATLINES 64
+// the wrapped lines a chat window keeps: every line of its history (a
+// narrow window wraps 24 lines of 120 letters to over a hundred), the newest
+// kept when there are more
+#define LOBBY_MAXCHATLINES 256
 
 struct lobbychatline {
 	char text[NETLOBBY_MAXCHATTEXT + NETLOBBY_MAXUSER + 8];
-	s32 userlen; // the "user: " at its start, drawn in the label colour (0 none)
+	s32 userlen;    // the "user: " at its start, drawn in namecolour (0 none)
 	u32 colour;
+	u32 namecolour;
 };
 
-/**
- * A line wrapped to the window into lines of its own. The wrap is the
- * font's (textWrapN), a word wider than the window cut with dots.
+/*
+ * A chat window's scroll (the owner, F3 20261012-115320 and 115403: the
+ * history scrolled with the right stick, outside a match): how many lines up
+ * from the newest it shows, 0 the newest at the foot as new lines come.
+ * Scrolled up it stays on its lines as new ones arrive under them, with a
+ * mark at its foot, and goes back to the newest when its line opens for
+ * typing. The right stick (menu.c leaves it to the chat on these pages: it
+ * moves no cursor there), PgUp and PgDn a window's worth, the wheel over the
+ * window three lines (netLobbyMenuChatWheel()).
  */
-static s32 lobbyChatWrap(struct lobbychatline *lines, s32 n, const char *text, s32 userlen, u32 colour, s32 width)
+struct lobbychatscroll {
+	s32 lines;   // up from the newest
+	s32 total;   // the lines it had when last drawn
+	s32 fit;     // the lines the window shows
+	s32 typing;  // its line was open for typing when last drawn
+	f32 stick;   // the right stick's travel not yet a whole line
+	u64 stickat; // when the stick was last read
+	s32 x1;      // the window when last drawn, in the right column's space
+	s32 y1;
+	s32 x2;
+	s32 y2;
+};
+
+static struct lobbychatscroll s_ChatScroll[2];
+
+// SDL's scancodes, which the keyboard's VK_ numbers are (input.h)
+#define LOBBY_VK_PAGEUP   75
+#define LOBBY_VK_PAGEDOWN 78
+
+static void lobbyChatScrollReset(s32 which)
+{
+	memset(&s_ChatScroll[which], 0, sizeof(s_ChatScroll[which]));
+}
+
+/**
+ * The page's chat scrolled by the right stick of this player's pads (up
+ * shows older lines; a line a second just past the dead zone, sixteen at the
+ * stick's edge) and by PgUp and PgDn. Every tick of the page.
+ */
+static void lobbyChatScrollTick(s32 which)
+{
+	struct lobbychatscroll *sc = &s_ChatScroll[which];
+	const u64 now = sysGetMicroseconds();
+	f32 dt = sc->stickat && now > sc->stickat ? (now - sc->stickat) / 1000000.0f : 0.0f;
+	const s32 page = sc->fit > 2 ? sc->fit - 1 : 1;
+	s8 pad1;
+	s8 pad2;
+	s32 y = 0;
+
+	sc->stickat = now;
+
+	if (dt > 0.1f) {
+		dt = 0.1f;
+	}
+
+	menuGetContPads(&pad1, &pad2);
+
+	if (pad1 >= 0) {
+		y = joyGetRStickY(pad1);
+	}
+
+	if (pad2 >= 0 && ABS(joyGetRStickY(pad2)) > ABS(y)) {
+		y = joyGetRStickY(pad2);
+	}
+
+	if (ABS(y) > 20) {
+		const f32 speed = 1.0f + 15.0f * (ABS(y) - 20) / 107.0f;
+
+		sc->stick += (y > 0 ? speed : -speed) * dt;
+	} else {
+		sc->stick = 0.0f;
+	}
+
+	while (sc->stick >= 1.0f) {
+		sc->lines++;
+		sc->stick -= 1.0f;
+	}
+
+	while (sc->stick <= -1.0f) {
+		sc->lines--;
+		sc->stick += 1.0f;
+	}
+
+	if (inputKeyPressedThisFrame(LOBBY_VK_PAGEUP)) {
+		sc->lines += page;
+	}
+
+	if (inputKeyPressedThisFrame(LOBBY_VK_PAGEDOWN)) {
+		sc->lines -= page;
+	}
+
+	// held to what there is when the window is next drawn
+	if (sc->lines < 0) {
+		sc->lines = 0;
+	}
+}
+
+/**
+ * The online pages whose chat the right stick scrolls (menu.c: there it
+ * moves no cursor), and the wheel over that chat's window: 1 when it scrolled
+ * it (the wheel is then not the page's). x and y are the pointer as menu.c
+ * has it for the page's dialog (moved by the side the dialog is held to).
+ */
+static s32 lobbyChatOf(struct menudialogdef *def)
+{
+	return def == &g_NetBriefingMenuDialog ? LOBBYCHAT_MAIN : def == &g_NetRoomMenuDialog ? LOBBYCHAT_ROOM : -1;
+}
+
+s32 netLobbyMenuChatScrolls(struct menudialogdef *def)
+{
+	return lobbyChatOf(def) >= 0;
+}
+
+s32 netLobbyMenuChatWheel(struct menudialog *dialog, s32 x, s32 y, s32 scroll)
+{
+	const s32 which = dialog ? lobbyChatOf(dialog->definition) : -1;
+	struct lobbychatscroll *sc;
+
+	if (which < 0 || scroll == 0) {
+		return 0;
+	}
+
+	sc = &s_ChatScroll[which];
+
+	// the chat is in the right column: the pointer in that side's space
+	x += netLobbyMenuDialogAlignOffset(dialog->definition) - lobbyPillar();
+
+	if (sc->x2 <= sc->x1 || x < sc->x1 || x > sc->x2 || y < sc->y1 || y > sc->y2) {
+		return 0;
+	}
+
+	// the wheel down is newer lines
+	sc->lines -= scroll * 3;
+
+	if (sc->lines < 0) {
+		sc->lines = 0;
+	}
+
+	return 1;
+}
+
+/**
+ * A chat sender's name in a colour of its own (the owner, F3
+ * 20261012-120642: "recolor some names so is easier to see different
+ * messages"): the same name the same colour on every machine and in every
+ * session (a hash of it, case folded, picks one of eight light enough for
+ * the windows and apart from the messages' cyan and the server's gold), this
+ * player's own name white
+ */
+static u32 lobbyChatNameColour(const char *user, u32 alpha)
+{
+	static const u32 palette[] = {
+		0xff7f7f00, // coral
+		0xffa94d00, // orange
+		0xa6e85c00, // lime
+		0x6fb8ff00, // sky
+		0xc79bff00, // violet
+		0xff8fd800, // pink
+		0xb4b4ff00, // periwinkle
+		0xdcb48c00, // tan
+	};
+	u32 h = 2166136261u;
+
+	if (netLobbyAccount()[0] && strcasecmp(user, netLobbyAccount()) == 0) {
+		return 0xffffff00 | (alpha & 0xff);
+	}
+
+	for (; *user; user++) {
+		const u8 c = (u8)*user;
+
+		h = (h ^ (c >= 'A' && c <= 'Z' ? c + 32 : c)) * 16777619u;
+	}
+
+	return palette[h % ARRAYCOUNT(palette)] | (alpha & 0xff);
+}
+
+/**
+ * A line wrapped to the window into lines of its own, after the n there are
+ * (the oldest let go when they are more than the window keeps). The wrap is
+ * the font's (textWrapN) at the window's whole width as the text is drawn
+ * (lobbyWrapWidth(): the font's own measure, the text drawn smaller: wrapped
+ * to the window's width at the font's size, the lines stopped at 3/4 of it,
+ * F3 20261012-115724), a word wider than the window cut with dots.
+ */
+static s32 lobbyChatWrap(struct lobbychatline *lines, s32 n, const char *text, s32 userlen, u32 colour, u32 namecolour, s32 width)
 {
 	char in[512]; // a chat line, or the status line's longest: a refusal's reason naming a mod
 	char out[sizeof(in) + 128];
 	char *p = out;
 	s32 first = 1;
 
-	// the wrap measures a little narrower than textMeasure: wrapped to the
-	// width itself, a full line came out a letter too long and lost it
 	snprintf(in, sizeof(in), "%s\n", text);
-	textWrapN(width - 8, in, out, sizeof(out), g_CharsHandelGothicXs, g_FontHandelGothicXs);
+	textWrapN(lobbyWrapWidth(width), in, out, sizeof(out), g_CharsHandelGothicXs, g_FontHandelGothicXs);
 
-	while (*p && n < LOBBY_MAXCHATLINES) {
+	while (*p) {
 		char *end = strchr(p, '\n');
-		struct lobbychatline *line = &lines[n++];
+		struct lobbychatline *line;
 
 		if (end) {
 			*end = '\0';
 		}
 
+		if (n >= LOBBY_MAXCHATLINES) {
+			memmove(lines, lines + 1, sizeof(lines[0]) * (LOBBY_MAXCHATLINES - 1));
+			n = LOBBY_MAXCHATLINES - 1;
+		}
+
+		line = &lines[n++];
 		snprintf(line->text, sizeof(line->text), "%s", p);
 		lobbyFit(line->text, sizeof(line->text), width, LOBBYFONT_XS);
 		line->userlen = first ? userlen : 0;
 		line->colour = colour;
+		line->namecolour = namecolour;
 		first = 0;
 
 		if (!end) {
@@ -3740,38 +4031,41 @@ static s32 lobbyChatWrap(struct lobbychatline *lines, s32 n, const char *text, s
 /**
  * The chat window: the room's chat, oldest at the top, the status line at
  * its foot and the line being typed under that (Space or the chat key,
- * nethud.c). The newest lines are the ones kept when they are more than
- * the window holds.
+ * nethud.c). The newest lines are the ones shown when they are more than
+ * the window holds, unless it is scrolled (s_ChatScroll).
  */
 static Gfx *lobbyChatWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
 {
 	const struct netlobbyroom *room = netLobbyGetRoom();
 
 	return lobbyChatLines(gdl, dialog, x1, y1, x2, y2, room->chat, room->nchat,
-			"No chat yet: press Space to talk.", netLobbyMenuStatusText());
+			"No chat yet: press Space to talk.", netLobbyMenuStatusText(), LOBBYCHAT_ROOM);
 }
 
 /**
  * A chat window's lines: who said what, wrapped, the newest at the foot;
  * `empty` when nobody has, then the page's status, then the line being
- * typed (nethud.c) - as many of the last as fit
+ * typed (nethud.c) - as many of the last as fit, or as many up from them as
+ * the window is scrolled
  */
 static Gfx *lobbyChatLines(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2,
-		const struct netlobbychat *chat, s32 nchat, const char *empty, const char *status)
+		const struct netlobbychat *chat, s32 nchat, const char *empty, const char *status, s32 which)
 {
 	const u32 alpha = (MIXCOLOUR(dialog, item_unfocused)) & 0xff;
 	const u32 normal = MIXCOLOUR(dialog, item_unfocused);
-	const u32 label = MIXCOLOUR(dialog, listgroup_headerfg);
 	const u32 white = MIXCOLOUR(dialog, item_focused_inner);
 	// the lobby's own lines (pdlobbyd's notices): the match's chat's notice colour
 	const u32 notice = 0xffd25a00 | alpha;
 	const s32 inner = x2 - x1 - 2 * LOBBY_INSET;
 	const s32 tx = x1 + LOBBY_INSET;
+	struct lobbychatscroll *sc = &s_ChatScroll[which];
 	static struct lobbychatline lines[LOBBY_MAXCHATLINES];
 	char text[sizeof(lines[0].text) + 128];
 	s32 nlines = 0;
 	s32 fit = (y2 - 2 - (y1 + LINEHEIGHT + 3)) / LOBBY_XSROW;
+	s32 typing;
 	s32 first;
+	s32 last;
 	s32 y;
 	s32 i;
 
@@ -3780,22 +4074,25 @@ static Gfx *lobbyChatLines(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, 
 
 		if (chat[i].system) {
 			// the server's: all of it in the one colour
-			nlines = lobbyChatWrap(lines, nlines, text, 0, notice, inner);
+			nlines = lobbyChatWrap(lines, nlines, text, 0, notice, notice, inner);
 		} else {
-			nlines = lobbyChatWrap(lines, nlines, text, strlen(chat[i].user) + 2, normal, inner);
+			nlines = lobbyChatWrap(lines, nlines, text, strlen(chat[i].user) + 2, normal,
+					lobbyChatNameColour(chat[i].user, alpha), inner);
 		}
 	}
 
 	if (nchat == 0 && empty && empty[0]) {
-		nlines = lobbyChatWrap(lines, nlines, empty, 0, dimColour(alpha), inner);
+		nlines = lobbyChatWrap(lines, nlines, empty, 0, dimColour(alpha), 0, inner);
 	}
 
 	if (status && status[0]) {
-		nlines = lobbyChatWrap(lines, nlines, status, 0, white, inner);
+		nlines = lobbyChatWrap(lines, nlines, status, 0, white, 0, inner);
 	}
 
 	// the line as it is typed (its tail and a cursor), the newline off
-	if (netHudChatLine(text, sizeof(text), NETLOBBY_MAXCHATTEXT)) {
+	typing = netHudChatLine(text, sizeof(text), NETLOBBY_MAXCHATTEXT);
+
+	if (typing) {
 		char *nl = strchr(text, '\n');
 
 		if (nl) {
@@ -3808,29 +4105,85 @@ static Gfx *lobbyChatLines(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, 
 			memcpy(text + 5, "...", 3);
 		}
 
-		if (nlines < LOBBY_MAXCHATLINES) {
-			snprintf(lines[nlines].text, sizeof(lines[0].text), "%s", text);
-			lines[nlines].userlen = 0;
-			lines[nlines].colour = white;
-			nlines++;
+		if (nlines >= LOBBY_MAXCHATLINES) {
+			memmove(lines, lines + 1, sizeof(lines[0]) * (LOBBY_MAXCHATLINES - 1));
+			nlines = LOBBY_MAXCHATLINES - 1;
 		}
+
+		snprintf(lines[nlines].text, sizeof(lines[0].text), "%s", text);
+		lines[nlines].userlen = 0;
+		lines[nlines].colour = white;
+		lines[nlines].namecolour = white;
+		nlines++;
 	}
 
+	// the scroll: back to the newest as typing starts; held on its lines as
+	// new ones come under them; never past the oldest
+	if (typing && !sc->typing) {
+		sc->lines = 0;
+	}
+
+	if (sc->lines > 0 && nlines > sc->total) {
+		sc->lines += nlines - sc->total;
+	}
+
+	// scrolled, the window's last line is the mark: one line fewer of chat
+	if (nlines <= fit || fit < 2) {
+		sc->lines = 0;
+	} else if (sc->lines > nlines - (fit - 1)) {
+		sc->lines = nlines - (fit - 1);
+	}
+
+	sc->typing = typing;
+	sc->total = nlines;
+	sc->fit = fit;
+	sc->x1 = x1;
+	sc->y1 = y1 + LINEHEIGHT;
+	sc->x2 = x2;
+	sc->y2 = y2;
+
+	// the newest that fit, or the lines that many up from them
 	first = nlines > fit ? nlines - fit : 0;
+	last = nlines;
+
+	if (sc->lines > 0) {
+		last = nlines - sc->lines;
+		first = last - (fit - 1);
+	}
+
 	y = y1 + LINEHEIGHT + 3;
 
-	for (i = first; i < nlines; i++, y += LOBBY_XSROW) {
+	for (i = first; i < last; i++, y += LOBBY_XSROW) {
 		if (lines[i].userlen > 0 && lines[i].userlen < (s32)strlen(lines[i].text)) {
 			char user[NETLOBBY_MAXUSER + 4];
 			s32 uw;
 
 			snprintf(user, sizeof(user), "%.*s", lines[i].userlen, lines[i].text);
 			uw = lobbyTextWidth(user, LOBBYFONT_XS);
-			gdl = lobbyText(gdl, tx, y, user, LOBBYFONT_XS, label, 0);
+			gdl = lobbyText(gdl, tx, y, user, LOBBYFONT_XS, lines[i].namecolour, 0);
 			gdl = lobbyText(gdl, tx + uw, y, lines[i].text + lines[i].userlen, LOBBYFONT_XS, lines[i].colour, inner - uw);
 		} else {
 			gdl = lobbyText(gdl, tx, y, lines[i].text, LOBBYFONT_XS, lines[i].colour, inner);
 		}
+	}
+
+	// scrolled up: the last line says so, an arrow at its right
+	if (sc->lines > 0) {
+		const u32 mark = headerColour(alpha);
+		const s32 ax = x2 - LOBBY_INSET - 4;
+		const s32 ay = y + (LOBBY_XSROW - 4) / 2;
+		s32 k;
+
+		gdl = lobbyTextRight(gdl, ax - 7, y, "Newer below", LOBBYFONT_XS, mark);
+		gdl = text0f153780(gdl);
+		gdl = textSetPrimColour(gdl, mark);
+
+		for (k = 0; k < 4; k++) {
+			gDPFillRectangleScaled(gdl++, ax - 3 + k, ay + k, ax + 4 - k, ay + k + 1);
+		}
+
+		gdl = text0f153838(gdl);
+		gdl = text0f153628(gdl);
 	}
 
 	return gdl;
@@ -4167,13 +4520,16 @@ static MenuDialogHandlerResult dialogRoom(s32 operation, struct menudialogdef *d
 	if (operation == MENUOP_OPEN) {
 		netLobbyClearMessage();
 		s_Status[0] = '\0';
+		lobbyChatScrollReset(LOBBYCHAT_ROOM);
 	}
 
 	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
 		netLobbyTick();
 
-		// its chat line may open: Space or the chat key (nethud.c)
+		// its chat line may open: Space or the chat key (nethud.c); its
+		// history scrolls with the right stick
 		netHudLobbyFrame();
+		lobbyChatScrollTick(LOBBYCHAT_ROOM);
 
 		// the seat went (kicked, the room closed): back to where it was
 		// opened from, the reason on the status line there
@@ -5126,14 +5482,8 @@ struct lobbypage {
 	const char *(*foot)(void);              // a message for the footer in the hints' place (NULL none)
 };
 
-// The header's right: who this machine plays as, and how many rooms are open
-static void lobbyInfoRooms(char *out, s32 size)
-{
-	const s32 n = netLobbyNumRooms();
-
-	snprintf(out, size, "%d room%s   %s", n, n == 1 ? "" : "s", netLobbySignedIn() ? netLobbyAccount() : "");
-}
-
+// The header's right: who this machine plays as (the Briefing Room's count of
+// rooms is its list's title: briefingTitle())
 static void lobbyInfoAccount(char *out, s32 size)
 {
 	snprintf(out, size, "%s", netLobbySignedIn() ? netLobbyAccount() : "");
@@ -5155,7 +5505,7 @@ static void lobbyInfoRoom(char *out, s32 size)
 
 static const struct lobbypage s_LobbyPages[] = {
 	{ &g_NetOnlineMenuDialog, 0, lobbyNamePlace, lobbyNamePanels, "NAME ENTRY", NULL, LOBBY_HINTS_SELECT },
-	{ &g_NetBriefingMenuDialog, G_ASPECT_LEFT_EXT, lobbyBriefingPlace, lobbyBriefingPanels, "BRIEFING ROOM", lobbyInfoRooms,
+	{ &g_NetBriefingMenuDialog, G_ASPECT_LEFT_EXT, lobbyBriefingPlace, lobbyBriefingPanels, "BRIEFING ROOM", lobbyInfoAccount,
 		"A / Enter: Join     Select / P: Players     Space or T: Chat     B / Esc: Back", briefingFootMessage },
 	{ &g_NetPlayersOnlineMenuDialog, 0, lobbyOnlinePlace, lobbyOnlinePanels, "PLAYERS ONLINE", lobbyInfoOnline,
 		"Select / P: Close     B / Esc: Back" },

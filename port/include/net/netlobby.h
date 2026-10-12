@@ -235,5 +235,10 @@ s32 netLobbyMenuGetTextScale(void);       // the windows' text size, percent of 
 struct menuitem;
 s32 netLobbyMenuItemPct(struct menudialog *dialog, struct menuitem *item); // a dialog item's size, percent (menu.c); 100 for any other dialog
 void netLobbyMenuSetTextScale(s32 pct);
+// The Briefing Room's and the Game Lobby's chat scrolls (menu.c): with the
+// right stick, which then moves no cursor on that page, and with the wheel
+// over the chat (x, y the pointer as menu.c has it for the dialog; 1 taken)
+s32 netLobbyMenuChatScrolls(struct menudialogdef *def);
+s32 netLobbyMenuChatWheel(struct menudialog *dialog, s32 x, s32 y, s32 scroll);
 
 #endif
