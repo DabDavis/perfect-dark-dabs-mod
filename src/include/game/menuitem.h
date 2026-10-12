@@ -34,6 +34,11 @@ Gfx *menuitemMeterRender(Gfx *gdl, struct menurendercontext *context);
 
 #ifndef PLATFORM_N64
 Gfx *menuitemColorBoxRender(Gfx *gdl, struct menurendercontext *context);
+
+Gfx *menuitemTabsRender(Gfx *gdl, struct menurendercontext *context);
+bool menuitemTabsTick(struct menuitem *item, struct menudialog *dialog, struct menuinputs *inputs, u32 tickflags);
+void menuitemTabsInit(struct menuitem *item);
+s32 menuitemTabsWidth(struct menuitem *item);
 #endif
 
 Gfx *menuitemSelectableRender(Gfx *gdl, struct menurendercontext *context);

@@ -30,6 +30,7 @@
 #include "mod.h"
 #include "gexplus.h"
 #include "geguns.h"
+#include "arenatabs.h"
 #endif
 #include "gbiex.h"
 #include "types.h"
@@ -423,6 +424,11 @@ static bool mpArenaListed(s32 i)
 	if (g_GexPlusMode && !modloaderStageInGexPlusList(g_MpArenas[i].stagenum)) {
 		return false;
 	}
+
+	// in tabs, the tab shown's alone (arenatabs.c)
+	if (!arenaTabsRowShown(i)) {
+		return false;
+	}
 #endif
 
 	return challengeIsFeatureUnlocked(g_MpArenas[i].requirefeature);
@@ -439,6 +445,16 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 	s32 i;
 	s32 count = 0;
 	s32 groupindex;
+
+#ifndef PLATFORM_N64
+	// in tabs (arenatabs.c): a game's tab is listed there, and the game's own
+	// here as it always was, its rows the tab's (mpArenaListed())
+	arenaTabsSync();
+
+	if (arenaTabsOwnList()) {
+		return arenaTabsListHandler(operation, item, data);
+	}
+#endif
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
@@ -486,6 +502,26 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 		}
 		break;
 	case MENUOP_GETSELECTEDINDEX:
+#ifndef PLATFORM_N64
+		// in tabs: the chosen arena's row in Perfect Dark's, and none (past
+		// any row) when it is another tab's
+		if (arenaTabsActive()) {
+			data->list.value = 0x10000;
+
+			for (i = 0; i < mpGetNumStages(); i++) {
+				if (mpArenaListed(i)) {
+					if (g_MpSetup.stagenum == g_MpArenas[i].stagenum) {
+						data->list.value = count;
+						break;
+					}
+
+					count++;
+				}
+			}
+			break;
+		}
+#endif
+
 		for (i = 0; i < mpGetNumStages(); i++) {
 			if (g_MpSetup.stagenum == g_MpArenas[i].stagenum) {
 				data->list.value = count;
@@ -3160,7 +3196,34 @@ struct menudialogdef g_MpLoadPlayerMenuDialog = {
 	NULL,
 };
 
+#ifndef PLATFORM_N64
+/**
+ * The Arena dialog opens on the tab of the arena chosen (arenatabs.c). Its
+ * list was set up before this runs (dialogInitItems() comes first), from
+ * whichever tab was shown last, so arenaTabsOpen() puts it on the right row.
+ */
+static MenuDialogHandlerResult menudialogMpArena(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	if (operation == MENUOP_OPEN) {
+		arenaTabsOpen();
+	}
+
+	return false;
+}
+#endif
+
 struct menuitem g_MpArenaMenuItems[] = {
+#ifndef PLATFORM_N64
+	// one tab a game, hidden while there is one (arenatabs.c)
+	{
+		MENUITEMTYPE_TABS,
+		0,
+		0,
+		0x000000a0, // as wide as the games' names, from 160
+		0x000000f0, // to 240, short names past it
+		arenaTabsMenuHandler,
+	},
+#endif
 	{
 		MENUITEMTYPE_LIST,
 		0,
@@ -3176,7 +3239,11 @@ struct menudialogdef g_MpArenaMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
 	L_MPMENU_115, // "Arena"
 	g_MpArenaMenuItems,
+#ifndef PLATFORM_N64
+	menudialogMpArena,
+#else
 	NULL,
+#endif
 	MENUDIALOGFLAG_CLOSEONSELECT | MENUDIALOGFLAG_MPLOCKABLE,
 	NULL,
 };

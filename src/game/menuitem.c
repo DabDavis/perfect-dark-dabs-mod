@@ -2454,6 +2454,385 @@ Gfx* menuitemColorBoxRender(Gfx *gdl, struct menurendercontext *context)
 	return gdl;
 }
 
+/**
+ * A row of tabs (MENUITEMTYPE_TABS): the Arena list's games, F3 20261012-114949.
+ *
+ * The handler gives the count (MENUOP_GETOPTIONCOUNT), each tab's name
+ * (MENUOP_GETOPTIONTEXT, list.value the tab; list.unk04 1 asks for its short
+ * name), the tab shown (MENUOP_GETSELECTEDINDEX), and takes another
+ * (MENUOP_SET). The row is never focused, so Up and Down stay the list's: a
+ * controller's shoulders (the buttons themselves, whatever they are bound to
+ * in a match: LB is the trigger R on Dab's own pad), Left and Right, a click
+ * on a tab or an arrow, and a click beside the dialog (menu.c's rotate) turn
+ * it. The row is as wide as its whole names (param2 the least, param3 the
+ * most); past param3 it is drawn with the short names, and past that with as
+ * many as fit around the one shown.
+ */
+#define TABS_MAX     16
+#define TABS_PAD     3 // either side of a tab's name
+#define TABS_GAP     2 // between two tabs
+#define TABS_CHEVRON 9 // each end's arrow
+
+// where each player's tabs were last drawn, for the mouse
+static struct menutabsdrawn {
+	struct menuitem *item;
+	s16 y1, y2;
+	s16 left, right; // the arrows: x below left is back, x from right on is on
+	s16 num;
+	s16 x1[TABS_MAX];
+	s16 x2[TABS_MAX];
+	s8 index[TABS_MAX];
+} g_MenuTabsDrawn[MAX_PLAYERS];
+
+// a shoulder held last tick, per pad, so a press turns one tab
+static s8 g_MenuTabsShoulderHeld[INPUT_MAX_CONTROLLERS][2];
+
+static s32 menuTabsShoulders(void)
+{
+	s8 pads[2];
+	s32 dir = 0;
+
+	menuGetContPads(&pads[0], &pads[1]);
+
+	for (s32 i = 0; i < 2; i++) {
+		const s32 pad = pads[i];
+		u32 base;
+		s32 l;
+		s32 r;
+
+		if (pad < 0 || pad >= INPUT_MAX_CONTROLLERS || (i == 1 && pad == pads[0])) {
+			continue;
+		}
+
+		base = pad * INPUT_MAX_CONTROLLER_BUTTONS;
+		l = inputKeyPressed(VK_JOY1_LSHOULDER + base) != 0;
+		r = inputKeyPressed(VK_JOY1_RSHOULDER + base) != 0;
+
+		if (l && !g_MenuTabsShoulderHeld[pad][0]) {
+			dir = -1;
+		}
+
+		if (r && !g_MenuTabsShoulderHeld[pad][1]) {
+			dir = 1;
+		}
+
+		g_MenuTabsShoulderHeld[pad][0] = l;
+		g_MenuTabsShoulderHeld[pad][1] = r;
+	}
+
+	return dir;
+}
+
+void menuitemTabsInit(struct menuitem *item)
+{
+	// a shoulder already down as the dialog opens is not a press
+	menuTabsShoulders();
+
+	if (g_MpPlayerNum >= 0 && g_MpPlayerNum < MAX_PLAYERS) {
+		g_MenuTabsDrawn[g_MpPlayerNum].item = NULL;
+	}
+}
+
+/**
+ * A tabs row's names at one length (0 whole, 1 short), measured into widths[]
+ * (each with its padding). Returns the row's width without its arrows.
+ */
+static s32 menuitemTabsMeasure(struct menuitem *item, s32 count, s32 shortnames, char **names, s32 *widths)
+{
+	struct fontchar *chars = g_CharsHandelGothicSm;
+	struct font *font = g_FontHandelGothicSm;
+	union handlerdata data;
+	s32 total = 0;
+
+	for (s32 i = 0; i < count; i++) {
+		s32 textwidth = 0;
+		s32 textheight = 0;
+
+		data.list.value = i;
+		data.list.unk04 = shortnames;
+		names[i] = menuOptionText(item->handler(MENUOP_GETOPTIONTEXT, item, &data));
+
+		if (!names[i]) {
+			names[i] = "";
+		}
+
+		textMeasure(&textheight, &textwidth, names[i], chars, font, 0);
+		widths[i] = textwidth + TABS_PAD * 2;
+		total += widths[i] + (i ? TABS_GAP : 0);
+	}
+
+	return total;
+}
+
+static s32 menuitemTabsCount(struct menuitem *item)
+{
+	union handlerdata data;
+	s32 count;
+
+	data.list.value = 0;
+	item->handler(MENUOP_GETOPTIONCOUNT, item, &data);
+	count = data.list.value;
+
+	return count < 0 ? 0 : count > TABS_MAX ? TABS_MAX : count;
+}
+
+/**
+ * A tabs row's width (menuCalculateItemSize()): what its whole names take,
+ * or its short names' when the whole ones are wider than param3, never under
+ * param2 nor over param3.
+ */
+s32 menuitemTabsWidth(struct menuitem *item)
+{
+	char *names[TABS_MAX];
+	s32 widths[TABS_MAX];
+	const s32 minwidth = item->param2 > 0 ? item->param2 : 160;
+	const s32 maxwidth = item->param3 > minwidth ? item->param3 : minwidth;
+	s32 count;
+	s32 width = minwidth;
+
+	if (!item->handler || (count = menuitemTabsCount(item)) <= 0) {
+		return minwidth;
+	}
+
+	for (s32 shortnames = 0; shortnames < 2; shortnames++) {
+		width = menuitemTabsMeasure(item, count, shortnames, names, widths) + TABS_CHEVRON * 2;
+
+		if (width <= maxwidth) {
+			break;
+		}
+	}
+
+	return width < minwidth ? minwidth : width > maxwidth ? maxwidth : width;
+}
+
+Gfx *menuitemTabsRender(Gfx *gdl, struct menurendercontext *context)
+{
+	struct menuitem *item = context->item;
+	struct menudialog *dialog = context->dialog;
+	struct fontchar *chars = g_CharsHandelGothicSm;
+	struct font *font = g_FontHandelGothicSm;
+	union handlerdata data;
+	char *names[TABS_MAX];
+	s32 widths[TABS_MAX];
+	s32 count;
+	s32 cur;
+	s32 i;
+	s32 total = 0;
+	s32 first;
+	s32 last;
+	s32 x;
+	const s32 left = context->x + TABS_CHEVRON;
+	const s32 right = context->x + context->width - TABS_CHEVRON;
+	const s32 room = right - left;
+	const s32 y1 = context->y + 1;
+	const s32 y2 = context->y + context->height - 3;
+	u32 textcolour;
+	u32 linecolour;
+	u32 arrowcolour;
+	u32 headeralpha;
+	u32 weight;
+
+	if (!item->handler || (count = menuitemTabsCount(item)) <= 0) {
+		return gdl;
+	}
+
+	data.list.value = 0;
+	item->handler(MENUOP_GETSELECTEDINDEX, item, &data);
+	cur = data.list.value;
+
+	if (cur < 0 || cur >= count) {
+		cur = 0;
+	}
+
+	// the whole names while they fit, the short ones when they do not
+	total = menuitemTabsMeasure(item, count, 0, names, widths);
+
+	if (total > room) {
+		total = menuitemTabsMeasure(item, count, 1, names, widths);
+	}
+
+	// and past that, as many as fit around the one shown
+	first = 0;
+	last = count - 1;
+
+	if (total > room) {
+		bool grew = true;
+
+		first = last = cur;
+		total = widths[cur];
+
+		while (grew) {
+			grew = false;
+
+			if (last + 1 < count && total + TABS_GAP + widths[last + 1] <= room) {
+				last++;
+				total += TABS_GAP + widths[last];
+				grew = true;
+			}
+
+			if (first > 0 && total + TABS_GAP + widths[first - 1] <= room) {
+				first--;
+				total += TABS_GAP + widths[first];
+				grew = true;
+			}
+		}
+	}
+
+	x = total < room ? left + (room - total) / 2 : left;
+
+	textcolour = MIXCOLOUR(dialog, item_unfocused);
+	linecolour = (textcolour & 0xffffff00) | 0x3f;
+	headeralpha = MIXCOLOUR(dialog, listgroup_headerbg) & 0xff;
+	weight = menuGetSinOscFrac(10) * 255.0f;
+	arrowcolour = colourBlend(0xffffffff, MIXCOLOUR(dialog, dialog_border1), weight);
+
+	if (dialog->dimmed) {
+		textcolour = (colourBlend(textcolour, 0, 127) & 0xffffff00) | (textcolour & 0xff);
+		arrowcolour = (colourBlend(arrowcolour, 0, 127) & 0xffffff00) | (arrowcolour & 0xff);
+	}
+
+	// the shown tab on a group header's bar, a line under the row, the arrows
+	{
+		s32 tx = x;
+
+		for (i = first; i <= last; i++) {
+			if (i == cur) {
+				gdl = text0f153780(gdl);
+				gdl = menugfxDrawListGroupHeader(gdl, tx, y1, tx + widths[i], y2, tx + widths[i], headeralpha);
+			}
+
+			tx += widths[i] + TABS_GAP;
+		}
+	}
+
+	gdl = menugfxDrawFilledRect(gdl, context->x, y2 + 1, context->x + context->width, y2 + 2, linecolour, linecolour);
+	gdl = menugfxDrawCarouselChevron(gdl, context->x + 2, (y1 + y2) / 2, 6, 1, arrowcolour, arrowcolour);
+	gdl = menugfxDrawCarouselChevron(gdl, context->x + context->width - 2, (y1 + y2) / 2, 6, 3, arrowcolour, arrowcolour);
+
+	gdl = text0f153628(gdl);
+
+	if (g_MpPlayerNum >= 0 && g_MpPlayerNum < MAX_PLAYERS) {
+		g_MenuTabsDrawn[g_MpPlayerNum].item = item;
+		g_MenuTabsDrawn[g_MpPlayerNum].y1 = context->y;
+		g_MenuTabsDrawn[g_MpPlayerNum].y2 = context->y + context->height;
+		g_MenuTabsDrawn[g_MpPlayerNum].left = left;
+		g_MenuTabsDrawn[g_MpPlayerNum].right = right;
+		g_MenuTabsDrawn[g_MpPlayerNum].num = 0;
+	}
+
+	for (i = first; i <= last; i++) {
+		s32 tx = x + TABS_PAD;
+		s32 ty = y1 + 1;
+		u32 colour = textcolour;
+
+		if (i == cur) {
+			// white on the bar, as a list's chosen row is
+			colour |= 0xffffff00;
+			textSetWaveColours(g_MenuWave2Colours[dialog->type].listgroup_headerfg, g_MenuWave1Colours[dialog->type].listgroup_headerfg);
+		} else {
+			textSetWaveColours(g_MenuWave2Colours[dialog->type].item_unfocused, g_MenuWave1Colours[dialog->type].item_unfocused);
+		}
+
+		gdl = textRenderProjected(gdl, &tx, &ty, names[i], chars, font, colour, right - x, y2 - y1, 0, 0);
+
+		if (g_MpPlayerNum >= 0 && g_MpPlayerNum < MAX_PLAYERS) {
+			struct menutabsdrawn *drawn = &g_MenuTabsDrawn[g_MpPlayerNum];
+
+			drawn->x1[drawn->num] = x;
+			drawn->x2[drawn->num] = x + widths[i];
+			drawn->index[drawn->num] = i;
+			drawn->num++;
+		}
+
+		x += widths[i] + TABS_GAP;
+	}
+
+	gdl = text0f153780(gdl);
+
+	return gdl;
+}
+
+bool menuitemTabsTick(struct menuitem *item, struct menudialog *dialog, struct menuinputs *inputs, u32 tickflags)
+{
+	union handlerdata data;
+	s32 count;
+	s32 cur;
+	s32 next;
+	s32 dir;
+
+	if (!item->handler) {
+		return true;
+	}
+
+	// read every tick, in front or not, so a press is counted once
+	dir = menuTabsShoulders();
+
+	if ((tickflags & MENUTICKFLAG_DIALOGISCURRENT) == 0 || dialog->dimmed
+			|| item->handler(MENUOP_CHECKHIDDEN, item, &data)) {
+		return true;
+	}
+
+	data.list.value = 0;
+	item->handler(MENUOP_GETOPTIONCOUNT, item, &data);
+	count = data.list.value;
+
+	if (count < 2) {
+		return true;
+	}
+
+	data.list.value = 0;
+	item->handler(MENUOP_GETSELECTEDINDEX, item, &data);
+	cur = data.list.value;
+	next = cur;
+
+	// Left and Right: nothing else on such a dialog takes them
+	if (dir == 0 && inputs->leftright) {
+		dir = inputs->leftright < 0 ? -1 : 1;
+	}
+
+	inputs->leftright = 0;
+
+	// a click on the row is the row's, never the list's under it
+	if (g_MenuUsingMouse && inputs->select && inputKeyPressedThisFrame(VK_MOUSE_LEFT)
+			&& g_MpPlayerNum >= 0 && g_MpPlayerNum < MAX_PLAYERS
+			&& g_MenuTabsDrawn[g_MpPlayerNum].item == item) {
+		struct menutabsdrawn *drawn = &g_MenuTabsDrawn[g_MpPlayerNum];
+		const s32 mx = inputs->mousex;
+		const s32 my = inputs->mousey;
+
+		if (my >= drawn->y1 && my < drawn->y2 && mx >= dialog->x && mx < dialog->x + dialog->width) {
+			if (mx < drawn->left) {
+				dir = -1;
+			} else if (mx >= drawn->right) {
+				dir = 1;
+			} else {
+				for (s32 i = 0; i < drawn->num; i++) {
+					if (mx >= drawn->x1[i] && mx < drawn->x2[i]) {
+						next = drawn->index[i];
+					}
+				}
+			}
+
+			inputs->select = 0;
+		}
+	}
+
+	if (dir) {
+		next = (cur + dir + count) % count;
+	}
+
+	if (next != cur && next >= 0 && next < count) {
+		data.list.value = next;
+		item->handler(MENUOP_SET, item, &data);
+		menuPlaySound(MENUSOUND_SWIPE);
+
+		// the list under it starts the new tab where the handler put it
+		inputs->updown = 0;
+	}
+
+	return true;
+}
+
 #endif
 
 Gfx *menuitemSelectableRender(Gfx *gdl, struct menurendercontext *context)
@@ -4838,6 +5217,7 @@ Gfx *menuitemRender(Gfx *gdl, struct menurendercontext *context)
 
 #ifndef PLATFORM_N64
 	case MENUITEMTYPE_COLORBOX:    return menuitemColorBoxRender(gdl, context);
+	case MENUITEMTYPE_TABS:        return menuitemTabsRender(gdl, context);
 #endif
 
 	}
@@ -4862,6 +5242,9 @@ bool menuitemTick(struct menuitem *item, struct menudialog *dialog, struct menui
 	case MENUITEMTYPE_KEYBOARD:    return menuitemKeyboardTick(item, inputs, tickflags, data);
 	case MENUITEMTYPE_CAROUSEL:    return menuitemCarouselTick(item, inputs, tickflags);
 	case MENUITEMTYPE_PLAYERSTATS: return menuitemPlayerStatsTick(item, dialog, inputs, tickflags, data);
+#ifndef PLATFORM_N64
+	case MENUITEMTYPE_TABS:        return menuitemTabsTick(item, dialog, inputs, tickflags);
+#endif
 	}
 
 	return true;
@@ -4895,6 +5278,11 @@ void menuitemInit(struct menuitem *item, union menuitemdata *data)
 	case MENUITEMTYPE_CONTROLLER:
 		menuitemControllerInit(data);
 		break;
+#ifndef PLATFORM_N64
+	case MENUITEMTYPE_TABS:
+		menuitemTabsInit(item);
+		break;
+#endif
 	}
 }
 
