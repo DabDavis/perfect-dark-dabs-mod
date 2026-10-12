@@ -59,6 +59,9 @@ GoldenEye: guards climb the steps the conversion had walled off for them, as on 
 GoldenEye Bunker: guards no longer spot you through a shut glass door from the floor above it, as on the cartridge
 GoldenEye Facility, HD look: the scientist wears the XBLA release's own Dr. Rakhmanov face again, or the Community Edition's detailed Dr. Doak face when it is installed
 Fixed a rare crash, or sounds cutting out, in a big firefight with many different sounds playing at once
+Online: lag compensation reaches back 300 ms instead of 200, so shots over long links (Europe to America) count as the shooter saw them (thanks dab)
+Guards that walk in mid-level (Guards Alerted, the Randomizer, reinforcements) no longer sometimes get a random limit on how far up or down they can see you, on any stage after the first of a session
+Online: players joining a room from elsewhere are no longer taken for players on the host's own network, which could leave their join hanging (thanks dab)
 
 notes 61 2026-10-12
 Online: new Counter-Op Mission rooms, for Perfect Dark's, GoldenEye's, Goldfinger 64's and Tomorrow Never Dies 64's missions: everyone picks a side in the Game Lobby with Change Side (thanks dab)
