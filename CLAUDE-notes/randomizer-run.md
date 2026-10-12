@@ -1120,3 +1120,57 @@ Institute door stood in front of on the Duel: rooms 70, 114 and 116 show the
 sky. They are `g_ModRunBareDuel` in `modRunRoomIsBare()` (room count 141,
 generator v6). `--run-stage 0x4f --run-room 115/116/117` now falls back to the
 stock start.
+
+## A way out the player can walk, a door in no portal, Skedars, a second landing (pass 37)
+
+F3 20261011-004012, Defense (0x2d) room 10: the firing range's lane. The zone
+(10, 9) had a portal out (room 9 to the booth, room 8) and the waypoint graph
+links the lane to the booth too - straight through the booth's window, which is
+`OBJTYPE_GLASS` with `OBJFLAG_PATHBLOCKER`, `OBJFLAG2_IMMUNETOGUNFIRE` and
+`OBJFLAG2_IMMUNETOEXPLOSIONS`. Pad 18 at the lane's south edge does walk into
+room 8; pads 19, 21 and 22 do not. So v7 (`MODRANDOM_VERSION_DEFAULT` 7) asks
+`modRunZoneWalksOut()`: a breadth-first walk over waypoint links from the
+landing's own waypoint, inside the zone, until a link leaves it (not an
+`WPSEGFLAG_INWARDSONLY` one from the walker's side). At the roll the props do
+not exist, so it is the graph alone; at the landing (`g_ModRunWalkLines`) every
+link is also line-tested for an unbreakable path blocker
+(`modRunLinkIsOpen()`, `CDTYPE_PATHBLOCKER | CDTYPE_OBJSIMMUNETOGUNFIRE |
+CDTYPE_OBJSIMMUNETOEXPLOSIONS`), and a landing that fails is dealt again the
+way a dark room is (`run: room 10 on stage 0x2d has no way out once it is won;
+landing again ...`). `modRunBuildZoneRooms()` prefers Large, Normal, then the
+room alone that walks out, then the old portal-only rule. Not on a pad graph
+(`modAlarmIsPadGraph()`): GoldenEye Arenas' Statue Park graph has its park and
+the lawns beyond in separate pieces though a player walks between them, and
+judging by it threw away most of the map's landings. Every room shut in
+deals as before rather than not at all. `--run-room` now holds only the first
+try, so a re-landing can be tested from it.
+
+F3 20261011-012920, Statue Park (GoldenEye Arenas) room 10: its gates stand
+between rooms 10 and 11 with key 1 and **no portal**, both rooms in one zone,
+and `modRunOpenDoors()` only looked at doors in a portal. A door in no portal
+is now judged by its prop's rooms: all in the zone is a door inside, some in
+and some out is a way out.
+
+F3 20261011-012426, Defense room 12 pad 90: the sofa stands on the waypoint.
+`modRandomSpawnClear()` now has a Perfect Dark branch
+(`modRandomSpawnClearProps()`): a volume test against everything but players,
+and if it fails the nearest of eight directions at 60-240 units reachable by a
+bg line from the pad, with a floor within 40 units of the pad's and clear.
+`randomizer: the spot (922 335 930) is inside a prop; standing at (964 335 972)
+in room 12`. Mission Randomizer's start takes it too.
+
+F3 20261011-015550, Ruins: the dark-room re-landing (and Defection's moved
+landing) asked for a new life after `modRunRestoreHealth()` had spent
+`g_ModRunKitDue`, so the second life restored nothing - unarmed, every gun gone.
+Both now set it again.
+
+F3 20261011-011713, Deep Sea: run guards with a Skedar body (92, and the mini
+123) stood where they arrived. `func000c_combat_with_target_chr` sends a human
+whose target is the player to GAILIST_ALERTED (which runs at them from
+anywhere) but skips that for a Skedar, which acts only on what
+`if_enemy_distance_lt_and_los` finds; dealt out of sight (Guards Walk In) they
+answered "NO TARGET" for good. `modAlarmSkedarComeIn()`: during a run, every
+half second a standing Skedar guard with no sight of its player target is sent
+`chrGoToProp(..., GOPOSFLAG_RUN)`; once it sees, its own lists fight. gdb on
+seed 12, `g_ModRunBody` forced: before, eight Skedars at 875-1800 units in
+ACT_STAND for 40 s; after, ACT_GOPOS then ACT_ATTACK, both sizes.

@@ -2661,6 +2661,16 @@ bool modAlarmIsGuard(struct chrdata *chr)
  * during a run a run's guards open any door, whoever laid the waypoints. A
  * mission's own Alerted Guards keep the stock rule outside a pad-built graph.
  */
+/**
+ * Whether this stage's waypoints are the graph modAlarmBuildPadWaypoints()
+ * made from its pads, which links what it could walk between and no more: a
+ * run does not judge a room's way out by it (modrun.c, modRunZoneWalksOut()).
+ */
+bool modAlarmIsPadGraph(void)
+{
+	return g_ModAlarmPadGraph;
+}
+
 bool modAlarmGuardOpensAnyDoor(struct chrdata *chr)
 {
 	return (g_ModAlarmPadGraph || modRunIsPlaying()) && modAlarmIsGuard(chr);
@@ -2722,6 +2732,43 @@ struct chrdata *modAlarmFindGuardForBot(struct chrdata *botchr, f32 maxdist)
 	}
 
 	return NULL;
+}
+
+/**
+ * A Skedar holding a run's room comes to the player rather than standing
+ * where it arrived. The global lists send a human whose target is the player
+ * to GAILIST_ALERTED, which runs at them from anywhere; a Skedar never goes
+ * there (func000c_combat_with_target_chr's if_chr_is_skedar) and acts only on
+ * an enemy if_enemy_distance_lt_and_los finds, so one dealt out of sight - a
+ * room or two off, as Guards Walk In deals them - answered "NO TARGET" and
+ * stood for good, the big ones and the small (F3 20261011-011713, Deep Sea).
+ * Stock's own Skedars are placed and scripted by their stage to be seen. Every
+ * half second (30 ticks, whatever the frame rate) a standing one with no sight
+ * of its target is sent running at it, which is the walk in a human gets; once
+ * it can see, its own AI fights.
+ * A run only, so a match's guards and a mission's are as they were.
+ */
+static void modAlarmSkedarComeIn(struct modalarmguard *guard)
+{
+	struct chrdata *chr = guard->chr;
+	struct prop *target;
+
+	if (!modRunIsPlaying() || CHRRACE(chr) != RACE_SKEDAR || chr->actiontype != ACT_STAND
+			|| chr->prop == NULL || (g_Vars.lvframe60 + chr->chrnum) % 30 >= g_Vars.lvupdate60) {
+		return;
+	}
+
+	if (chr->target == -1 && (chr->p1p2 < 0 || chr->p1p2 >= MAX_PLAYERS || g_Vars.players[chr->p1p2] == NULL)) {
+		return;
+	}
+
+	target = chrGetTargetProp(chr);
+
+	if (target == NULL || target->type != PROPTYPE_PLAYER || chrHasLosToProp(chr, target)) {
+		return;
+	}
+
+	chrGoToProp(chr, target, GOPOSFLAG_RUN);
 }
 
 /**
@@ -2851,6 +2898,8 @@ void modAlarmTick(void)
 				guard->chrnum = -1;
 				continue;
 			}
+
+			modAlarmSkedarComeIn(guard);
 
 			alive++;
 		}

@@ -193,6 +193,11 @@ call). Stage 0x30 on seed 1558293169 put eight of them in guards' hands at v4
 and none at v5, and only the weapons fold moved. Guards Alerted and a run's
 arriving guards (modalarm.c) already drew from a guns-only list.
 
+Version 7 never lands a run where no chr could walk out of the sealed zone
+from the landing's own waypoint (modrun.c, `modRunZoneWalksOut()`; at the landing
+also across an unbreakable pane): Carrington Institute's firing range lane, behind
+the booth's glass (F3 20261011-004012). randomizer-run.md, pass 37.
+
 ### Checking a change did not move old seeds
 
 The log prints a fold of each part of the roll:
