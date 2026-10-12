@@ -183,7 +183,11 @@
 // 31 (GoldenEye's tank ridden on top, 2026-10-12: CLAUDE-notes/netplay.md
 //    "F3 pass 37"): the local-player block's tank part grows to 48 bytes
 //    (NETLP_SIZE 736): u8 ride at 24 (the player stands on a tank somebody
-//    else drives), f32 across, up, along at 28 (its place in the hull's axes)
+//    else drives), f32 across, up, along at 28 (its place in the hull's axes);
+//    an autogun's OBJ record (a thrown Laptop Gun's sentry, a mission's
+//    turret) carries its aim and firing in bytes 20-22 (NETAUTOGUN_FIRING,
+//    the turn in 256ths, the elevation in half degrees), and a client makes
+//    a DYNOBJ autogun (the thrown laptop) it had left out
 #define NET_PROTOCOL_VERSION 31
 
 #define NETMSG_CONNECT    1
@@ -791,6 +795,9 @@
  *     15, the last call's level in the high one; DOOR byte 4 bit 4,
  *     NETDOOR_GLASSGONE: a windowed door's pane shot out)
  *     (protocol 28: OBJ byte 0 bit 0x40, NETOBJ_MOUNTED: GoldenEye's tank
+ *     (protocol 31: an autogun's OBJ byte 20 bit 1, NETAUTOGUN_FIRING;
+ *     byte 21 its turn in 256ths of a turn, byte 22 its elevation in half
+ *     degrees, signed - GoldenEye's tank's bytes 21-22 are its turret's)
  *     with somebody in it, which nobody else may climb into; DOOR bytes
  *     6-14 where the door stands (3 x 24-bit eighths, as OBJ's) and 15-16
  *     its first room: a fall-away door, Surface's vent hatch, falls)

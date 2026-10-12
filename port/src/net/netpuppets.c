@@ -152,6 +152,8 @@ static u32 s_HeldFails = 0;  // held guns that could not be made (no model)
 static u32 s_BodyLoads = 0;  // corpses whose body and head no chr here wore (not made)
 static u32 s_BodyBuilt = 0;  // a mission's runtime chrs no chr here wore, built from the tables
 static u32 s_AlarmBuilt = 0; // a match's Guards Alerted! guards, their heads out of modalarm.c's table
+static u32 s_Laptops = 0;      // (protocol 31) thrown Laptop Guns made from the host's autogun descriptors
+static u32 s_AutogunShots = 0; // ... and autoguns' shots drawn here (flashes, sound, tracers)
 static u32 s_GeGunsMade = 0; // GoldenEye guns made from descriptors (dropped, thrown, a pickup)
 static u32 s_GoldenGuns = 0; // ... of them the Golden Gun (its scenario's one gun)
 static u32 s_GoldenHands = 0;  // the Golden Gun put in a puppet's hand
@@ -1304,6 +1306,17 @@ static void netPupObj(struct netpup *u, struct prop *prop, const struct netentst
 		}
 	}
 
+	// (protocol 31) an autogun - a thrown Laptop Gun's sentry, a mission's
+	// turret - aims and fires as the host's: the turn in 256ths, the
+	// elevation in half degrees, the firing bit (autogunTickNetClient)
+	if (obj->type == OBJTYPE_AUTOGUN) {
+		struct autogunobj *autogun = (struct autogunobj *)obj;
+
+		autogun->yrot = s->extra[1] * (f32)M_BADTAU / 256.f;
+		autogun->xrot = (s8)s->extra[2] * (f32)M_BADTAU / (360.f * 2.f);
+		autogun->firing = (s->extra[0] & NETAUTOGUN_FIRING) != 0;
+	}
+
 	if (moved || isdyn) {
 		if (isdyn) {
 			netPupPlaceObj(obj, s, obj->model->scale);
@@ -2079,8 +2092,23 @@ static struct prop *netPupDyn(struct netpup *u, u16 id, u16 gen, s32 kind, s32 r
 	case NETDESC_BODY:
 		prop = netPupMakeBody(d, s);
 		break;
+	case NETDESC_DYNOBJ:
+		// a thrown Laptop Gun (laptopDeploy on the host): an autogun from
+		// the moment it leaves the hand, flying and then standing as a
+		// sentry. Debris and the like are not made
+		if (d->objtype == OBJTYPE_AUTOGUN) {
+			struct autogunobj *laptop = laptopMakeNetClient(d->modelnum);
+
+			if (laptop && laptop->base.prop) {
+				prop = laptop->base.prop;
+				propActivate(prop);
+				propEnable(prop);
+				netPupPlaceObj(&laptop->base, s, laptop->base.model->scale);
+				s_Laptops++;
+			}
+		}
+		break;
 	default:
-		// DYNOBJ (debris and the like) is not made
 		break;
 	}
 
@@ -2663,11 +2691,9 @@ u32 netPuppetObjTick(struct prop *prop)
 	}
 
 	if (obj->type == OBJTYPE_AUTOGUN) {
-		struct autogunobj *autogun = (struct autogunobj *)obj;
-
-		if (autogun->beam) {
-			beamTick(autogun->beam);
-		}
+		// (protocol 31) aimed and firing as the host's record says
+		// (netPupObj): its flashes, sound and tracer drawn here
+		s_AutogunShots += autogunTickNetClient(prop);
 	} else if (obj->type == OBJTYPE_CHOPPER) {
 		struct chopperobj *chopper = (struct chopperobj *)obj;
 
@@ -2846,9 +2872,9 @@ s32 netClientInMatch(void)
 
 void netPuppetsLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u (setup objects dropped before their record %u), bad anims %u; doors moved %u, door sounds %u, fall-away doors placed %u, regens %u, unpaused %u, let go %u, taken out %u, put back %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u, built from the tables %u, Guards Alerted! guards %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u; tank riders put on this machine's tank %u",
+	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u (setup objects dropped before their record %u), bad anims %u; doors moved %u, door sounds %u, fall-away doors placed %u, regens %u, unpaused %u, let go %u, taken out %u, put back %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u, built from the tables %u, Guards Alerted! guards %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u; tank riders put on this machine's tank %u; thrown laptops made %u, autogun shots drawn %u",
 			why, g_NetTick, s_Poses, s_Interp, s_Extrap, s_Held, s_Behind, s_DelayLast, s_Jit, s_Resyncs,
 			s_FirstRecords, s_Snaps, s_Deaths, s_Created[NETDESC_DYNWEAPON], s_Created[NETDESC_HAT], s_Created[NETDESC_AMMOCRATE], s_Created[NETDESC_SCENOBJ],
 			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_HeldDrops, s_BadAnims, s_DoorMoves, s_DoorSounds, s_DoorFalls, s_Regens, s_Unpaused, s_LetGo, s_TakenOut, s_PutBack, s_Trails, s_PlayerDeaths,
-			s_Created[NETDESC_BODY], s_BodyLoads, s_BodyBuilt, s_AlarmBuilt, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves, s_Backsteps, s_StaleAfter, s_Restitched, s_RidersMapped);
+			s_Created[NETDESC_BODY], s_BodyLoads, s_BodyBuilt, s_AlarmBuilt, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves, s_Backsteps, s_StaleAfter, s_Restitched, s_RidersMapped, s_Laptops, s_AutogunShots);
 }

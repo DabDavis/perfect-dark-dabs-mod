@@ -174,6 +174,10 @@ void fanUpdateModel(struct prop *fan);
 void autogunTick(struct prop *autogun);
 void autogunInitMatrices(struct prop *autogun, Mtxf *mtx);
 void autogunTickShoot(struct prop *autogun);
+#ifndef PLATFORM_N64
+s32 autogunTickNetClient(struct prop *autogun); // a net client's autogun: what the host's shows (netpuppets.c)
+struct autogunobj *laptopMakeNetClient(s32 modelnum); // a net client's copy of the host's thrown laptop (netpuppets.c)
+#endif
 void chopperInitMatrices(struct prop *chopper);
 struct chopperobj *chopperFromHovercar(struct chopperobj *obj);
 bool chopperCheckTargetInFov(struct chopperobj *hovercar, u8 param_2);

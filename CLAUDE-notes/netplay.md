@@ -3434,3 +3434,43 @@ on its hull; nothing moved them with it. Now (getank.c "Riding on top"):
   and drives with C-up/C-left/C-right and the host rides). Guards and sims
   never climb the hull; nothing else GoldenEye or Perfect Dark moves can be
   stood on but lifts, which carry already.
+
+## A thrown Laptop Gun online (protocol 31, 2026-10-12)
+
+F3 20261012-014545 (ElmoBear, a client in a Combat Simulator match: "i dont
+see my laptop gun throwing"). The throw itself went to the host as any fire
+does, and the host deployed the sentry (`laptopDeploy`, a slot of
+`g_ThrownLaptops`): it flew, stood, shot and blew up there. But the sentry is
+an *autogun* made at run time, so the snapshots described it as a DYNOBJ
+(kind 6), and `netPupDyn` made no DYNOBJ ("debris and the like"): on every
+client - the thrower's own and the others' - nothing left the hand, nothing
+stood, only its hits' sparks and damage (the host's events) and its
+explosion came through. Now:
+
+- **Made on the client.** A DYNOBJ whose objtype is OBJTYPE_AUTOGUN is made
+  by `laptopMakeNetClient()` (propobj.c) into a free slot of
+  `g_ThrownLaptops` (a client never deploys into its own: the host makes
+  projectiles), as `laptopDeploy` builds one; posed by its record like any
+  dynamic object, in flight and standing, and freed when its id leaves.
+- **Aimed and firing as the host's.** An autogun's OBJ record carries bytes
+  20-22 now (`NETAUTOGUN_FIRING`, the turn in 256ths, the elevation in half
+  degrees, signed; netsnap.h/netproto.h), for any autogun - a mission's
+  turrets too, which on a client had stood at their setup aim and never
+  flashed. `netPuppetObjTick` runs `autogunTickNetClient()`: the barrel's
+  spin, the flashes, the gun's sound and a tracer every fourth shot to the
+  first wall or door along the aim, at `autogunTickShoot`'s rate; what the
+  rounds hit is the host's (events).
+- **Out of the thrower's hand at once.** `bgunCreateThrownProjectile` on a
+  client still returns before making anything, but a gun thrown to deploy
+  (WEAPONFLAG3_DEPLOYS) is let go there (`bgunFreeWeapon`, as the host
+  does), not a round trip later when the host's inventory says so: the
+  third-person body stopped holding the laptop it had just thrown.
+- Gate: netpuppettest `laptop` (2 sims, the client's player invincible: it
+  is given the Laptop Gun and fires with the alt mode button, L, held - the
+  second function; the host's kind-6 autogun must be made on the client
+  and posed within 4 units, p95, where the host had it, and when the host's
+  sentry fired - "autogun records firing" in its snap summary - the client
+  must have drawn shots: "thrown laptops made", "autogun shots drawn" in
+  its puppets summary). In a script, B held does not change a Laptop Gun's
+  function on PC (CONTROLMODE_PC reads the alt mode button, L_TRIG, and the
+  laptop's second function is a temporary one while it is held).

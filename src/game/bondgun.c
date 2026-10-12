@@ -5884,7 +5884,16 @@ static void bgunAimThrowAtCrosshair(s32 handnum, struct coord *spawnpos, struct 
 
 void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 {
-	if (NET_CLIENT) return; // netplay C11: the host makes projectiles
+	if (NET_CLIENT) {
+		// netplay C11: the host makes projectiles. A gun thrown to deploy
+		// (the Laptop Gun) leaves the hand here as on the host (below), not
+		// a round trip later when the host's inventory says it is gone
+		if (handnum >= HAND_RIGHT && handnum <= HAND_LEFT && weaponHasFlag3(gset->weaponnum, WEAPONFLAG3_DEPLOYS)) {
+			bgunFreeWeapon(handnum);
+		}
+
+		return;
+	}
 	struct coord velocity = {0, 0, 0};
 	Mtxf sp1f4;
 	struct coord gunpos;

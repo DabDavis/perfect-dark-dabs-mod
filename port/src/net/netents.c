@@ -117,6 +117,7 @@ static u32 s_NacksSent = 0;
 static u32 s_PresentUnmapped = 0; // in the newest snapshot: present, not mapped or unresolved
 static u32 s_NoneNacked = 0;      // present with no mapping and no descriptor: asked
 static u32 s_KeptOverGap = 0;     // mappings kept for ids back after a gap
+static u32 s_AutogunFiring = 0; // (protocol 31) autogun records captured firing (netpuppettest's laptop case)
 static u32 s_Misfits = 0;         // descriptors naming a local prop of the wrong kind
 static u32 s_DelistedNow = 0;     // host: setup objects out of the world at the last capture
 static u16 s_LastMapSeq = 0;
@@ -847,6 +848,24 @@ static void netCaptureObj(struct netcap *c, struct prop *prop)
 		st->deform = netCaptureDeform(prop, obj);
 		st->extra[0] = netWeaponOf(prop) == 0xff ? 0 : netWeaponOf(prop);
 
+		// (protocol 31) an autogun (a thrown Laptop Gun's sentry, a
+		// mission's turret): its aim and whether it fires, which a client
+		// draws (autogunTickNetClient); the turn in 256ths of a turn, the
+		// elevation in half degrees
+		if (obj->type == OBJTYPE_AUTOGUN) {
+			const struct autogunobj *autogun = (const struct autogunobj *)obj;
+			f32 yaw = autogun->yrot;
+			s32 pitch = (s32)roundf(autogun->xrot * 360.f * 2.f / (f32)M_BADTAU);
+
+			while (yaw < 0) yaw += (f32)M_BADTAU;
+			while (yaw >= (f32)M_BADTAU) yaw -= (f32)M_BADTAU;
+
+			st->extra[0] = autogun->firing && (obj->flags & OBJFLAG_DEACTIVATED) == 0 ? NETAUTOGUN_FIRING : 0;
+			s_AutogunFiring += st->extra[0] != 0;
+			st->extra[1] = (u8)((s32)roundf(yaw * 256.f / (f32)M_BADTAU) & 0xff);
+			st->extra[2] = (u8)(s8)(pitch < -127 ? -127 : pitch > 127 ? 127 : pitch);
+		}
+
 		// (protocol 23) GoldenEye's tank: the turret against the hull in
 		// 256ths of a turn, the barrel's elevation in quarter degrees
 		if (obj->type == OBJTYPE_TANK) {
@@ -1301,10 +1320,10 @@ static void netHostLogSlot(s32 slot, const char *why)
 		return;
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: snap slot %d %s (tick %u): %u sent, bytes mean %u min %u max %u, keyframes %u, entity keyframes %u, records %u, descriptors %u, deferred %u, excluded %u, acks %u, nacks %u, resets %u, rate %d Hz (%u changes), entities offered mean %u, first at tick %u, last left out at tick %u, deferred behind a newer one sent %u, setup objects out of the world %u",
+	sysLogPrintf(LOG_NOTE, "net: snap slot %d %s (tick %u): %u sent, bytes mean %u min %u max %u, keyframes %u, entity keyframes %u, records %u, descriptors %u, deferred %u, excluded %u, acks %u, nacks %u, resets %u, rate %d Hz (%u changes), entities offered mean %u, first at tick %u, last left out at tick %u, deferred behind a newer one sent %u, setup objects out of the world %u, autogun records firing %u",
 			slot, why, g_NetTick, h->sent, h->sent ? h->bytes / h->sent : 0, h->sent ? h->bytesmin : 0, h->bytesmax,
 			h->keyframes, h->entkeys, h->records, h->descs, h->deferred, h->excluded, h->acks, h->nacks, h->resets,
-			60 / (h->rate ? h->rate : 2), h->ratechanges, h->sent ? s_OfferedSum[slot] / h->sent : 0, h->firsttick, h->lastexcl, h->behind, s_DelistedNow);
+			60 / (h->rate ? h->rate : 2), h->ratechanges, h->sent ? s_OfferedSum[slot] / h->sent : 0, h->firsttick, h->lastexcl, h->behind, s_DelistedNow, s_AutogunFiring);
 }
 
 /**
