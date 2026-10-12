@@ -162,6 +162,7 @@ static struct stri *backdrop;
 static s32 numBackdrop;
 static s32 *backdropOrder;
 static f32 *backdropDist;
+static u8 *backdropLayer; // drawn in this order before the distance (backdropPrepare())
 static f32 backdropMid[3];
 
 // The HD mesh's own extent (the rooms' triangles, not the backdrop), for the
@@ -3623,9 +3624,11 @@ static void forgetBuilt(void)
 	free(backdrop);
 	free(backdropOrder);
 	free(backdropDist);
+	free(backdropLayer);
 	backdrop = NULL;
 	backdropOrder = NULL;
 	backdropDist = NULL;
+	backdropLayer = NULL;
 	numBackdrop = 0;
 	farRaised = 0;
 	farLogged = -1.0f;
@@ -4035,6 +4038,81 @@ static void takeBackdrop(struct collect *c, s32 n)
 	free(outside);
 	free(reach);
 	free(isbackdrop);
+}
+
+/**
+ * The backdrop's draw order, once it has everything it takes (its pictures,
+ * takeBackdrop(), and what no room can reach) or has been read back: the
+ * arrays the draw sorts in, and each triangle's layer.
+ *
+ * The backdrop has no depth test, so its triangles are drawn furthest first,
+ * which is right for one surface folding over itself (Cradle's cliffs) but
+ * not for two shells one inside the other. Both Bunkers carry a sky dome
+ * (2450 triangles, opaque) and a cloud cap hung inside it (950, every one in
+ * the release's blended pass), only ~300 apart at the top and their
+ * triangles some 2000 across: a cap triangle's middle is often further from
+ * an eye off the level's centre than the middle of a dome triangle over it,
+ * and the dome was painted over the clouds in rings of whole triangles, a
+ * spiral round a point overhead (F3 20261012-123659, Bunker 1). The release
+ * draws its blended pass after its opaque one and the depth buffer keeps the
+ * cap in front. So a picture all of whose triangles are blended - a veil
+ * over what is behind it - is drawn after the rest of the backdrop (layer
+ * 1). Only the Bunkers' caps are such pictures; the panoramas round Dam,
+ * Runway and both Surfaces are half opaque, Cradle's cliffs and Dam's far
+ * mountains wholly, and keep the one order they had.
+ */
+static void backdropPrepare(void)
+{
+	s32 *count;
+	s32 *blended;
+
+	free(backdropOrder);
+	free(backdropDist);
+	free(backdropLayer);
+	backdropOrder = NULL;
+	backdropDist = NULL;
+	backdropLayer = NULL;
+
+	if (numBackdrop <= 0) {
+		return;
+	}
+
+	backdropOrder = malloc(sizeof(s32) * numBackdrop);
+	backdropDist = malloc(sizeof(f32) * numBackdrop);
+	backdropLayer = calloc(numBackdrop, 1);
+	count = calloc(GEBEAN_MAXMATS, sizeof(s32));
+	blended = calloc(GEBEAN_MAXMATS, sizeof(s32));
+
+	if (!backdropOrder || !backdropDist || !backdropLayer || !count || !blended) {
+		free(backdropOrder);
+		free(backdropDist);
+		free(backdropLayer);
+		free(count);
+		free(blended);
+		backdropOrder = NULL;
+		backdropDist = NULL;
+		backdropLayer = NULL;
+		numBackdrop = 0;
+		return;
+	}
+
+	for (s32 t = 0; t < numBackdrop; t++) {
+		const s32 tex = backdrop[t].tex;
+
+		if (tex >= 0 && tex < GEBEAN_MAXMATS) {
+			count[tex]++;
+			blended[tex] += backdrop[t].blend != 0;
+		}
+	}
+
+	for (s32 t = 0; t < numBackdrop; t++) {
+		const s32 tex = backdrop[t].tex;
+
+		backdropLayer[t] = tex >= 0 && tex < GEBEAN_MAXMATS && blended[tex] == count[tex];
+	}
+
+	free(count);
+	free(blended);
 }
 
 /**
@@ -7279,14 +7357,7 @@ static s32 build(void)
 			free(filerooms);
 			free(filelens);
 
-			if (numBackdrop) {
-				backdropOrder = malloc(sizeof(s32) * numBackdrop);
-				backdropDist = malloc(sizeof(f32) * numBackdrop);
-
-				if (!backdropOrder || !backdropDist) {
-					numBackdrop = 0;
-				}
-			}
+			backdropPrepare();
 
 			sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s): %d of %d rooms from GoldenEye XBLA as built before (%d kept, %d of them not drawn), %d triangles of backdrop, %.0f ms (pictures %.0f, key %.0f, reading %.0f)",
 					row->bean, row->key, numServed, n - 1, n - 1 - numServed, numHidden, numBackdrop,
@@ -7782,14 +7853,7 @@ static s32 build(void)
 
 	// The backdrop's draw order, once it has everything it takes: its
 	// pictures (takeBackdrop()) and what no room can reach
-	if (numBackdrop) {
-		backdropOrder = malloc(sizeof(s32) * numBackdrop);
-		backdropDist = malloc(sizeof(f32) * numBackdrop);
-
-		if (!backdropOrder || !backdropDist) {
-			numBackdrop = 0;
-		}
-	}
+	backdropPrepare();
 
 	{
 		s32 clamped = 0;
@@ -8455,14 +8519,23 @@ void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xl
  * a band 25000 out should - but scaled towards the eye so that its farthest
  * vertex sits inside the far plane. Scaling about the eye moves nothing on
  * the screen. With no depth test, the rooms drawn after it cover it, and its
- * own triangles are drawn furthest first (Cradle's cliffs fold).
+ * own triangles are drawn furthest first (Cradle's cliffs fold), a picture
+ * that is wholly blended after the rest (the Bunkers' cloud caps,
+ * backdropPrepare()).
  */
 static int compareBackdropFar(const void *a, const void *b)
 {
-	const f32 da = backdropDist[*(const s32 *)a];
-	const f32 db = backdropDist[*(const s32 *)b];
+	const s32 ia = *(const s32 *)a;
+	const s32 ib = *(const s32 *)b;
+	const f32 da = backdropDist[ia];
+	const f32 db = backdropDist[ib];
 
-	return da > db ? -1 : da < db ? 1 : *(const s32 *)a - *(const s32 *)b;
+	// a wholly blended picture after the rest (backdropPrepare())
+	if (backdropLayer[ia] != backdropLayer[ib]) {
+		return backdropLayer[ia] - backdropLayer[ib];
+	}
+
+	return da > db ? -1 : da < db ? 1 : ia - ib;
 }
 
 /**
