@@ -5,6 +5,7 @@
 The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
+- **The Arena list in tabs, one a game (2026-10-12)** — mods.md, "The Arena list in tabs": `arenatabs.c` sorts g_MpArenas' rows by the mod dir a Stage Loader map came from (GoldenEye, GE-X by name, each conversion with its All in One pack, Mods), the game's own rows stay mpArenaMenuHandler()'s; `MENUITEMTYPE_TABS` (menuitem.c) is the row, turned by the controller's own shoulder buttons (not N64 L/R: Dab's LB is R), Left/Right and the mouse; the list is set up before the dialog's MENUOP_OPEN; an SDL virtual pad drives the shoulders headless
 - **The Stage Loader: every mod's maps as arenas beside the mod loaded** — mods.md, "The Stage Loader": maps-only mounts never overlay; the registrar rescans on a swap; the branch's fixes (allocation, pool checks, room sizing, textures by stage); the importer splits a rebuilt texture table (30) and writes the `maps` block (31) so a mod's arenas come from its own tables under its own names — a file name is Perfect Dark's slot, not the map (GE-X's `crad` is Aztec); every imported mod's maps take its own stage row, sky and model states (`modBorrowArenas()`, 2026-10-10: Dark Noon's grass drew as stretched stock crates)
 - **Mod directories, Load Mods, modconfig, `modcodediff`, the ROM symbol file, the data segment and importing a mod's weapon definitions** — [mods.md](CLAUDE-notes/mods.md): only the first mod dir joins the file search; files swap live, segments cannot; the `datasegment` block, `moddata.c`, and "where this stands" for continuing the import work
 - **A mod entered from the Perfect Menu, no restart (2026-10-09)** — mods.md, "A mod entered from the Perfect Menu": the "Perfect Dark Mods" row and its list, `modmode.c`'s queue (sound drains, the Institute reloads, the swap at the stage boundary in **port/src/pdmain.c's** outer loop - the port's main loop, not src/lib/main.c's), `modSwapPath()`, Mod.ModDir no longer mounted at startup and Load Mods gone; online, `modModeRequestAtNextStage()` swaps at the host's next STAGE_LOAD; the All in One Mod's four map packs (`mod_gex`, `mod_goldfinger_64`, `mod_kakariko`, `mod_dark_noon`) are maps-only like the conversions and never on the list
@@ -557,6 +558,55 @@ lists the stock seventeen and nothing after "Random".
 - The snapshot for mod swaps covers `g_MpArenas`, the count and the imported
   flag. `g_MpArenas` is sized in `data.h` now (`MP_NUM_ARENAS_STATIC +
   MAX_MODSTAGES`) so `mod.c` can take `sizeof` it.
+
+## The Arena list in tabs (2026-10-12, F3 20261012-114949)
+
+The owner asked for the stage selector "organized with tabs for each game".
+With the Stage Loader on, the Combat Simulator's Arena list was Perfect Dark's
+seventeen and then every mod's maps under "Random", 168 rows on a tester's
+install, told apart only by the "(mod)" after each name. The Arena dialog
+(`g_MpArenaMenuDialog`, also the online Create Room's Arena page) now has a row
+of tabs over its list: the game's own list first (Perfect Dark's, or a loaded
+mod's own list - `g_MpArenasImported` - under the mod's name), GoldenEye, GE-X, one per conversion (Goldfinger
+64, TND64) and Mods, only those with a map listed and none at all when there is
+one, so a stock install and GE Plus's own Combat Simulator draw the dialog they
+always drew. `port/src/arenatabs.c` works the tabs out from the row's stage:
+`modloaderGetStageModDirIndex()` is -1 for the game's own rows; a dir is
+GoldenEye's (`modloaderDirIndexIsGexPlus()`), a conversion's (its name, `mod_`
+off and `_` as space, against `geconvertVariantNameAt()`, so the All in One
+Mod's `mod_goldfinger_64` joins Goldfinger 64), GE-X's by name (`gex...`,
+`goldeneyex...` once punctuation is dropped), or a mod's. The game's own tab is
+still listed by `mpArenaMenuHandler()` (its rows filtered in `mpArenaListed()`,
+Dark/Classic/Random as they were); any other tab by `arenaTabsListHandler()`,
+a group a mod dir (the conversion or imported patch before the All in One
+packs), each map without the loader's "(mod)". The chosen arena is still
+`g_MpSetup.stagenum` from a row of `g_MpArenas`, so Random, saved setups and an
+online room's RULES are untouched; the tabs only filter what is shown.
+
+Three things that were not obvious. The dialog's list is set up
+(`dialogInitItems()`, its `MENUOP_GETSELECTEDINDEX`) **before** the dialog
+handler's `MENUOP_OPEN`, so the tab chosen in OPEN has to put the list back on
+the arena's row itself (`arenaTabsPlaceList()`, the row's data block in
+`menu->blocks`). The shoulders are the controller's own buttons
+(`VK_JOY1_LSHOULDER`/`RSHOULDER` for the menu's pads), not N64 L/R: the input
+migration put R_TRIG on LB and L_TRIG on RB (Dab's pd.ini says so), so L/R
+would have turned the tabs backwards. And the row is a new item type,
+`MENUITEMTYPE_TABS` (menuitem.c, never focusable, sized by its names between
+param2 and param3, short names past that): it takes Left/Right off the dialog,
+and a click on it is never the list's (`inputs->select` cleared when the left
+button went down on the row).
+
+Testing: offscreen on the card, the game under `gdb -batch -x` with a Python
+loop (a breakpoint on `videoEndFrame` and `ignore_count` for frames,
+`inputTestHoldKey()` for Return/arrows), `menuhandlerMainMenuCombatSimulator(6,
+0, 0)` then `menuPushDialog(&g_MpArenaMenuDialog)`, and `func0f0f820c(0, -5)`
+starts the match as the Ready check does. Shoulders headless: an SDL virtual
+pad, `SDL_JoystickAttachVirtual(2, 6, 15, 0)` with a mapping added for its GUID
+(`SDL_GameControllerAddMapping`, buttons in SDL's order: b9 LB, b10 RB) and
+`inputAssignController(0, instance id)`; set its trigger axes to -32768 first,
+since an axis at 0 is a trigger half down - Z, which selected an arena and shut
+the dialog. The mouse needs a window: Xvfb + xdotool, menu units to pixels by
+menu.c's own transform (x = 160 + (px*320/W - 160) * aspect / (320/220)).
 
 ## Heads, bodies and the model validator (2026-09-04)
 

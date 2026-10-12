@@ -1924,6 +1924,14 @@ s32 langpackIsCjk(void);
 #ifndef PLATFORM_N64
 #define MENUITEMTYPE_COLORBOX    0x1b
 
+// A row of tabs over the rest of a dialog (the Arena list's games): never
+// focused, turned by a controller's shoulders, Left and Right, or the mouse
+// (menuitemTabsRender()/menuitemTabsTick()). The handler answers
+// MENUOP_GETOPTIONCOUNT, MENUOP_GETOPTIONTEXT (list.unk04 1: the short name),
+// MENUOP_GETSELECTEDINDEX and MENUOP_SET; param2 and param3 are the least and
+// the most the row's width may be (menuitemTabsWidth()).
+#define MENUITEMTYPE_TABS        0x1c
+
 // A MENUITEMTYPE_KEYBOARD's param2 (unused by the game's own keyboards): what
 // it takes, typed or picked on the grid, and how it shows what it has
 #define KEYBOARDFLAG_NAME   0x01 // an account name: letters, digits, _ . -
