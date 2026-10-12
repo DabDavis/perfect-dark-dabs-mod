@@ -66,6 +66,18 @@ Fixed a crash when a GoldenEye gun ran dry in a Perfect Dark level
 Folder screens: letters no longer turn into other letters after switching between the GoldenEye and Goldfinger 64 folders (thanks Dyldan)
 GoldenEye Egyptian: with Infinite Ammo you can take the golden bullets from the Golden Gun's case while the gun reloads, as on the cartridge (thanks Casey)
 GoldenEye missions: guards take GoldenEye's own routes; on Archives the outdoor guards come through the left door (thanks Casey)
+Online: F3 (Report a Problem) on the online pages opens there, instead of popping up later in the next match (thanks dab)
+Online: a match that starts while you are typing in the Game Lobby's Chat no longer leaves your keyboard unable to move you (thanks savantique)
+Online: Team Control works for guests too: in a team Combat Simulator match a guest can order the simulants on their team (Follow, Attack, Defend, Hold and the rest) and they obey (thanks dab)
+Online co-op: fixed a crash for the host when a player came back by Mission Respawn on some Goldfinger 64 missions; a player coming back on a GoldenEye mission now gets the mission's starting kit, as on Perfect Dark's
+Online: your own Reverse Pitch and aim options stay yours for the whole match instead of switching to the host's player's (thanks dark reyn and savantique)
+Online: Skip Death Screen and Third Person are Room Rules set by the host (Third Person off by default, one camera for everyone), and the Spectator free camera is off for players in an online match (thanks dab)
+Online rooms: if a player's game crashes mid-match their seat opens for someone new after the hold, and a player who uses End Game can pick Back Into the Match to rejoin it (thanks dab)
+Online: a thrown Laptop Gun is now seen by everyone - flying, deployed and firing as a sentry (thanks ElmoBear)
+Online: the RC-P120's cloak no longer goes out of step for clients (thanks dab)
+Online: the CamSpy works again: it launches from the Akimbo Triggers radial menu, and guests can launch and fly theirs properly (thanks ElmoBear)
+New kill feed: the last few kills show at the top right of every Combat Simulator and GoldenEye match as Killer [Weapon] Victim, in team colours; on by default online, and for offline matches in Extended Options > Dab's Mod > Display > Kill Feed (thanks dab)
+Online: account and room names that are slurs or obscene are refused, and the lobby chat stars such words out (thanks dab)
 
 notes 59 2026-10-11
 Online: the Main Menu Chat shows only what players say; a message about a join or the lobby shows along the bottom of the Briefing Room instead (thanks dab)
