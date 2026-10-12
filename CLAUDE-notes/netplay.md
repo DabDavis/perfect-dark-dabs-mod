@@ -3396,3 +3396,41 @@ room a team match.
   ("Simulants: ..", F3 20261011-214715). Name Entry and the Game Lobby
   have a Player Setup row (the Combat Simulator's, player 1's: character,
   Control's Reverse Pitch), which is what `netWriteSlotCfg` sends.
+
+## Riding on a tank (protocol 31, 2026-10-12)
+
+F3 20261011-065750 (the owner: "player should stay on tank while tank
+moves"). Online one player drives GoldenEye's tank and the others can stand
+on its hull; nothing moved them with it. Now (getank.c "Riding on top"):
+
+- **The carry.** `geTankRideCarry()` at the top of `bmoveTick` (before a
+  client's `netPredictMoveBegin`, so its prediction ring notes the carry as
+  the tick's "ext" move and a replay repeats it): a player on a tank it does
+  not drive (`geTankRidden`: `player->tank` a healthy tank, `bondonground` >
+  0, walking, alive) is moved by the hull's step and turn since its last
+  tick, in the hull's axes; not through a wall (scraped off instead). Its
+  view keeps its heading. Online only, ticks only, never in a replay.
+- **Climbing on a driven tank.** A driven tank's collision is off
+  (`geTankTick`), and bondwalk.c names a walked-into tank only when it is
+  not MOUNTED, so a moving tank could not be climbed: online `geTankBoard`
+  names one whose hull the player is over (the stage's tanks are listed at
+  `geTankCreate`).
+- **Host and client agree on the hull, not in the world.** A client rides
+  the tank as it sees it (the host's a render delay ago), the host its own
+  now: the local-player block's tank part grows to 48 bytes (NETLP_SIZE 736)
+  with `ride` and the rider's place in the hull's axes, taken against the
+  tank pose its last carry used (`g_TankRide`, not where the tank stands at
+  the snapshot: the driver may tick after the rider). The client puts that
+  place on its own tank as it was at that command (`ridepose` in the ring,
+  live ticks only) before comparing and replaying. Measured at 180 ms: 1
+  correction over a 1100-tick drive with two full turns (before the
+  carry-pose fix, a correction every few ticks: a tick's lag).
+- **A client driving** sees the other players a render delay late and its
+  own tank now: a player puppet over the host's tank (its record at the
+  render clock) is put on the tank as driven here
+  (`geTankRideMapPuppet`, counted "tank riders put on this machine's tank").
+- Gate: netcooptest `tankride` (Runway, `--net-test-tankride T[,2]`: mode 1
+  the host drives and a client rides, mode 2 the client's script climbs in
+  and drives with C-up/C-left/C-right and the host rides). Guards and sims
+  never climb the hull; nothing else GoldenEye or Perfect Dark moves can be
+  stood on but lifts, which carry already.

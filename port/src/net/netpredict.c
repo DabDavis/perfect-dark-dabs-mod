@@ -155,6 +155,8 @@ struct netpredtick {
 	s32 getile;
 	s32 gefromtile;
 	struct netlptank tank;   // GoldenEye's tank, which the walk drives (getank.c)
+	u8 ride;                 // standing on a tank somebody else drives, as the live tick left it ...
+	f32 ridepose[4];         // ... that tank's place and heading here then (x y z yaw)
 	u8 rich[NETPRED_RICHMAX];
 };
 
@@ -232,6 +234,7 @@ static u32 s_Missing = 0;     // no state in the ring for the block's command
 static u32 s_Refused = 0;     // a block with no place or bad floats: not taken
 static u32 s_TankRefused = 0; // blocks in a row the host had this player out of the tank it is in here
 static u32 s_TankLeft = 0;    // ... and left it for
+static u32 s_RideBlocks = 0;  // blocks of a rider on a tank compared on the hull (protocol 31)
 static u32 s_Replayed = 0;    // ticks played again
 static u32 s_Overrun = 0;     // the block's command older than the ring
 static u32 s_DiscreteOff = 0; // corrections for the discrete state alone
@@ -316,6 +319,7 @@ void netPredictStageStart(void)
 	s_ShiftMax = 0;
 	s_Snaps = s_AbsSnaps = s_Missing = s_Refused = s_Replayed = s_Overrun = 0;
 	s_TankRefused = s_TankLeft = 0;
+	s_RideBlocks = 0;
 	s_CutsceneLeft = 0;
 	s_WatchLeft = 0;
 	s_ForceSnap = 0;
@@ -355,11 +359,11 @@ void netPredictMatchStopped(void)
 
 void netPredictLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: prediction %s (tick %u): compared %u, matched %u (%.2f%%), corrections %u (position error at the command mean %.2f max %.2f; moved now mean %.2f max %.2f; angles only %u, discrete only %u), ticks replayed %u, snaps %u, respawn/teleport snaps %u, no state %u, too old %u, blocks refused %u, future commands %u, head data refused %u, death heads kept %u (%u awaiting a death or respawn), cutscene blocks left %u, watch blocks left %u",
+	sysLogPrintf(LOG_NOTE, "net: prediction %s (tick %u): compared %u, matched %u (%.2f%%), corrections %u (position error at the command mean %.2f max %.2f; moved now mean %.2f max %.2f; angles only %u, discrete only %u), ticks replayed %u, snaps %u, respawn/teleport snaps %u, no state %u, too old %u, blocks refused %u, future commands %u, head data refused %u, death heads kept %u (%u awaiting a death or respawn), cutscene blocks left %u, watch blocks left %u, tank rider blocks %u",
 			why, g_NetTick, s_Compared, s_Matched, s_Compared ? 100.0 * s_Matched / s_Compared : 0.0, s_Corrections,
 			s_Corrections ? (f32)(s_ErrSum / s_Corrections) : 0.f, s_ErrMax,
 			s_Corrections ? (f32)(s_ShiftSum / s_Corrections) : 0.f, s_ShiftMax, s_AngleOff, s_DiscreteOff,
-			s_Replayed, s_Snaps, s_AbsSnaps, s_Missing, s_Overrun, s_Refused, s_Future, s_AnimRefused, s_HeadDeath, s_HeadDeathWait, s_CutsceneLeft, s_WatchLeft);
+			s_Replayed, s_Snaps, s_AbsSnaps, s_Missing, s_Overrun, s_Refused, s_Future, s_AnimRefused, s_HeadDeath, s_HeadDeathWait, s_CutsceneLeft, s_WatchLeft, s_RideBlocks);
 }
 
 // netcoop.c: a cutscene ended here; the host's place is taken outright at the next block
@@ -896,6 +900,17 @@ void netPredictCaptureTank(s32 playernum, struct netlptank *t)
 	t->speed = g.speed;
 	t->turnsum = g.turnsum;
 	t->turretyaw = g.turretyaw;
+
+	// (protocol 31) on a tank somebody else drives: where, in its axes
+	{
+		f32 pose[4];
+
+		t->ride = geTankRideState(playernum, pose, t->rel) ? 1 : 0;
+
+		if (!t->ride) {
+			t->rel[0] = t->rel[1] = t->rel[2] = 0;
+		}
+	}
 }
 
 static void netPredLoadTank(s32 playernum, const struct netlptank *t)
@@ -1142,6 +1157,11 @@ void netPredictTickEnd(void)
 
 	e = netPredSlot(g_NetTick);
 	netPredRecordState(e, p);
+
+	// a tank ridden: where it stood here as the tick ended, which a host's
+	// block for this command is put on (its place in the hull's axes), live
+	// ticks only - a replay keeps what the tank was here then
+	e->ride = geTankRideState(g_NetLocalSlot, e->ridepose, NULL) ? 1 : 0;
 
 	if (s_StartTick == 0) {
 		s_StartTick = g_NetTick ? g_NetTick : 1;
@@ -1501,6 +1521,23 @@ s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, 
 	s_HaveLast = 1;
 	s_LastCmd = cmd;
 	e = netPredAt(cmd);
+
+	// (protocol 31) a rider on a tank somebody else drives: the host has it
+	// on its tank as the host's tank was, this machine on the tank as it is
+	// seen here (the host's a moment ago). They agree where it stands on the
+	// hull; the host's place on it is put on this machine's tank at that
+	// command, and compared and replayed from there (getank.c)
+	if (!abs && e && e->hasstate && e->ride && lp->tank.ride
+			&& isfinite(lp->tank.rel[0]) && isfinite(lp->tank.rel[1]) && isfinite(lp->tank.rel[2])
+			&& fabsf(lp->tank.rel[0]) < 2000.f && fabsf(lp->tank.rel[2]) < 2000.f) {
+		static struct netlpstate onhull;
+
+		onhull = *lp;
+		geTankRideToWorld(e->ridepose, e->ridepose[3], lp->tank.rel, onhull.pos);
+		onhull.rooms[0] = -1;
+		lp = &onhull;
+		s_RideBlocks++;
+	}
 
 	if (!abs) {
 		s32 posoff;

@@ -2708,6 +2708,7 @@ void bmoveTick(bool allowc1x, bool allowc1y, bool allowc1buttons, bool ignorec2)
 	f32 zdiff;
 	f32 distance;
 
+	if (g_NetMode != NETMODE_NONE) geTankRideCarry(); // netplay: a player on a tank somebody drives goes with it (getank.c)
 	if (g_NetMode == NETMODE_CLIENT) netPredictMoveBegin(allowc1x, allowc1y, allowc1buttons, ignorec2); // netplay: the tick's movement, for a replay
 #ifndef PLATFORM_N64
 	// netplay: on an online co-op mission a player's own movement passes

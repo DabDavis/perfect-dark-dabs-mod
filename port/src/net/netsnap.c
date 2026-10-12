@@ -762,6 +762,12 @@ void netLpPack(const struct netlpstate *s, u8 *out)
 	putF(out + 208 + NETMOVE_SIZE + 12, s->tank.speed);
 	putF(out + 208 + NETMOVE_SIZE + 16, s->tank.turnsum);
 	putF(out + 208 + NETMOVE_SIZE + 20, s->tank.turretyaw);
+
+	// (protocol 31) the tank it rides on
+	out[208 + NETMOVE_SIZE + 24] = s->tank.ride;
+	putF(out + 208 + NETMOVE_SIZE + 28, s->tank.rel[0]);
+	putF(out + 208 + NETMOVE_SIZE + 32, s->tank.rel[1]);
+	putF(out + 208 + NETMOVE_SIZE + 36, s->tank.rel[2]);
 }
 
 void netLpUnpack(const u8 *in, struct netlpstate *s)
@@ -809,6 +815,10 @@ void netLpUnpack(const u8 *in, struct netlpstate *s)
 	s->tank.speed = getF(in + 208 + NETMOVE_SIZE + 12);
 	s->tank.turnsum = getF(in + 208 + NETMOVE_SIZE + 16);
 	s->tank.turretyaw = getF(in + 208 + NETMOVE_SIZE + 20);
+	s->tank.ride = in[208 + NETMOVE_SIZE + 24] ? 1 : 0;
+	s->tank.rel[0] = getF(in + 208 + NETMOVE_SIZE + 28);
+	s->tank.rel[1] = getF(in + 208 + NETMOVE_SIZE + 32);
+	s->tank.rel[2] = getF(in + 208 + NETMOVE_SIZE + 36);
 }
 
 /*

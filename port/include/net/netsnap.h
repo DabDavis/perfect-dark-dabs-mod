@@ -188,7 +188,7 @@ void netQuatWire(f32 *q);   // q as it comes off the wire (quantized there and b
  * baseline snapshot. Layout in netproto.h.
  */
 #define NETLP_SIZE     (208 + NETMOVE_SIZE + NETLPTANK_SIZE)
-#define NETLPTANK_SIZE 32 // (protocol 23) the GoldenEye tank the player drives, at bytes 688..719
+#define NETLPTANK_SIZE 48 // (protocol 23) the GoldenEye tank the player drives, at bytes 688..735 ((protocol 31) and the one it rides on)
 #define NETLP_NUMAMMO  33
 #define NETMOVE_SIZE   480
 #define NETMOVE_HEADWORDS 30 // struct player bondheadsave: the head model's rwdata
@@ -316,6 +316,8 @@ struct netlptank {
 	f32 speed;
 	f32 turnsum;
 	f32 turretyaw;
+	u8 ride;       // (protocol 31) standing on a tank somebody else drives (getank.c geTankRideCarry)
+	f32 rel[3];    // ... where: across, up, along in the hull's axes
 };
 
 #define NETLP_DEAD       0x01

@@ -88,6 +88,10 @@
 #           thief on the mainframe completes the download, and the host's
 #           Mission Respawn death leaves every list's Bond on the host's
 #           player and no list at its dead end (the exit stayed shut).
+#   tankride  GoldenEye's tank ridden on top (protocol 31): a client rides on
+#           the hull while the host drives with turns, then the host rides
+#           while the client drives; the rider stays where it stood on the
+#           hull on both machines (case_tankride below).
 #   pdguest  a third player's objectives on Defection: the co-op uplink given
 #           to it too, its necklace completing the objective (host and its own
 #           screen), the PC's list taking it as the one who used it.
@@ -96,14 +100,14 @@
 #
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest tankride),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest}
+CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest tankride}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -1174,6 +1178,93 @@ case_gebunker() {
 	[ "$dl" != 0 ] && pass "$name: the co-op player's download completed (stage flags $fl)" || fail "$name: no download (stage flags ${fl:-unread})"
 }
 
+# ---------------------------------------------------------------- tankride
+# GoldenEye's tank ridden on top online (protocol 31, F3 20261011-065750):
+# Runway in co-op at 180 ms (--net-sim 0,90 both ways). --net-test-tankride
+# (getank.c) at host tick 1500 puts one player in the tank and the other on
+# the back of its hull, where it climbs on (a driven tank's collision is off:
+# geTankBoard names it by its hull). Mode 1 the host drives (straight, a left
+# turn, a right turn, straight) and a client rides; mode 2 the client's script
+# climbs in and drives the same way (C-up, C-left, C-right) and the host rides.
+# Every 30 ticks both log the rider against the tank as each has them: it
+# must stay on through the drive, where it stands on the hull within 40 units
+# of where it stood before the tank moved, on both machines (a client's own
+# rider by its prediction, compared on the hull: no corrections while it
+# rides; the host's rider as the driving client's puppet, put on the tank as
+# the client drives it), and the tank must have gone some way and turned.
+tankride_check() {
+	local name=$1 log=$2 who=$3
+	awk -v who="$who" '
+		/net: tankride (host|client) tick/ {
+			t = $0; sub(/.* tick /, "", t); t += 0
+			on = ($0 ~ / on, rel /)
+			r = $0; sub(/.*rel /, "", r); split(r, a, /[ ,]/); along = a[3] + 0
+			k = $0; sub(/.*tank /, "", k); split(k, b, /[ ,]/); x = b[1] + 0; z = b[2] + 0; y = b[4] + 0
+			if (t >= 90) {
+				n++
+				if (!on && who == "rider") off++
+				if (!have) { ref = along; have = 1; x0 = x; z0 = z }
+				d = along - ref; if (d < 0) d = -d; if (d > worst) worst = d
+				if (seen) { dx = x - px; dz = z - pz; dist += sqrt(dx * dx + dz * dz) }
+				if (!seen || y < ymin) ymin = y; if (!seen || y > ymax) ymax = y
+				px = x; pz = z; seen = 1
+			}
+		}
+		END { printf "%d %d %.1f %.0f %.2f\n", n, off, worst, dist, ymax - ymin }' "$log"
+}
+
+case_tankride() {
+	local mode
+	for mode in 1 2; do
+		local name=tankride$mode port=$((PORT + 13 + mode)) H=$OUT/tankride$mode-host.log C=$OUT/tankride$mode-client.log
+		echo "== $name"
+		if [ $mode = 1 ]; then
+			echo "1580 1610 0000 0 40 0 0 0 0" > "$OUT/tankride1.script"
+		else
+			printf '1560 1562 4000 0 0 0 0 0 0\n1700 1799 0008 0 0 0 0 0 0\n1800 1999 000a 0 0 0 0 0 0\n2000 2199 0009 0 0 0 0 0 0\n2200 2279 0008 0 0 0 0 0 0\n' > "$OUT/tankride2.script"
+		fi
+		game $name-host 300 '[Mod]\nMapMods=GoldenEye Arenas\n' --host "$port" --net-test-host 1 --rng-seed 7 \
+			--net-test-coop 2 --net-test-coop-game ge --net-sim 0,90 --net-test-tankride 1500,$mode --exit-frame 3200 &
+		local host=$!
+		waitfor "$H" "net: hosting on UDP port\|cannot be played online" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; continue; }
+		if grep -q "cannot be played online" "$H"; then
+			echo "skip $name: GoldenEye is not converted here"; kill -TERM $host; wait $host; continue
+		fi
+		game $name-client 290 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join --net-sim 0,90 \
+			--net-test-input "$OUT/tankride$mode.script" --net-test-tankride 1500,$mode --exit-frame 3100 &
+		local client=$!
+		wait "$client"; local cx=$?
+		[ "$cx" = 143 ] && cx=0
+		wait "$host"; local hx=$?
+		[ "$hx" = 143 ] && hx=0
+		crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
+		crashed "$C" && fail "$name: the client crashed" || { [ "$cx" = 0 ] && pass "$name: client ran to the end" || fail "$name: client exit $cx"; }
+		grep -q "net: tankride: \(the host in the tank\|player 1 beside the tank\)" "$H" && pass "$name: $(grep -o 'tankride: [a-z].*' "$H" | head -1)" || { fail "$name: the host never staged the ride"; continue; }
+		local h c
+		h=$(tankride_check $name "$H" rider)
+		set -- $h
+		[ "$1" -ge 30 ] && [ "$2" = 0 ] && pass "$name: host: the rider on the hull at all $1 looks from tick 90" || fail "$name: host: the rider off the hull at $2 of $1 looks"
+		awk -v w="$3" 'BEGIN { exit !(w <= 40) }' && pass "$name: host: where it stands on the hull moved at most $3 units" || fail "$name: host: it moved $3 units on the hull"
+		awk -v d="$4" -v y="$5" 'BEGIN { exit !(d >= 1500 && y >= 1.0) }' && pass "$name: the tank went $4 units and turned through $5 radians" || fail "$name: the tank went $4 units, turned $5 radians"
+		c=$(tankride_check $name "$C" $([ $mode = 1 ] && echo rider || echo puppet))
+		set -- $c
+		[ "$1" -ge 30 ] && [ "$2" = 0 ] && pass "$name: client: the rider on the hull at all $1 looks" || fail "$name: client: the rider off the hull at $2 of $1 looks"
+		awk -v w="$3" 'BEGIN { exit !(w <= 40) }' && pass "$name: client: where the rider stands on the tank as drawn here moved at most $3 units" || fail "$name: client: the rider moved $3 units on the tank as drawn here"
+		if [ $mode = 1 ]; then
+			local c1 c2
+			c1=$(grep "net: prediction so far (tick 1800)" "$C" | grep -o "corrections [0-9]*" | awk '{print $2}')
+			c2=$(grep "net: prediction so far (tick 2700)\|net: prediction so far (tick 3000)" "$C" | head -1 | grep -o "corrections [0-9]*" | awk '{print $2}')
+			local rb; rb=$(lastline "$C" "net: prediction" | grep -o "tank rider blocks [0-9]*" | awk '{print $NF}')
+			[ -n "$c1" ] && [ -n "$c2" ] && [ $((c2 - c1)) -le 10 ] && [ "${rb:-0}" -ge 300 ] \
+				&& pass "$name: client: $((c2 - c1)) corrections while it rode (${rb} blocks compared on the hull)" \
+				|| fail "$name: client: corrections ${c1:-?} -> ${c2:-?} while it rode, ${rb:-0} blocks on the hull"
+		else
+			local rm; rm=$(lastline "$C" "net: puppets" | grep -o "tank riders put on this machine's tank [0-9]*" | awk '{print $NF}')
+			[ "${rm:-0}" -ge 300 ] && pass "$name: client: the host's rider put on the tank as driven here ${rm} times" || fail "$name: client: the rider puppet put on the tank ${rm:-0} times"
+		fi
+	done
+}
+
 # ---------------------------------------------------------------- pdguest
 # A third player's objectives on Perfect Dark's own Defection (Perfect Agent;
 # the owner, 2026-10-10: "only host can complete objectives online"). Past two
@@ -1261,6 +1352,7 @@ for c in $CASES; do
 		campleave) case_campleave ;;
 		gebunker) case_gebunker ;;
 		pdguest) case_pdguest ;;
+		tankride) case_tankride ;;
 		*) fail "unknown case $c" ;;
 	esac
 done
