@@ -52,6 +52,17 @@
 #           client must play the host's (RULES, protocol 28), and its
 #           inventory changes and ammo sets stay few (its own had the host's
 #           block put its guns and ammo back every half second all match)
+#   pitch   the clean run with the client's own Reverse Pitch the other way
+#           from the host's (--net-test-forward-pitch: host 1, client 0;
+#           F3 20261011-225920 + 20261012-021339): a client in a match has
+#           the host's player in its first player's config, and its
+#           mid-match SLOTCFG sent that player's options as its own, so the
+#           host played the client's seat by the host's pitch while the
+#           client predicted it by its own (the script's mouse looks up and
+#           down: corrections). The host must play slot 1 by the client's
+#           value and its own by its own, the client its seat by its own, no
+#           "settings changed mid-match" with nothing changed, and the
+#           prediction gated as clean's
 #
 #   netpredicttest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
@@ -67,7 +78,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpredict-out}; PORT=${PORT:-27300}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-clean lag loss wine sims time hands cheats}
+CASES=${CASES:-clean lag loss wine sims time hands cheats pitch}
 MAXCPM=${MAXCPM:-10}
 FRAMES=${FRAMES:-3000}
 MINMATCH=${MINMATCH:-99}
@@ -407,6 +418,20 @@ check_hands() {
 	[ -n "$sets" ] && [ "$sets" -le 6 ] && pass "hands: $sets ammo sets all match" || fail "hands: ${sets:-no} ammo sets (want 6 at most)"
 }
 
+check_pitch() {
+	local H=$OUT/pitch-host.log C=$OUT/pitch-client.log n
+	check_run pitch || return
+	grep -q 'forward-pitch: tick 600: slot 0 ("[^"]*"), this machine.s plays forward pitch 1' "$H" \
+		&& pass "pitch: the host plays its own player by its own (forward pitch 1)" || fail "pitch: host's own: $(grep -o 'tick 600: slot 0.*' "$H")"
+	grep -q 'forward-pitch: tick 600: slot 1 ("[^"]*") plays forward pitch 0' "$H" \
+		&& pass "pitch: the host plays the client's seat by the client's (forward pitch 0)" || fail "pitch: host's slot 1: $(grep -o 'tick 600: slot 1.*' "$H")"
+	grep -q 'forward-pitch: tick 600: slot 1 ("[^"]*"), this machine.s plays forward pitch 0' "$C" \
+		&& pass "pitch: the client predicts its seat by its own (forward pitch 0)" || fail "pitch: client's seat: $(grep -o 'tick 600: slot 1.*' "$C")"
+	n=$(grep -c "settings changed mid-match" "$C")
+	[ "$n" = 0 ] && pass "pitch: no mid-match SLOTCFG with nothing changed" || fail "pitch: $n mid-match SLOTCFGs sent with nothing changed"
+	measure pitch && pass "pitch: prediction" || fail "pitch: prediction"
+}
+
 check_cheats() {
 	local sets inv
 	check_run cheats || return
@@ -424,6 +449,7 @@ i=0
 for c in $CASES; do
 	case $c in
 		clean) run clean $((PORT + i)) "$FRAMES" 0 "0,0" ;;
+		pitch) HOSTARGS="--net-test-forward-pitch 1" CLIENTARGS="--net-test-forward-pitch 0" run pitch $((PORT + i)) "$FRAMES" 0 "0,38" ;;
 		lag)   run lag $((PORT + i)) "$FRAMES" 0 "0,75" ;;
 		loss)  run loss $((PORT + i)) "$FRAMES" 0 "2,75" ;;
 		sims)  SIMS=6 run sims $((PORT + i)) "$FRAMES" 0 "0,75" ;;
@@ -449,6 +475,7 @@ for c in $CASES; do
 			fi
 			snaps "$c"
 			;;
+		pitch) [ -e "$OUT/pitch-client.log" ] && check_pitch ;;
 		time) [ -e "$OUT/time-host.log" ] && check_time ;;
 		hands) [ -e "$OUT/hands-client.log" ] && check_hands ;;
 		cheats) [ -e "$OUT/cheats-client.log" ] && check_cheats ;;

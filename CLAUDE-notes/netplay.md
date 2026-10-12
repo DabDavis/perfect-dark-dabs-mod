@@ -3452,3 +3452,19 @@ on its hull; nothing moved them with it. Now (getank.c "Riding on top"):
   before match 2 launches (`--net-test-chat-at-launch`) and holds W through
   the real key path in each match (`--net-test-hold-key W,60,240`,
   input.c `inputTestHoldKey`); it must walk in both.
+
+### A client's own options mid-match (pass 37, F3 20261011-225920 + 20261012-021339)
+
+- **[0] is not the client's own in a match.** netRulesPut puts every slot's
+  human over g_PlayerConfigsArray (name, character, options), so a
+  client's [0] holds the host's slot-0 player. netWriteSlotCfg read [0], and
+  netSessionClientCfgTick's twice-a-second compare saw it "change" at the
+  first tick: the host was sent its own player's options (Reverse Pitch, aim
+  options) for the client's seat and played it by them, while the client
+  predicted by its own (RULES carried its lobby SLOTCFG back into its seat).
+  Measured: 86.56% of blocks matched, 242 corrections a minute with the
+  pitch reversed one way on one side. netOwnPlayerConfig (netsession.c) now
+  sends the seat's config in a match (what its pause menu edits too),
+  a spectator's saved own (netRulesOwnPlayer), else [0]. Wire unchanged.
+- Gate: netpredicttest `pitch` (--net-test-forward-pitch: host 1, client 0;
+  each seat's value logged at tick 600).

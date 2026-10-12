@@ -1426,6 +1426,16 @@ void netRulesSaveHost(void)
 static void netRulesPut(const struct netrulesmsg *rules, s32 coop);
 
 /**
+ * A client under the host's rules: its own first player's config as it was
+ * before them (netRulesPut puts the host's slot 0 human over
+ * g_PlayerConfigsArray[0]); NULL when its own setup is in place
+ */
+struct mpplayerconfig *netRulesOwnPlayer(void)
+{
+	return s_NetSaved.client ? &s_NetSaved.players[0] : NULL;
+}
+
+/**
  * H3: a client takes the host's rules over its own for the match. The GE
  * scenario first: its setter overwrites g_MpSetup.scenario.
  */

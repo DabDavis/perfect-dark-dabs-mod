@@ -96,6 +96,8 @@ void netWriteSlotCfg(struct netbuf *b);
 s32 netSessionSendSlot(s32 slot, s32 channel, const void *data, s32 len, s32 flags);
 s32 netSessionSendServer(s32 channel, const void *data, s32 len, s32 flags);
 void netSessionClientCfgTick(void);  // client: SLOTCFG again when the settings change
+void netTestOwnOptions(void);        // --net-test-forward-pitch: put on this machine's own player
+void netTestOwnOptionsTick(void);    // ... and each seat's logged at tick 600
 
 // Views (protocol 9): the host sends snapshots and events to a remote
 // player's slot (its mpindex, 0..MAX_PLAYERS-1) or to a spectator's
@@ -491,6 +493,7 @@ void netRulesWrite(struct netbuf *b, u32 matchid);
 u32 netRulesMatchId(void);
 s32 netRulesRead(struct netbuf *b); // a client keeps the blob until STAGE_LOAD
 void netRulesApply(void);           // a client: the stored blob over its own state
+struct mpplayerconfig *netRulesOwnPlayer(void); // a client under the host's rules: its own player 1's config as saved (else NULL)
 void netRulesSaveHost(void);        // the host: what it changes for remote slots
 void netRulesRestore(void);         // H12
 void netRulesSetLocked(s32 locked);
