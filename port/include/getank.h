@@ -109,4 +109,12 @@ s32 geTankDriverOf(struct prop *prop);
 // netplay: the host has this player out of the tank it climbed into here
 void geTankNetLeave(s32 playernum);
 
+// netplay: a player standing on a tank somebody else drives is carried by it
+struct prop *geTankRidden(s32 playernum);
+void geTankRideCarry(void);
+s32 geTankRideState(s32 playernum, f32 *pose, f32 *rel);
+void geTankRideToWorld(const f32 *tankpos, f32 yaw, const f32 *rel, f32 *out);
+s32 geTankRideMapPuppet(struct prop *tankprop, const f32 *hostpose, f32 *pos);
+void geTankNetTestTick(void); // --net-test-tankride
+
 #endif

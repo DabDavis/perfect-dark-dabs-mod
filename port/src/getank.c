@@ -49,6 +49,7 @@
  * anything else he switches to in there fires as it always does.
  */
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include <ultra64.h>
 #include "constants.h"
@@ -80,6 +81,7 @@
 #include "modloader.h"
 #include "romdata.h"
 #include "net/net.h"
+#include "system.h"
 
 #define TANK_MAX_SPEED      15.0f
 #define TANK_TURN_FILTER    0.92f
@@ -148,6 +150,19 @@ static struct {
 	u32 treaduuid;    // volume is a share of
 	s32 treadbase;
 } g_Tank[MAX_PLAYERS];
+
+// the stage's tanks (geTankCreate), for a climb onto one being driven online
+#define TANK_MAX_LISTED 8
+static struct defaultobj *g_TankObjs[TANK_MAX_LISTED];
+static s32 g_NumTankObjs;
+
+// netplay: a player riding on a tank somebody else drives (geTankRideCarry):
+// the tank's place and heading when this player's last tick looked
+static struct {
+	struct prop *prop;
+	f32 pos[3];
+	f32 yaw;
+} g_TankRide[MAX_PLAYERS];
 
 // A probe's hands on the sticks (gdb sets all three; build/gexrom/tankdrive.py):
 // a headless run has no pad, and the input is read fresh every frame
@@ -242,11 +257,17 @@ void geTankCreate(struct defaultobj *obj)
 	tank->firing = 0;
 	tank->speed = 0;
 	tank->turnspeed = 0;
+
+	if (g_NumTankObjs < TANK_MAX_LISTED) {
+		g_TankObjs[g_NumTankObjs++] = obj;
+	}
 }
 
 void geTankReset(void)
 {
 	memset(g_Tank, 0, sizeof(g_Tank));
+	memset(g_TankRide, 0, sizeof(g_TankRide));
+	g_NumTankObjs = 0;
 }
 
 s32 geTankIsDriving(void)
@@ -594,6 +615,35 @@ s32 geTankBoard(void)
 
 		player->bondonground = g_Tank[g_Vars.currentplayernum].enterclimb * remain;
 		return 0;
+	}
+
+	if (!prop && g_NetMode != NETMODE_NONE && !player->isdead) {
+		// online, a tank somebody else drives: its collision is off while it
+		// is driven (geTankTick), so walking into it never named it as the
+		// walk names a parked one (bondwalk.c, which also passes over a
+		// mounted one); one whose hull he is over is climbed the same way.
+		// Offline nobody else drives
+		for (s32 i = 0; i < g_NumTankObjs; i++) {
+			struct defaultobj *obj = g_TankObjs[i];
+			struct prop *tprop = obj ? obj->prop : NULL;
+			f32 hw, hl, height, bottom;
+
+			if (!tprop || !(obj->hidden & OBJHFLAG_MOUNTED) || !obj->model || !objIsHealthy(obj)
+					|| player->unk1af0 == tprop) {
+				continue;
+			}
+
+			tankSize((struct tankobj *)obj, &hw, &hl, &height, &bottom);
+
+			if (playerprop->pos.y - tprop->pos.y > height + 250.0f || playerprop->pos.y - tprop->pos.y < -100.0f) {
+				continue;
+			}
+
+			if (tankHullTouches((struct tankobj *)obj, playerprop->pos.x, playerprop->pos.z, player->bond2.radius)) {
+				player->tank = prop = tprop;
+				break;
+			}
+		}
 	}
 
 	if (!prop) {
@@ -2073,6 +2123,387 @@ void geTankTick(void)
 	}
 
 	tankSounds(tank);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Riding on top (netplay)                                                   */
+/* ------------------------------------------------------------------------ */
+
+/*
+ * Online, one player drives the tank and the others can climb onto its hull
+ * (geTankBoard). The tank moves under the driver's walk and nothing moved the
+ * players on top: they were left behind as it drove off (F3
+ * 20261011-065750). A rider is carried by the hull's step and turn before its
+ * own walk each tick (bmoveTick), on whichever machine simulates it: the host
+ * for everybody, and a client for its own player - by the tank as that
+ * client sees it, which is the host's a little in the past. So the two agree
+ * where the rider stands *on the tank*, not in the world: the local-player
+ * block carries the rider's place in the hull's own axes (protocol 31) and
+ * the client compares and corrects in those (netpredict.c). Offline there is
+ * one player and nothing of this runs.
+ *
+ * The rider's view keeps its heading; only where it stands turns with the
+ * hull. A guard or sim never stands on the hull (only a player climbs it).
+ */
+
+/** The tank this player stands on and does not drive, or NULL. */
+struct prop *geTankRidden(s32 playernum)
+{
+	struct player *player;
+	struct prop *prop;
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS || !(player = g_Vars.players[playernum]) || !player->prop
+			|| g_Tank[playernum].state != TANK_OUT || player->isdead || player->bondmovemode != MOVEMODE_WALK
+			|| player->bondonground <= 0.0f || !(prop = player->tank)) {
+		return NULL;
+	}
+
+	if (prop->type != PROPTYPE_OBJ || !prop->obj || prop->obj->type != OBJTYPE_TANK
+			|| !prop->obj->model || !objIsHealthy(prop->obj)) {
+		return NULL;
+	}
+
+	return prop;
+}
+
+/** A point given in the tank's axes (across, up, along) put in the world by a tank place and heading. */
+void geTankRideToWorld(const f32 *tankpos, f32 yaw, const f32 *rel, f32 *out)
+{
+	const f32 s = sinf(yaw);
+	const f32 c = cosf(yaw);
+
+	out[0] = tankpos[0] + rel[0] * c + rel[2] * s;
+	out[1] = tankpos[1] + rel[1];
+	out[2] = tankpos[2] - rel[0] * s + rel[2] * c;
+}
+
+/** And back: a world point in the tank's axes. */
+static void tankRideToRel(const f32 *tankpos, f32 yaw, const f32 *pos, f32 *rel)
+{
+	const f32 s = sinf(yaw);
+	const f32 c = cosf(yaw);
+	const f32 dx = pos[0] - tankpos[0];
+	const f32 dz = pos[2] - tankpos[2];
+
+	rel[0] = dx * c - dz * s;
+	rel[1] = pos[1] - tankpos[1];
+	rel[2] = dx * s + dz * c;
+}
+
+/**
+ * The tank a rider stands on, its place and heading as this machine has it
+ * now (pose: x y z yaw), and the rider's place in its axes. 0 for no rider.
+ */
+s32 geTankRideState(s32 playernum, f32 *pose, f32 *rel)
+{
+	struct prop *prop = geTankRidden(playernum);
+	struct tankobj *tank;
+	f32 pos[3];
+
+	if (!prop) {
+		return 0;
+	}
+
+	tank = (struct tankobj *)prop->obj;
+
+	if (g_TankRide[playernum].prop == prop) {
+		// the tank as its last carry left the rider on it: where the tank is
+		// may have moved on since in this tick (its driver ticked after the
+		// rider), and the host's and a client's orders differ
+		pose[0] = g_TankRide[playernum].pos[0];
+		pose[1] = g_TankRide[playernum].pos[1];
+		pose[2] = g_TankRide[playernum].pos[2];
+		pose[3] = g_TankRide[playernum].yaw;
+	} else {
+		pose[0] = prop->pos.x;
+		pose[1] = prop->pos.y;
+		pose[2] = prop->pos.z;
+		pose[3] = tank->hullyaw;
+	}
+
+	if (rel) {
+		pos[0] = g_Vars.players[playernum]->prop->pos.x;
+		pos[1] = g_Vars.players[playernum]->prop->pos.y;
+		pos[2] = g_Vars.players[playernum]->prop->pos.z;
+		tankRideToRel(pose, pose[3], pos, rel);
+	}
+
+	return 1;
+}
+
+/**
+ * bmoveTick, before the walk (and before a client's prediction notes what
+ * moved its player since the last tick): the current player carried by the
+ * tank it stands on, as far as the tank moved and turned since this player's
+ * last tick. Online only, on ticks (not the frames drawn between them), and
+ * never in a prediction replay, which repeats the carry it noted.
+ */
+void geTankRideCarry(void)
+{
+	const s32 pn = g_Vars.currentplayernum;
+	struct player *player = g_Vars.currentplayer;
+	struct prop *prop;
+	struct tankobj *tank;
+	f32 pose[4];
+
+	if (g_NetMode == NETMODE_NONE || g_NetReplaying || pn < 0 || pn >= MAX_PLAYERS) {
+		return;
+	}
+
+	if (g_Vars.lvupdate240 <= 0) {
+		return;
+	}
+
+	prop = geTankRidden(pn);
+
+	if (!prop) {
+		g_TankRide[pn].prop = NULL;
+		return;
+	}
+
+	tank = (struct tankobj *)prop->obj;
+	pose[0] = prop->pos.x;
+	pose[1] = prop->pos.y;
+	pose[2] = prop->pos.z;
+	pose[3] = tank->hullyaw;
+
+	if (g_TankRide[pn].prop == prop) {
+		struct prop *playerprop = player->prop;
+		f32 old[3];
+		f32 rel[3];
+		f32 now[3];
+		f32 dx;
+		f32 dz;
+
+		old[0] = playerprop->pos.x;
+		old[1] = playerprop->pos.y;
+		old[2] = playerprop->pos.z;
+
+		// where it stood on the tank as the tank was, put where the tank is
+		tankRideToRel(g_TankRide[pn].pos, g_TankRide[pn].yaw, old, rel);
+		geTankRideToWorld(pose, pose[3], rel, now);
+
+		// height is the walk's (the hull's top over the ground under him)
+		now[1] = old[1];
+		dx = now[0] - old[0];
+		dz = now[2] - old[2];
+
+		if ((dx != 0.0f || dz != 0.0f) && dx * dx + dz * dz < 40.0f * 40.0f) {
+			struct coord from = { old[0], old[1], old[2] };
+			struct coord to = { now[0], old[1], now[2] };
+			RoomNum torooms[8];
+
+			// not through a wall: a hull swung against one scrapes him off
+			if (cdExamLos08(&from, playerprop->rooms, &to, CDTYPE_BG | CDTYPE_DOORS, GEOFLAG_WALL) != CDRESULT_COLLISION) {
+				func0f065e74(&from, playerprop->rooms, &to, torooms);
+
+				if (torooms[0] != -1) {
+					propDeregisterRooms(playerprop);
+					playerprop->pos.x = to.x;
+					playerprop->pos.z = to.z;
+					roomsCopy(torooms, playerprop->rooms);
+					propRegisterRooms(playerprop);
+				}
+			}
+		}
+	}
+
+	g_TankRide[pn].prop = prop;
+	g_TankRide[pn].pos[0] = pose[0];
+	g_TankRide[pn].pos[1] = pose[1];
+	g_TankRide[pn].pos[2] = pose[2];
+	g_TankRide[pn].yaw = pose[3];
+}
+
+/**
+ * A client driving the tank sees the other players as the host had them a
+ * moment ago, and its own tank now: a rider drawn where the host had it
+ * stood behind on the hull (or off it) by however far the tank went since.
+ * The puppet's place is taken from the host's tank (hostpose: x y z yaw, the
+ * tank's record at the same moment) to this machine's. 1 when it was a rider.
+ */
+s32 geTankRideMapPuppet(struct prop *tankprop, const f32 *hostpose, f32 *pos)
+{
+	struct tankobj *tank;
+	struct modelrodata_bbox *hull;
+	f32 rel[3];
+	f32 now[4];
+	f32 scale;
+
+	if (!tankprop || tankprop->type != PROPTYPE_OBJ || !tankprop->obj || tankprop->obj->type != OBJTYPE_TANK) {
+		return 0;
+	}
+
+	tank = (struct tankobj *)tankprop->obj;
+	hull = tankPartBbox(tank, TANK_PART_HULLBOX);
+
+	if (!hull) {
+		return 0;
+	}
+
+	scale = tankScale(tank);
+	tankRideToRel(hostpose, hostpose[3], pos, rel);
+
+	// over the hull (a player beside it is outside: the hull is solid to him),
+	// and over the tank's own middle, not under it
+	if (rel[0] < hull->xmin * scale - TANK_TOUCH_SLACK || rel[0] > hull->xmax * scale + TANK_TOUCH_SLACK
+			|| rel[2] < hull->zmin * scale - TANK_TOUCH_SLACK || rel[2] > hull->zmax * scale + TANK_TOUCH_SLACK) {
+		return 0;
+	}
+
+	now[0] = tankprop->pos.x;
+	now[1] = tankprop->pos.y;
+	now[2] = tankprop->pos.z;
+	now[3] = tank->hullyaw;
+	geTankRideToWorld(now, now[3], rel, pos);
+
+	return 1;
+}
+
+/**
+ * --net-test-tankride T[,2] (netcooptest `tankride`, GoldenEye's
+ * Runway in co-op): at host tick T the host's player is put in the tank and
+ * player 1 (a client's) on the back of its hull, from where its script's
+ * nudge has it climb on; from T+120 the host drives it on g_TankTestInput,
+ * straight, left, right, straight, then stops at T+780 (short of the wall
+ * past Runway's far end). Both machines log
+ * the rider every 30 ticks from T to T+1200 ("net: tankride"). Mode 2: the
+ * host's player on the back and player 1 beside it, whose own script climbs
+ * in and drives (a client driving, the host riding).
+ */
+static void tankTestPlace(s32 pn, struct prop *tankprop, const f32 *rel)
+{
+	struct player *p = g_Vars.players[pn];
+	struct tankobj *tank = (struct tankobj *)tankprop->obj;
+	f32 halfwidth, halflength, height, bottom;
+	f32 pose[4];
+	f32 world[3];
+	struct coord pos;
+	RoomNum inrooms[21];
+	RoomNum aboverooms[21];
+	RoomNum bestroom;
+	const f32 overground = p->prop->pos.y - p->vv_manground;
+
+	tankSize(tank, &halfwidth, &halflength, &height, &bottom);
+	pose[0] = tankprop->pos.x;
+	pose[1] = tankprop->pos.y;
+	pose[2] = tankprop->pos.z;
+	pose[3] = tank->hullyaw;
+	geTankRideToWorld(pose, pose[3], rel, world);
+
+	pos.x = world[0];
+	pos.y = tankprop->pos.y + bottom - 4.0f + overground;
+	pos.z = world[2];
+
+	bgFindRoomsByPos(&pos, inrooms, aboverooms, 20, &bestroom);
+
+	if (inrooms[0] == -1) {
+		sysLogPrintf(LOG_WARNING, "net: tankride: no room at %.0f %.0f %.0f for player %d", pos.x, pos.y, pos.z, pn);
+		return;
+	}
+
+	propDeregisterRooms(p->prop);
+	p->prop->pos = pos;
+	inrooms[7] = -1;
+	roomsCopy(inrooms, p->prop->rooms);
+	propRegisterRooms(p->prop);
+
+	// facing the tank's middle: the view looks along (-sin theta, cos theta)
+	p->vv_theta = atan2f(-(tankprop->pos.x - pos.x), tankprop->pos.z - pos.z) * 360.0f / M_BADTAU;
+
+	while (p->vv_theta < 0.0f) p->vv_theta += 360.0f;
+	while (p->vv_theta >= 360.0f) p->vv_theta -= 360.0f;
+}
+
+void geTankNetTestTick(void)
+{
+	static s32 at = -2;
+	static s32 mode = 1;
+	static struct prop *tankprop = NULL;
+	u32 t;
+
+	if (at == -2) {
+		const char *arg = sysArgGetString("--net-test-tankride");
+
+		at = arg ? (s32)strtol(arg, NULL, 0) : -1;
+		mode = arg && strchr(arg, ',') ? (s32)strtol(strchr(arg, ',') + 1, NULL, 0) : 1;
+	}
+
+	if (at < 0 || g_NetMode == NETMODE_NONE || g_NetTick < (u32)at || g_NetTick > (u32)at + 1200) {
+		return;
+	}
+
+	t = g_NetTick - (u32)at;
+
+	if (!tankprop || !tankprop->obj || tankprop->obj->type != OBJTYPE_TANK) {
+		tankprop = g_NumTankObjs > 0 && g_TankObjs[0] ? g_TankObjs[0]->prop : NULL;
+
+		if (!tankprop) {
+			return;
+		}
+	}
+
+	if (g_NetMode == NETMODE_SERVER && PLAYERCOUNT() >= 2 && g_Vars.players[0] && g_Vars.players[1]) {
+		struct tankobj *tank = (struct tankobj *)tankprop->obj;
+		struct modelrodata_bbox *hull = tankPartBbox(tank, TANK_PART_HULLBOX);
+
+		if (t == 0 && hull) {
+			const s32 prevplayernum = g_Vars.currentplayernum;
+			const f32 back[3] = { 0.0f, 0.0f, hull->zmin * tankScale(tank) * 0.6f };
+			const f32 mid[3] = { 0.0f, 0.0f, 0.0f };
+			const f32 side[3] = { hull->xmax * tankScale(tank) + 70.0f, 0.0f, 0.0f };
+
+			if (mode == 2) {
+				// a client drives (its script's press and sticks), the host rides
+				tankTestPlace(0, tankprop, back);
+				tankTestPlace(1, tankprop, side);
+				sysLogPrintf(LOG_NOTE, "net: tankride: player 1 beside the tank, the host on its back at %.0f %.0f",
+						g_Vars.players[0]->prop->pos.x, g_Vars.players[0]->prop->pos.z);
+			} else {
+				tankTestPlace(1, tankprop, back);
+				tankTestPlace(0, tankprop, mid);
+				setCurrentPlayerNum(0);
+				tankEnter(tankprop);
+				setCurrentPlayerNum(prevplayernum);
+				sysLogPrintf(LOG_NOTE, "net: tankride: the host in the tank, player 1 on its back at %.0f %.0f",
+						g_Vars.players[1]->prop->pos.x, g_Vars.players[1]->prop->pos.z);
+			}
+		}
+
+		if (mode != 2) {
+			g_TankTestInput = t >= 120 && t < 1000;
+			g_TankTestWalk = t < 780 ? 1.0f : 0.0f;
+			g_TankTestTurn = t >= 280 && t < 480 ? -1.0f : t >= 480 && t < 700 ? 1.0f : 0.0f;
+		}
+	}
+
+	if (t % 30 == 0) {
+		// the rider: where it stands against the tank as this machine has
+		// both now (a client's puppet too)
+		const s32 pn = mode == 2 ? 0 : 1;
+		struct player *rp = pn < PLAYERCOUNT() ? g_Vars.players[pn] : NULL;
+		const s32 driver = geTankDriverOf(tankprop);
+		f32 pose[4];
+		f32 pos[3] = {0};
+		f32 rel[3] = {0};
+
+		pose[0] = tankprop->pos.x;
+		pose[1] = tankprop->pos.y;
+		pose[2] = tankprop->pos.z;
+		pose[3] = ((struct tankobj *)tankprop->obj)->hullyaw;
+
+		if (rp && rp->prop) {
+			pos[0] = rp->prop->pos.x;
+			pos[1] = rp->prop->pos.y;
+			pos[2] = rp->prop->pos.z;
+			tankRideToRel(pose, pose[3], pos, rel);
+		}
+
+		sysLogPrintf(LOG_NOTE, "net: tankride %s tick %u: rider %d %s, rel %.1f %.1f %.1f, tank %.1f %.1f yaw %.3f, driver %d; at %.0f %.0f %.0f, climbed %.0f%s",
+				g_NetMode == NETMODE_SERVER ? "host" : "client", t, pn, geTankRidden(pn) ? "on" : "off", rel[0], rel[1], rel[2],
+				pose[0], pose[2], pose[3], driver, pos[0], pos[1], pos[2],
+				rp ? rp->bondonground : 0.f, rp && rp->tank == tankprop ? " (on its list)" : "");
+	}
 }
 
 void geTankNetSave(s32 playernum, struct getanknet *out)

@@ -161,6 +161,15 @@ static u32 s_Deaths = 0;
 static u32 s_FirstRecords = 0;
 static u32 s_BadAnims = 0;
 static u32 s_Resyncs = 0;
+
+// (protocol 31) the tank this machine's player drives, as the host had it at
+// the render clock (its record, which its pose does not take: geTankTick puts
+// it under the driver here): a rider puppet is put on the tank as it is here
+// (geTankRideMapPuppet)
+static struct prop *s_DrivenTankProp = NULL;
+static f32 s_DrivenTankPose[4];
+static u32 s_DrivenTankSerial = 0;
+static u32 s_RidersMapped = 0;
 static f32 s_DelayLast = 0;
 
 static u32 s_TraceEvery = 0; // --net-puppet-trace N: every N ticks, each puppet's pose
@@ -277,6 +286,8 @@ void netPuppetsStageStart(void)
 	s_Poses = s_Interp = s_Extrap = s_Held = s_Behind = 0;
 	s_CreateFail = s_Freed = s_Stolen = s_NoDesc = s_HeldSwaps = s_HeldDrops = s_Snaps = 0;
 	s_DoorMoves = s_DoorSounds = s_DoorFalls = s_Regens = s_Unpaused = s_LetGo = s_TakenOut = s_PutBack = s_Trails = s_Deaths = s_FirstRecords = s_BadAnims = s_Resyncs = 0;
+	s_DrivenTankProp = NULL;
+	s_RidersMapped = 0;
 	s_PlayerDeaths = 0;
 	s_LiftMoves = s_HatsWorn = s_GeGunsHeld = s_BodyLoads = s_BodyBuilt = s_AlarmBuilt = s_GeGunsMade = s_GoldenGuns = s_HeldFails = 0;
 	s_GoldenHands = s_GoldenHolders = 0;
@@ -792,6 +803,26 @@ static void netPupChr(struct netpup *u, struct prop *prop, s32 kind, const struc
 		return;
 	}
 
+	// a player riding on the tank this machine's player drives: on the tank
+	// as it is here, not as the host had it a moment ago (getank.c)
+	if (isplayer && s_DrivenTankProp && s_Serial - s_DrivenTankSerial <= 1
+			&& geTankDriverOf(s_DrivenTankProp) >= 0 && netIsLocalSlot(geTankDriverOf(s_DrivenTankProp))) {
+		static struct netentstate onhull;
+
+		onhull = *s;
+
+		if (geTankRideMapPuppet(s_DrivenTankProp, s_DrivenTankPose, onhull.pos)) {
+			f32 yaw = onhull.yaw + (((struct tankobj *)s_DrivenTankProp->obj)->hullyaw - s_DrivenTankPose[3]);
+
+			while (yaw >= (f32)M_BADTAU) yaw -= (f32)M_BADTAU;
+			while (yaw < 0) yaw += (f32)M_BADTAU;
+
+			onhull.yaw = yaw;
+			s = &onhull;
+			s_RidersMapped++;
+		}
+	}
+
 	// an anim this build has not got is no anim: the last good one stands
 	if (s->animnum < 0 || s->animnum >= g_NumAnimations
 			|| ((s->animflags & NETANIM_HAS2) && (s->animnum2 <= 0 || s->animnum2 >= g_NumAnimations))) {
@@ -1237,6 +1268,18 @@ static void netPupObj(struct netpup *u, struct prop *prop, const struct netentst
 		struct tankobj *tank = (struct tankobj *)obj;
 
 		if (driver >= 0 && netIsLocalSlot(driver)) {
+			f32 m[3][3];
+			f32 yaw;
+
+			netQuatToRot(s->quat, 1.f, m);
+			yaw = atan2f(m[2][0], m[2][2]);
+			s_DrivenTankProp = prop;
+			s_DrivenTankPose[0] = s->pos[0];
+			s_DrivenTankPose[1] = s->pos[1];
+			s_DrivenTankPose[2] = s->pos[2];
+			s_DrivenTankPose[3] = yaw < 0 ? yaw + (f32)M_BADTAU : yaw;
+			s_DrivenTankSerial = s_Serial;
+
 			u->lastpos[0] = s->pos[0];
 			u->lastpos[1] = s->pos[1];
 			u->lastpos[2] = s->pos[2];
@@ -2803,9 +2846,9 @@ s32 netClientInMatch(void)
 
 void netPuppetsLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u (setup objects dropped before their record %u), bad anims %u; doors moved %u, door sounds %u, fall-away doors placed %u, regens %u, unpaused %u, let go %u, taken out %u, put back %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u, built from the tables %u, Guards Alerted! guards %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u",
+	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u (setup objects dropped before their record %u), bad anims %u; doors moved %u, door sounds %u, fall-away doors placed %u, regens %u, unpaused %u, let go %u, taken out %u, put back %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u, built from the tables %u, Guards Alerted! guards %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u; tank riders put on this machine's tank %u",
 			why, g_NetTick, s_Poses, s_Interp, s_Extrap, s_Held, s_Behind, s_DelayLast, s_Jit, s_Resyncs,
 			s_FirstRecords, s_Snaps, s_Deaths, s_Created[NETDESC_DYNWEAPON], s_Created[NETDESC_HAT], s_Created[NETDESC_AMMOCRATE], s_Created[NETDESC_SCENOBJ],
 			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_HeldDrops, s_BadAnims, s_DoorMoves, s_DoorSounds, s_DoorFalls, s_Regens, s_Unpaused, s_LetGo, s_TakenOut, s_PutBack, s_Trails, s_PlayerDeaths,
-			s_Created[NETDESC_BODY], s_BodyLoads, s_BodyBuilt, s_AlarmBuilt, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves, s_Backsteps, s_StaleAfter, s_Restitched);
+			s_Created[NETDESC_BODY], s_BodyLoads, s_BodyBuilt, s_AlarmBuilt, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves, s_Backsteps, s_StaleAfter, s_Restitched, s_RidersMapped);
 }

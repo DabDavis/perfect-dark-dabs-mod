@@ -12,6 +12,7 @@
 #include "system.h"
 #include "input.h"
 #include "net/net.h"
+#include "getank.h"
 #include "net/nettransport.h"
 #include "netint.h"
 #include "netrdv.h"
@@ -307,6 +308,7 @@ void netTickBegin(void)
 	netSessionTickBegin();
 	netPlayersTickBegin();
 	netWorldTickBegin();
+	geTankNetTestTick(); // --net-test-tankride (getank.c)
 }
 
 void netTickEnd(void)

@@ -180,7 +180,11 @@
 //    before (port/src/net/netcmd.c); CMDACK is 9 bytes (the match's low
 //    byte, the ack as a distance from the host tick); the world block grows to 352 bytes, the players
 //    list's pings at 320, and PLAYERS goes only when the spectators change
-#define NET_PROTOCOL_VERSION 30
+// 31 (GoldenEye's tank ridden on top, 2026-10-12: CLAUDE-notes/netplay.md
+//    "F3 pass 37"): the local-player block's tank part grows to 48 bytes
+//    (NETLP_SIZE 736): u8 ride at 24 (the player stands on a tank somebody
+//    else drives), f32 across, up, along at 28 (its place in the hull's axes)
+#define NET_PROTOCOL_VERSION 31
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -533,7 +537,7 @@
  * mid-match sends its player as that host last had it
  *   u8      NETMSG_RESUME
  *   u32     oldmatch              the old host's id of the match
- *   u16     len                   NETLP_SIZE (720)
+ *   u16     len                   NETLP_SIZE (736)
  *   bytes   localplayer           the newest local-player block it had (the
  *                                 SNAP layout below): the new host gives that
  *                                 seat's player its next life where the block
@@ -791,7 +795,7 @@
  *     6-14 where the door stands (3 x 24-bit eighths, as OBJ's) and 15-16
  *     its first room: a fall-away door, Surface's vent hatch, falls)
  *   u8      haslp                 0 none, 1 keyframe, 2 against the baseline's
- *   delta   localplayer           NETLP_SIZE (720) bytes, full precision:
+ *   delta   localplayer           NETLP_SIZE (736) bytes, full precision:
  *     u8 flags (1 dead, 2 invincible), u8 respawns, u8 teleports (counters),
  *     u8 dualwielding, f32 pos[3], s16 rooms[8], f32 theta, f32 verta,
  *     f32 health, f32 shield, s16 weaponnum, s16 weaponleft (protocol 28: the
