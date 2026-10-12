@@ -195,11 +195,10 @@ s32 gebeanCeFogTablePath(char *dst, u32 dstLen)
  * table puts the release's bytes back (gebeancefixes.h, the reverts). Every
  * other file it changed holds fixes only, which are ours (CLAUDE-notes/
  * ge-bean.md). Its Doak head (headdave: the release's headneil refitted, no
- * glasses) is not drawn for Doak or the pool's Dave any more: they wear
- * GoldenEye's own face from Bean's N64-look original in both looks (gebean.c's
- * beanOwnFaces, owner 2026-10-12), and only GoldenEye X's two rows on
- * head/headdave still read it. Its Alan (the release's headdave face) stays
- * out, the owner's call.
+ * glasses) is taken by name for Doak (Cgx051Z, whose row is head/headdave)
+ * and the pool's Dave; with the art off or no zip they wear the release's own
+ * headdave, its Dr. Rakhmanov (owner 2026-10-12). Its Alan (the release's
+ * headdave face) stays out, the owner's call.
  */
 static const char *const ceArtFiles[] = {
 	"new/skydome/",                // 21 domes (prefix)
@@ -212,7 +211,7 @@ static const char *const ceArtFiles[] = {
 	"new/prop/doorconsole", "new/prop/console1", "new/prop/console2", "new/prop/console3",
 	"new/prop/consolesevb", "new/prop/consolesev2b", "new/prop/tv1",
 	"new/prop/chrclipboard",
-	"new/head/headdave",           // its Doak (GoldenEye X's rows only; gebean.c's beanOwnFaces)
+	"new/head/headdave",           // its Doak (Cgx051Z and the pool's Dave)
 	"new/char/suitlfhand", "new/gun/fist", "new/gun/trigger",
 	"new/background/control", "new/background/bunker2",
 };

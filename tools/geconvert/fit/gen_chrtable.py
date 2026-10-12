@@ -23,14 +23,12 @@ The seven that do not:
   batch_gex.py) and are left in the N64 look.
 
 headdave is Dr. Doak's head (HEAD_Male_Dave_Dr_Doak) and pairs straight across
-like the rest, but the release's head/headdave is another man: its Dr.
+like the rest: the release's head/headdave is its own Facility scientist, Dr.
 Rakhmanov (loc/ark's name for him), clean-shaven in glasses, where GoldenEye's
-Doak has dark curly hair, a moustache and a goatee (F3 20260925-225738). The
-release's headneil, the face nearest his, wears glasses he never did (F3
-20261012-041514). So gebean.c draws this row (and the pool's Dave) from Bean's
-N64-look original of the same file, files/original/head/headdave, in the HD
-look as well: GoldenEye's own Doak, the cartridge's model and picture
-(beanOwnFaces, owner 2026-10-12).
+Doak has dark curly hair, a moustache and a goatee. The owner keeps the
+release's face (2026-09-26, and again 2026-10-12 for F3 20261012-041514); with
+the Community Edition's art on, the same file name draws its own Doak face (the
+release's headneil refitted, no glasses - gebeance.c's ceArtFiles).
 
 A head is a character with no skeleton of its own (one list node); the rest
 are bodies, and a body's kind is GoldenEye's own `hashead` flag out of
@@ -53,29 +51,20 @@ BEAN = os.path.join(paths.BEAN, 'files/new')
 
 BROKEN = {'blueman', 'bluewoman', 'greyman'}
 
-# Heads whose release file is somebody else's face, left out of the table so
-# the conversion's own N64 model draws in the HD look too. Empty: Doak's
-# (headdave) takes Bean's N64-look original of his file instead, which keeps
-# the HD look's neck and seating (gebean.c's beanOwnFaces).
+# Heads whose release file is somebody else's face, left in the N64 look.
+# headdave is not GoldenEye's Doak, but the owner keeps the release's HD head
+# (2026-09-26, 2026-10-12).
 NOT_THEIRS = set()
 
-# Heads drawn from another of the release's files, which has their face. Doak
-# (headdave) was drawn from the release's headneil from 2026-10-10 (the
-# Community Edition's own headdave is that file refitted), glasses and all;
-# since 2026-10-12 he is GoldenEye's own face from Bean's N64-look original
-# instead (gebean.c's beanOwnFaces), so his row names his own file again.
-# Trap: gebean.c maps a pool row to its ROM character by source, the first
-# row with it winning (gebeanRomChrForSource()), so a repoint onto another
-# head's file moves that too - with Doak on headneil the pool's Neil took
-# Doak's ROM head (the Character page's N64-look Neil wore his face) and Dave
-# none.
+# Heads drawn from another of the release's files. Empty: Doak (headdave) was
+# drawn from the release's headneil from 2026-10-10 to 2026-10-12, glasses and
+# all, and the owner wanted the release's own Rakhmanov back (F3
+# 20261012-041514). Trap: gebean.c maps a pool head to its ROM character by
+# source, the first chr row with it winning (gebeanRomChrForSource()), so a
+# repoint onto another head's file moves that too - with Doak on headneil the
+# Character page's Neil was Doak's ROM head (his face in the N64 look) and
+# Dave had none (a copy of the pool's row, and missing with no release).
 REPOINT = {
-}
-
-# Heads gebean.c draws from Bean's N64-look original in the HD look too
-# (beanOwnFaces there decides; this only notes it on the row)
-OWN_FACE = {
-    'headdave': "GoldenEye's own face: Bean's original/head/headdave in both looks (gebean.c's beanOwnFaces)",
 }
 
 # GoldenEye's stem -> the release's name for it, and a note for the row
@@ -126,9 +115,6 @@ for num, (name, scale, h) in enumerate(chrs):
     if stem in REPOINT:
         source = REPOINT[stem]
         note = (note + '; ' if note else '') + "the release's %s is this face" % source
-
-    if stem in OWN_FACE:
-        note = (note + '; ' if note else '') + OWN_FACE[stem]
 
     if stem in NOT_THEIRS:
         print('\t// %d %s: the release\'s is another face, left in the N64 look' % (num, name))

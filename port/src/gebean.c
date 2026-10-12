@@ -1109,44 +1109,6 @@ static s32 gebeanRowIsWatchArm(const struct gebeanrow *r)
 	return r && strcmp(r->source, "char/suitlfhand") == 0;
 }
 
-/*
- * Heads drawn from Bean's N64-look original (files/original/) in the HD look
- * as well: GoldenEye's own face, where the release's HD file is another man's.
- *
- * headdave is Dr. Doak's (HEAD_Male_Dave_Dr_Doak): Facility's, GoldenEye's
- * multiplayer Scientist's, and one of its random male heads. The release's HD
- * headdave is its Dr. Rakhmanov (loc/ark's name for him), clean-shaven in
- * glasses; its headneil, the curly-haired face nearest his that he wore from
- * 2026-10-10 (the Community Edition's Doak is that file refitted), still has
- * the glasses GoldenEye's Doak never wore (F3 20261012-041514). The original
- * is the cartridge's model and picture, so he is GoldenEye's Doak in both
- * looks, with the Community Edition's art or without it (owner 2026-10-12).
- * It ends at the jaw, so on a body it gets the neck made under the face
- * (beanAddNeckTube()), as the pool's N64-look heads do.
- *
- * The remake's rows and the pool's only: GoldenEye X's own rows keep the HD
- * file they always drew.
- */
-static const char *const beanOwnFaces[] = {
-	"head/headdave",
-};
-
-static s32 gebeanRowDrawsOriginal(s32 row, const struct gebeanrow *r)
-{
-	if (!r || r->kind != GEBEAN_HEAD
-			|| !(gebeanRowIsPool(row) || (row >= GEBEAN_CHRROW_BASE && row < GEBEAN_CHRROW_BASE + ARRAYCOUNT(chrRows)))) {
-		return 0;
-	}
-
-	for (s32 i = 0; i < ARRAYCOUNT(beanOwnFaces); i++) {
-		if (strcmp(r->source, beanOwnFaces[i]) == 0) {
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
 /**
  * The row number of a pool or gun file - an alias this registered - or -1.
  * The alias keeps the table's own string, so a pointer compare names it.
@@ -2150,18 +2112,11 @@ static const char *gebeanPoolEntryMissing(s32 i)
 		return "its entry is missing (PD_GEBEAN_MISSING)";
 	}
 
-	// (a face drawn from its original in both looks needs no HD file)
-	const s32 ownface = gebeanRowDrawsOriginal(ARRAYCOUNT(rows) + i, &poolRows[i].row);
-
 	for (s32 look = 0; look < ARRAYCOUNT(looks); look++) {
 		char source[64];
 		char path[FS_MAXPATH + 1];
 
-		if (look == 0 && ownface) {
-			continue;
-		}
-
-		if (look == 1 && xblaMeshGetEnabled() && !ownface) {
+		if (look == 1 && xblaMeshGetEnabled()) {
 			continue;
 		}
 
@@ -7524,16 +7479,9 @@ static f32 beanOpenRimHeight(const struct beanout *o, s32 numtris)
  * Into group `dst`: a copy of group `src` (the face the node draws) with the
  * tube, so a node draws the one or the other. backbone is the head's palette
  * entry for the body's back (gebeanmats.neckback), which the lowest ring
- * follows as a collar does, or -1 for a head rigid on its neck. lowest is how
- * far down the lowest ring goes, in rim medians under the rim, or 0 for the
- * usual 1.5.
+ * follows as a collar does, or -1 for a head rigid on its neck.
  */
 #define BEAN_TUBE_RINGS   5
-// GoldenEye's own face in the HD look (beanOwnFaces) on a remake body, under
-// which the body's own neck skin is left out (gebeanmats.ownface): the usual
-// tube ended over the shirt's open front and the room showed through between
-// it and the collar (Doak on the scientist's coat)
-#define BEAN_TUBE_OWNFACE_LOWEST 2.5f
 #define BEAN_TUBE_RIMBAND 12.0f
 #define BEAN_TUBE_MAXPTS  8192
 #define BEAN_TUBE_NECK    0.95f // the neck's radius, of the rim's middle distance: GoldenEye's bodies'
@@ -7558,7 +7506,7 @@ static s32 beanTubeSector(f32 dx, f32 dz)
 	return (s32)(a * GEBEAN_SEAT_SAMPLES / (2.0f * M_PI) + 0.5f) % GEBEAN_SEAT_SAMPLES;
 }
 
-static s32 beanAddNeckTube(struct beanout *o, s32 src, s32 dst, s32 backbone, f32 lowest, const char *source)
+static s32 beanAddNeckTube(struct beanout *o, s32 src, s32 dst, s32 backbone, const char *source)
 {
 	enum { N = GEBEAN_SEAT_SAMPLES };
 	f32 low[N], r[N], y[N], rr[N];
@@ -7806,7 +7754,6 @@ static s32 beanAddNeckTube(struct beanout *o, s32 src, s32 dst, s32 backbone, f3
 		// and down into the collar
 		static const f32 drop[BEAN_TUBE_RINGS] = { -0.7f, -0.3f, 0.1f, 0.7f, 1.5f };
 		static const f32 widen[BEAN_TUBE_RINGS] = { 0.0f, 0.0f, 1.0f, 1.02f, 1.05f };
-		const f32 down = j == BEAN_TUBE_RINGS - 1 && lowest > 0.0f ? lowest : drop[j];
 
 		for (s32 i = 0; i < N; i++) {
 			const f32 a = i * 2.0f * M_PI / N;
@@ -7816,7 +7763,7 @@ static s32 beanAddNeckTube(struct beanout *o, s32 src, s32 dst, s32 backbone, f3
 			f32 weight[3];
 
 			pos[0] = cx + sinf(a) * radius;
-			pos[1] = y[i] - down * meanr;
+			pos[1] = y[i] - drop[j] * meanr;
 			pos[2] = cz + cosf(a) * radius;
 			nrm[0] = sinf(a);
 			nrm[1] = 0.0f;
@@ -14768,18 +14715,10 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	fromchar = strncmp(r->source, "char/", 5) == 0;
 	const s32 arm = !ishead && gebeanRowIsWatchArm(r);
 
-	// Dr. Doak: GoldenEye's own face, built as the N64 look builds it in this
-	// look too, the whole way through (beanOwnFaces). With the Community
-	// Edition's art as without it: its Doak head is the release's headneil
-	// refitted, not GoldenEye's face
-	const s32 ownface = !original && gebeanRowDrawsOriginal(row, r);
-
-	if (ownface) {
-		original = 1;
-	}
-
-	// Also what the pictures are keyed on, so the two looks never share one
-	// (a face drawn from its original shares the N64 look's, which it is)
+	// Also what the pictures are keyed on, so the two looks never share one.
+	// (Doctor Doak, Cgx051Z, is head/headdave: the release's Dr. Rakhmanov, and
+	// with the Community Edition's art on its own Doak face under the same name,
+	// which beanLoad() takes from the overlay - gebeance.c's ceArtFiles)
 	snprintf(source, sizeof(source), "%s/%s", original ? "original" : "new", r->source);
 
 	if (gebeanEnvNames("PD_GEBEAN_FAILBUILD", r->source)) {
@@ -16003,8 +15942,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 				|| (fromchar && !original && headtex < 0))) {
 			const s32 src = face;
 
-			if (beanAddNeckTube(&out, src, nextgroup, neckback ? 1 : -1,
-						ownface ? BEAN_TUBE_OWNFACE_LOWEST : 0.0f, source)) {
+			if (beanAddNeckTube(&out, src, nextgroup, neckback ? 1 : -1, source)) {
 				neckof[face] = (s8)nextgroup;
 				numneck = 1;
 			}
@@ -16062,7 +16000,6 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	mats->head = ishead;
 	mats->fromchar = (u8)(ishead && fromchar);
 	mats->openrim = openrim;
-	mats->ownface = (u8)(ishead && ownface);
 
 	if (ishead) {
 		sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: open underneath at %.0f%s", r->file, source, openrim,

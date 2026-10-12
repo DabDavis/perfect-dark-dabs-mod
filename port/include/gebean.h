@@ -549,12 +549,6 @@ struct gebeanmats {
 	// A head's open rim, the middle of its edges one triangle has, in its own
 	// space about the neck joint: at the jaw, or at the foot of a neck of its own
 	f32 openrim;
-	// A head the HD look draws from Bean's N64-look original, GoldenEye's own
-	// face (gebean.c's beanOwnFaces): it ends at its jaw, and on a body the
-	// neck made under it goes down into the collar where a head file's neck
-	// does, so the body's own neck skin below the cut is left out under it as
-	// under one of those (noskin)
-	u8 ownface;
 	// A body's neck node's group of its whole neck as Bean skins it, drawn
 	// under one of the pool's heads that ends at its jaw (gebean.c's ownof)
 	s8 ownneck[64];

@@ -15063,7 +15063,7 @@ blob, `cecompare.py` looks each new picture up in a pixel-hash index of the whol
 | xex fog distances: Statue 3500->5000, Archives 3000->4500, Train 1500->4500, Jungle 2500->4500, Temple 6000->22500, Surface 2 10000->6500 | rebuilt: `beanFogsCe[]` over the player's own table (gebeanstage.c) |
 | xex fog colours (Statue 090708, Jungle 797c79, Temple 103060, Cradle 6e8196) and Surface 2's horizon 575f5d | left out: they go with the CE's own domes, which are not drawn; the release's colours under GoldenEye's sky |
 | new rows for Bunker 1 / Silo fog; rows 40/240/340 -> 54/9/20 | n/a: levels GoldenEye draws fogless; unmapped ids |
-| `new/head/headdave` = the release's `head/headneil` (Doak's face: curly hair, goatee) with its vertices refitted | rebuilt: `Cgx051Z` drawn from `head/headneil` (gen_chrtable.py `REPOINT`), seated by our own head fit; F3 20261010-092900. **Superseded 2026-10-12**: GoldenEye's own face ("Dr. Doak in GoldenEye's own face in the HD look") |
+| `new/head/headdave` = the release's `head/headneil` (Doak's face: curly hair, goatee) with its vertices refitted | rebuilt: `Cgx051Z` drawn from `head/headneil` (gen_chrtable.py `REPOINT`), seated by our own head fit; F3 20261010-092900. **2026-10-12**: undone - without the art Doak wears the release's own headdave again ("Dr. Doak's HD face: the release's, or the Community Edition's") |
 | `new/head/headalan` = the release's `head/headdave` (the glasses face) | **owner's call**: one line in `REPOINT`; the release's own headalan (moustache) is closer to GoldenEye's Alan |
 | bomb, safecracker, key analyser cases -> the release's `chrbriefcase` byte for byte | rebuilt: geproptable.h rows point at `prop/chrbriefcase` (same fit frame; gen_proptable.py `REPOINT`) |
 | weapon case -> `chrbriefcase` | left: fitted in another frame (perm 0 1 2); needs a propfit run against the briefcase |
@@ -15085,7 +15085,8 @@ Options for the art left out (owner): keep as is (the release's and GoldenEye's 
 leave to ship their pictures; or rebuild a few by hand from the release's/ROM's pictures (the Control
 placeholders and Bunker 2's patch are small N64-format pictures that may be GoldenEye's own - not checked against
 the ROM). Doak in HD wears the face's own glasses (the release file has them; GoldenEye's Doak has none) -
-since 2026-10-12 he wears GoldenEye's own face instead ("Dr. Doak in GoldenEye's own face in the HD look").
+since 2026-10-12 the release's own headdave without the art ("Dr. Doak's HD face: the release's, or the
+Community Edition's").
 
 **The Community Edition's art comes back as a toggle (2026-10-10, feat/ce-art-toggle).** The owner: *"lets re add
 the toggle, now it is only for art since we have the code changes"*, then *"default it on when the zip is
@@ -15100,8 +15101,8 @@ table puts the release's colour bytes back over the CE's (`REVERTS` in gen_cefix
 the CE's domes (`skyNames[]`), its fog colours for those levels (its table's colours over ours, Facility's
 nibble-swapped colour excepted; the distances are ours either way), Surface 2's horizon, the 512x512 sea, and
 Doak (`Cgx051Z`) on the CE's own `head/headdave` - the release's headneil refitted, without the glasses (the
-pool's "Dave" takes it too); with it off or no zip he wears the release's headneil. (Since 2026-10-12 Doak
-wears GoldenEye's own face either way; see "Dr. Doak in GoldenEye's own face in the HD look".) The HD level cache keys on
+pool's "Dave" takes it too); with it off or no zip he wears the release's headneil (since 2026-10-12 the
+release's own headdave, its Dr. Rakhmanov; the CE's head is taken by name now, see "Dr. Doak's HD face"). The HD level cache keys on
 the toggle again (`_ce` levels). Setting: `Mod.GeXblaCommunityEditionArt`, -1 until the player chooses = on
 when the zip is there; the old `Mod.GeXblaCommunityEdition` is not read (its 0 was only the old default), so
 every existing player gets the art once the zip is present, and an explicit untick is saved as 0. The overlay
@@ -15181,53 +15182,38 @@ machine's own picture. Shots: `~/wt/f3-1010c-gehd-run/shots/art-toggle.png`, `do
     has them (RunToPad -> JOG, SprintToPad -> RUN); a chr's ground speed on those (AI off) measures alike on the
     native port and ours (run ~4-5 a tick both). Not measured: the ending itself on the cartridge.
 
-## Dr. Doak in GoldenEye's own face in the HD look (F3 pass 38, 2026-10-12, feat/f3-1012-doakhead)
+## Dr. Doak's HD face: the release's, or the Community Edition's (F3 pass 38, 2026-10-12, feat/f3-1012-doakhead)
 
-F3 20261012-041514 (Facility, HD, no Community Edition zip): "Dr. Doak has glasses on". Owner: Doak wears
-GoldenEye's own Doak face in the HD look, no glasses, in missions and in Customize Character / multiplayer, with
-the Community Edition's art and without it. "Rakhmanov" is the release's own name for him (loc/ark: "Time to
-leave, Dr. Rakhmanov."), whose face is its HD `head/headdave` (clean-shaven, glasses); the port already shows
-the ROM's "Dr. Doak" there, and the head now goes back to GoldenEye's too.
+F3 20261012-041514 (Facility, HD look, no CE zip): "Dr. Doak has glasses on (from the previous head model) ... the
+previous head model should also be reinstated back in the game, just like rakhmanov". "Rakhmanov" is the release's
+own name for Facility's scientist (loc/ark: "Time to leave, Dr. Rakhmanov."); its face is the release's HD
+`head/headdave` (clean-shaven, glasses), which the owner chose for Doak on 2026-09-26 (cb052e42c) and the CE
+built-in had swapped for the release's headneil (curly hair, goatee, glasses) on 2026-10-10. Owner, 2026-10-12:
+"he is talking about doctor rakmanov part of facility mission" - so:
 
-- **`beanOwnFaces[]` (gebean.c)**: a head source the HD look builds from Bean's N64-look original
-  (`files/original/head/headdave` = GoldenEye's Doak, the cartridge's model with its three 32x64 pictures; its
-  sunglasses section, kind 2, is left out as for every original). `gebeanBuild()` turns `original` on for such
-  a row (the remake's chr rows and the pool's, never GoldenEye X's rows), so it is built the whole way as the
-  N64 look builds it. gen_chrtable.py no longer repoints `headdave` to `head/headneil` (REPOINT is empty;
-  OWN_FACE only notes it on the row). The Community Edition's own Doak head (headneil refitted, no glasses) is
-  no longer drawn for Doak or the pool's Dave; `ceArtFiles[]` keeps it for GoldenEye X's two headdave rows.
-- **Side effect, a fix**: `gebeanRomChrForSource()` takes the first chr row with a pool row's source. With
-  Cgx051Z on `head/headneil`, the pool's Neil mapped to ROM chr 51 (the Character page's own-rig "Neil" was
-  Doak's ROM head - his face in the N64 look) and Dave to none (own-rig Dave a copy of the pool row: the
-  release's Rakhmanov face in HD; ROM-only pools lost Dave and shifted every later head). Both map right again.
-  The same trap waits for the CE table's open owner call on Alan: `REPOINT` headalan -> head/headdave would map
-  the pool's Dave to Alan's ROM head (43 comes before 51) - pick the row by its own file name first if that is
-  ever done.
-- **Neck**: the original ends at its jaw (open rim -6), so it gets the neck made under it
-  (`beanAddNeckTube()`); on a remake guard/scientist body the body's own neck skin below the cut (the
-  `noskin` ring) then stood round that neck in pale teeth at the nape. `gebeanmats.ownface` /
-  `xblameshbuilt.beanownface`; `xblaMeshHeadNeckInCollar()` (was `xblaMeshHeadIsNeckBack()`) takes the noskin
-  groups under a neckback head file **or** an own-face head whose made neck is drawn on this body. Not under a
-  Bond head (`gebeanRowKeepsHood()`, the ring closes his throat). Without the ring the usual tube ended over
-  the coat's open front and the room showed through the V under the chin, so an own-face head's lowest ring
-  goes 2.5 rim medians down, not 1.5 (`BEAN_TUBE_OWNFACE_LOWEST`; dead on his back it stays under the shirt).
-  Tried and dropped: the body's own whole neck (`ownneck`) under it - it brings the body file's own head's
-  hair at the nape. Left: seen from his feet with the head thrown back (dead), a slit of room under the chin
-  between the face's open underside and the tube - the made neck's, the N64-look pool heads have it too.
-  With no ROM (release only) the pool's Dave sits on the pool body's own neck (`xblaMeshPoolNeckOwn()`) as
-  the N64-look pool heads do, its cut edge showing at the nape.
-- **Hats**: Dave is one of GoldenEye's random male heads (`random_male_heads[9]`; a level start picks 4 in a
-  row from a random start), so guards wear him, side caps and all. `xblaMeshHatSeat()` measured 83 units of
-  "hair" through the release's side cap on the N64 head and floated it; with GoldenEye's table instead the
-  release's cap sat behind the crown (the release's hats are placed for 4J's heads). So a hat on an own-face
-  head is GoldenEye's own N64 hat, drawn and shot as the N64 look has it (`xblaMeshIsOwnFaceHat()` in
-  `xblaMeshRenderNode()` and `xblaMeshModelDrawsBean()`), sized by GoldenEye's table (`xblaMeshHatSeatMeasure()`
-  returns 0 for an own-face head) - pixel for pixel where the N64 look puts it.
-- N64 look of the missions pixel-identical (`--rng-seed 1 --fixed-step` shots). Probes in
-  `~/wt/f3-1012-doakhead-run/probe/`: `run.sh BIN TAG` + `doak.py` (head swap at `body0f02ce8c` via
-  `geRomTake(51, 0)` on the first `BODYFILE` chr or setup chr `CHRNUM`, Doak's spot, four sides; player
-  placed with `geStanFloorAt()` + `geStanForgetPlayerTile(0)` - without them the camera sat in another room
-  or on a ledge; `KILL=1` shoots him and photographs the lying head, found from the headspot's matrix - which
-  the game has turned into s15.16 in place by then, decoded - and the world-to-screen matrix), `cirun.sh` + `cishot.py` (Customize Character preview, PAIRS of file names), `mprun.sh` +
-  `mpshot.py` (GoldenEye arena, sim 0 as BODYFILE/HEADFILE). `Video.DefaultWidth/Height` in the save's pd.ini
-  sets the offscreen size (1280x960 here). A relative `--savedir` resolves under the base dir (data/).
+- **HD, no CE art**: the release's `head/headdave` again (Rakhmanov). gen_chrtable.py's `REPOINT` is empty, so
+  Cgx051Z's row names `head/headdave`.
+- **HD, CE art on**: the CE's own Doak face (its `new/head/headdave`, the release's headneil refitted, no
+  glasses), now by name through `gebeanCeFilePath()` in `beanLoad()` - the Cgx051Z special case in
+  `gebeanBuild()` is gone. Mission close-ups pixel-identical to before with the art on.
+- **N64 look**: GoldenEye's ROM Doak, unchanged (mission shots pixel-identical).
+- **Fixed with it - the pool-to-ROM mapping**: `gebeanRomChrForSource()` takes the first chr row with a pool row's
+  source. With Cgx051Z on `head/headneil` the Character page's / multiplayer's own-rig "Neil" was Cgx051Z (Doak's ROM
+  head: his face for Neil in the N64 look, the CE's Doak face with the art on), "Dave" had no ROM row (a copy of
+  the pool's row: on the host rig, pale patches at the throat on a sim) and a ROM-only pool lost Dave and moved
+  every later head. Now Dave is Cgx051Z and Neil Cgx056Z, each with its own HD mesh on GoldenEye's rig. The same
+  trap waits for the CE table's open owner call on Alan (`REPOINT` headalan -> head/headdave would hand the pool's
+  Dave to Alan's ROM head, 43 coming before 51).
+- Tried first and dropped on the owner's word (the contact sheet): GoldenEye's low-poly face in the HD look from
+  Bean's `files/original/head/headdave` (needed a deeper made neck, the body's neck ring left out, and GoldenEye's
+  own N64 hats - the release's sat behind the N64 crown). Commit 02f50748b on this branch's history before the
+  rework, if ever wanted.
+- Probes (`~/wt/f3-1012-doakhead-run/probe/`): `run.sh BIN TAG` + `doak.py` - Doak's head on the first
+  `BODYFILE` chr (or setup chr `CHRNUM`) by a swap at `body0f02ce8c` (`geRomTake(51, 0)`), at that chr's spot,
+  four sides; the player is placed with `geStanFloorAt()` + `geStanForgetPlayerTile(0)` (without them the camera
+  sat in another room or on a ledge); `KILL=1` shoots him and photographs the lying head, found from the
+  headspot's matrix (s15.16 by then, decoded) through the world-to-screen matrix. `cirun.sh` + `cishot.py`:
+  Customize Character preview by file names (`PAIRS=CgeTechmanZ:CgeheadDaveZ`); `mprun.sh` + `mpshot.py`: a
+  GoldenEye arena sim as BODYFILE/HEADFILE. `RUNDIR=` picks a run dir (one with the CE zip, one without the ROM).
+  `Video.DefaultWidth/Height` in the save's pd.ini sets the offscreen size; a relative `--savedir` resolves under
+  the base dir (data/), so give it absolute.
