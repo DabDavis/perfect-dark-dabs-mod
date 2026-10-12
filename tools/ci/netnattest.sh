@@ -286,6 +286,13 @@ for c in $CASES; do
 		grep -q "relay [0-9a-f]*: port [0-9]* for joinerb in room $room" "$L" && pass "b: pdlobbyd: $(line "$L" "relay [0-9a-f]*: port")" || fail "b: pdlobbyd made no relay"
 		grep -q "rdv: relay for joinerb bound" "$H" && pass "b: host: $(line "$H" "rdv: relay for")" || fail "b: host never bound the relay"; }
 	[ "$c" = a ] || [ "$c" = s ] && { grep -q "rdv: joiner$c has not reached us; spraying" "$H" && pass "$c: host: $(line "$H" "rdv: joiner$c has not")" || fail "$c: host never sprayed"; }
+	# a host behind another public address: its LAN endpoint is somebody
+	# else's machine on the joiner's side and is never tried (F3 pass 38: two
+	# players joining a public room from elsewhere were "treated as LAN")
+	[ "$c" = a ] && { grep -q "rdv: the host's LAN endpoint.* left out: the lobby sees it at another public address" "$J" \
+		&& pass "a: joiner: $(line "$J" "rdv: the host's LAN endpoint")" || fail "a: the joiner kept a remote host's LAN endpoint"; }
+	[ "$c" = d ] && { grep -q "rdv: the host's LAN endpoint.* left out" "$J" && fail "d: the joiner left out a LAN host's LAN endpoint" \
+		|| pass "d: joiner kept the LAN endpoint (one public address)"; }
 	[ "$c" = s ] && { grep -q "^froze" "$OUT/s.freeze" 2>/dev/null && pass "s: $(cat "$OUT/s.freeze")" || fail "s: no freeze: $(cat "$OUT/s.freeze" 2>/dev/null)"
 		grep -q "rdv: this game did not tick for" "$J" && pass "s: joiner: $(line "$J" "rdv: this game did not tick")" || fail "s: the joiner's rendezvous never saw its stall"; }
 	[ "$c" = c ] && { grep -q "spraying" "$H" && fail "c: host sprayed a joiner that reached it unaided" || pass "c: host never sprayed (reachable)"; }
