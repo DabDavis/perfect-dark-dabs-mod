@@ -49,6 +49,10 @@ blur and the trail) and it is blitted upside down into the swapchain at
 present. Depth: the vertex shader writes `(z + w) / 2`, so the 0..1 buffer
 holds what GL's -1..1 maps to, and fog still reads the untouched z/w.
 `get_clip_parameters()` therefore says `z_is_from_0_to_1 = false`, like GL.
+The front buffer is the frame just presented, menus and all: a still asked for
+on a frame that draws something over the level is taken in the display list
+instead (`menugfxCreateBlurInList()`; the Combat Simulator's cone,
+netplay.md "F3 pass 38").
 
 Framebuffer textures are sampled through a second view with alpha swizzled
 to 1, because GL's are RGB8 and the blur draws blend by what they sample.
