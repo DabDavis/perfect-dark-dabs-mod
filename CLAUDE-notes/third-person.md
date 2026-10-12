@@ -837,6 +837,13 @@ stands him up where he sat down from. Built the way GoldenEye's tank is: still
   from the key itself (`inputButtonPressed()`), because after a menu the pad
   reads nothing held for up to a second (`joyDisableTemporarily()`), and the
   menu is `g_Menus[currentplayernum]` (a solo player's mpindex is 4).
+- **The sofas slide when run into: that is stock** (F3 20261012-104547,
+  notabug): the cartridge's Institute setups give all eight `MODEL_CI_SOFA` of
+  each (setupdish.c, setupimp.c) `OBJFLAG3_PUSHABLE` (flags3 0x1 on every
+  sofa in a vanilla run, Sit In Chairs off), and the walk's stock collision
+  (`bwalkCalculateNewPositionWithPush()` -> `bwalk0f0c3b38()`) pushes any such
+  object along the edge it is met at. Sit In Chairs never touches a sofa's
+  flags or position; it only turns the perimeter off while seated.
 
 Probe traps: a gdb teleport must resolve rooms (`func0f065e74()` from the
 chair's own) or the walk refuses every step and the camera trace leaves the

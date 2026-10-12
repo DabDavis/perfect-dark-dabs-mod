@@ -462,6 +462,28 @@ Island, 0.84 -> 0.54 s on Junkyard. What is left is the collision queries of
 the floor search (`cdCollectGeoForCylFromList`, 30%) and the links' tile
 walks (`stanWallFind`, 12%).
 
+## "Offline Combat Simulator stutters, online does not" (F3 pass 38, 2026-10-12)
+
+Three reports from one Windows tester (AMD iGPU, OpenGL, vsync, no frame limit,
+tick divisor 1; 20261012-103636, -103800, -105651) were all sent from the
+Institute 111 frames after a match: a trace's 600-frame ring then holds the
+match's end screen and the load, not play (`lvframenum` 111 and the switch
+list say so). What could be measured here, with their pd.ini sections laid
+over a fresh one (Skedar, 2-4 simulants, Perfect Dark's guns and the Goldfinger
+64 set they had on): pass 37 (fcd7ab8) and 3b069f9 frame alike - 16.67 ms,
+~9 ms of work, offscreen and in a vsynced window on the desktop - and the
+seeded game thread costs 2.0-2.1 M instructions a frame on both, 1.7 M on
+the 10-10 build before the high-framerate pass (ddc1a5f): a few hundred
+microseconds anywhere. The frame ring can be read from a running game
+without F3: `vidRingFrameMs/WorkMs/Ticks`, `vidRingPos`, `vidRingCount`
+(video.c). One difference between the two modes that a 60 Hz player can see
+was noted, not changed: offline, `frametimeCalculate()` steps the game in
+240ths of measured time, so a frame shown for one refresh that measured a
+couple of milliseconds long or short steps 3 or 5 instead of 4 (8% of such
+frames in a loaded desktop run here), while online every frame is whole
+60ths from the tick clock. Ask for F3 *during* the stutter: its "game step"
+line tells that jitter from long frames ("ran over" / "waited at the present").
+
 ## Above 60 FPS: the player's own view (2026-10-10, high-framerate pass, fix/highfps-player)
 
 Measure with `--fixed-fps 240` against `--fixed-step` and a gdb breakpoint that prints the state per frame

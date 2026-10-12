@@ -1058,6 +1058,14 @@ void mpApplyLimits(void)
 			// limit of 20 ended a GoldenEye match with 24 simulants after
 			// 13 seconds (F3 20261005-175006)
 			|| (g_GexPlusMode && (g_MpSetup.options & MPOPTION_TEAMSENABLED) == 0)
+			// Perfect Dark's own free-for-all past the cartridge's eight
+			// simulants likewise: once the eight team numbers are used every
+			// further simulant is team 7, and their kills summed to the team
+			// limit long before anyone reached the score limit - an
+			// 80-simulant match ended after 24 seconds with nobody past 2
+			// kills (F3 20261012-105651). Up to eight it is left as the
+			// cartridge has it.
+			|| ((g_MpSetup.options & MPOPTION_TEAMSENABLED) == 0 && mpGetNumSimSlotsOn() > MAX_BOTS_CONFIG)
 #endif
 			) {
 		lvSetMpTeamScoreLimit(0);

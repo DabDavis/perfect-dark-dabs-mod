@@ -343,6 +343,28 @@ version 3 (save-format.md). The probes were gdb scripts over the seeded perf
 match: `g_MpAllChrPtrs[i]` is **not** bot slot `i - 1` (the order is shuffled),
 go through `aibot->config - g_BotConfigsArray`.
 
+## Eighty simulants: the tallies hold, the team limit ended the match (F3 pass 38, 2026-10-12)
+
+A tester saw kills "given to the wrong players" in 80-simulant matches
+(20261012-105651). The bookkeeping is sound: `killcounts[]` is indexed by mpchr
+index (players 0-11, simulants 12-91, `func0f18d074()`/`MPCHR()`), every array
+on the path is `MAX_MPCHRS`, and a seeded 80-simulant Skedar match checked at
+its end against every death the game recorded (`--killfeed-log`: attacker and
+victim per death) matched for all 81 chrs - kills, deaths and each per-victim
+cell, 125 kills. What was wrong was the end: with teams off, Perfect Dark still
+checks every team number's summed score against the team limit (stock
+`mpApplyLimits()`/`lvTick()` do, teams or not), and once the eight team numbers
+are used every further simulant gets team 7 (`mpFindUnusedTeamNum()`; the `--mpsims` boot path leaves
+everyone on team 0). The default limit of 20 ended the match after 24 seconds
+with nobody past 2 kills. `mpApplyLimits()` now sets no team limit in a
+free-for-all with more than the cartridge's eight simulants, as GoldenEye mode
+already did (ge-bean.md); up to eight it is the cartridge's rule. The probe
+(gdb on the running game): `func0f18d074(i)` and `g_MpAllChrConfigPtrs[i]->
+killcounts[]` per player number `i`, then the `killfeed:` lines (flushed with
+`fflush(0)`) tallied the same way. An online room of more than four humans
+all on team 0 has the same sum (netplay.md's gates already set
+`--net-test-teamscorelimit 400` for it); that one is not changed.
+
 ## A head past the Combat Simulator's list: Perfect Heads the port never has (2026-09-22)
 
 Crash 20260921-231914 and 20260922-013052 (Windows, dev 2c412fa, the same
