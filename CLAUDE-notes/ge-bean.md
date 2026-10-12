@@ -15204,3 +15204,15 @@ the CE's default.xex adds a fog row for Bunker 1, which the CE table above leave
 fogless. The level's opaque dome also hides the CE's own skydome for both Bunkers (`bunker2` is a CE picture),
 as it did before this. Probe: a gdb Python dump of each level's backdrop pictures (triangles, blended, alpha,
 reach, distance) from `'gebeanstage.c'::backdrop[]`.
+
+**Archives, "room geometry texture flickering - while against the wall" (F3 20261012-160401, Windows, Intel HD
+Graphics 530, OpenGL, HD): needinfo.** Not reproduced on the RX 580 at the report's camera (Archives mission
+0x65, room 14, the interrogation room by the bricked window; 1366x768) in either renderer, held still or
+drifting: the view matches the tester's shot, and the N64 look has the same corner. Ruled out there: coplanar
+layers (a probe build drawing opaque with `GL_LEQUAL` for `GL_LESS` changed 2 pixels: no two rooms' surfaces at one
+depth), the near plane (nothing within 45 units of the eye; raising it to 45 changed nothing), depth precision
+(24-bit, near 10, far raised to 9606, the nearest walls 45+ away). Worth knowing for the next near-plane question:
+nothing is cut by the near plane here - both renderers clamp depth and the CPU path cuts only at the eye's own
+plane, as the RSP does - so whatever comes nearer than it is drawn at depth 0, where the first drawn wins: a near
+plane raised past 100 (`call viSetZRange(...)` from gdb) hid the pipe by the wall, 100-120 from the eye, behind
+the wall it stands on. A protrusion the player can get within 10 units of would do that in play.
