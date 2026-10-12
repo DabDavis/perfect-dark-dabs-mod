@@ -132,6 +132,7 @@ s32 netSessionHostUserSpectating(const char *user); // 1 a spectator's connectio
 void netSessionSetSpectate(s32 on);                 // client: connect as a spectator
 s32 netSessionHostNumClients(void);
 const char *netSessionHostClientName(s32 index);
+s32 netSessionHostAccountsJson(char *out, s32 size);
 void netSessionHostDropUser(const char *user, const char *why);
 void netSessionLobbyStartMatch(void);
 const char *netSessionNoticeText(void);

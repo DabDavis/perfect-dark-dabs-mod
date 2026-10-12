@@ -4059,6 +4059,19 @@ static MenuItemHandlerResult handlerCampaign(s32 operation, struct menuitem *ite
 	return 0;
 }
 
+static MenuItemHandlerResult handlerRejoin(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return !netLobbyCanRejoin();
+	}
+
+	if (operation == MENUOP_SET) {
+		netLobbyRejoin();
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult handlerLeave(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
@@ -4095,6 +4108,7 @@ static MenuDialogHandlerResult dialogRoom(s32 operation, struct menudialogdef *d
 // The buttons: the dialog itself, the box at the foot of the right column
 // (the windows around it are drawn by netLobbyMenuRenderPanels)
 static struct menuitem s_RoomItems[] = {
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Back Into the Match\n", 0, handlerRejoin },
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textReady, 0, handlerReady },
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textTeam, 0, handlerTeam },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Chat\n", 0, handlerChat },

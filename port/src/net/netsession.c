@@ -5789,6 +5789,69 @@ const char *netSessionHostClientName(s32 index)
 	return NULL;
 }
 
+/**
+ * A lobby room's host: the accounts its session has now, for the heartbeat
+ * (pdlobbyd api 6 "seated"): every client connected under a name, whatever
+ * its state (players, spectators, a joiner loading), and every seat held
+ * for a dropped player within its hold. The lobby frees the room seat of a
+ * member not on it whose game has stopped polling (crashed, gone), so a
+ * newcomer can take the seat in the match in progress. Writes a JSON array
+ * and returns its length, or -1 when this machine hosts no lobby room's
+ * session (the field is then left out and the lobby reaps nobody mid-match).
+ */
+s32 netSessionHostAccountsJson(char *out, s32 size)
+{
+	s32 len, i, j, n = 0;
+
+	if (!s_LobbyRoomOn || s_Role != NETROLE_HOST || size < 3) {
+		return -1;
+	}
+
+	len = snprintf(out, size, "[");
+
+	for (i = 0; i < NET_MAXPEERS + MAX_PLAYERS; i++) {
+		const char *name = NULL;
+		char clean[2 * NET_MAXNAME + 3];
+		s32 k = 0;
+
+		if (i < NET_MAXPEERS) {
+			if (s_Clients[i].state >= NETCL_CONNECTING && s_Clients[i].state != NETCL_REFUSED && s_Clients[i].name[0]) {
+				name = s_Clients[i].name;
+			}
+		} else if (s_Seats[i - NET_MAXPEERS].state == NETSEAT_HELD && s_Seats[i - NET_MAXPEERS].account[0]) {
+			name = s_Seats[i - NET_MAXPEERS].account;
+		}
+
+		if (!name) {
+			continue;
+		}
+
+		for (j = 0; name[j] && k < (s32)sizeof(clean) - 2; j++) {
+			if ((u8)name[j] < 0x20 || (u8)name[j] > 0x7e) {
+				continue;
+			}
+
+			if (name[j] == '"' || name[j] == '\\') {
+				clean[k++] = '\\';
+			}
+
+			clean[k++] = name[j];
+		}
+
+		clean[k] = '\0';
+
+		if (len + k + 4 >= size) {
+			break;
+		}
+
+		len += snprintf(out + len, size - len, "%s\"%s\"", n ? "," : "", clean);
+		n++;
+	}
+
+	len += snprintf(out + len, size - len, "]");
+	return len;
+}
+
 // The host: `user` has left the room's roster (left, kicked, timed out)
 void netSessionHostDropUser(const char *user, const char *why)
 {

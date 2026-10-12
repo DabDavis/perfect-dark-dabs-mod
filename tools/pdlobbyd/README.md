@@ -91,7 +91,7 @@ empty body is `{}`.
 | `POST /rooms/<id>/launch` | host | `force`?, `cancel`? | `version`, `countdown` (s) |
 | `POST /rooms/<id>/reopen` | host | | back to `open` after a match, nobody ready |
 | `POST /rooms/<id>/leave` | member | | a host leaving hands the room on (**Host migration**), or closes it when nobody can host |
-| `POST /rooms/<id>/heartbeat` | host | `endpoints`? | `version`, `time`; every 5 s; 15 s without one hands the room on (or closes it) |
+| `POST /rooms/<id>/heartbeat` | host | `endpoints`?, `seated`? (API 6) | `version`, `time`; every 5 s; 15 s without one hands the room on (or closes it) |
 | `POST /rooms/<id>/ticket` | member | | a fresh `ticket`, `ticket_expires`, `time`; `409` (`reason: not_started`) while the room is open |
 | `POST /rooms/<id>/netinfo` | member | `path` (`lan`/`direct`/`punch`/`relay`/`none` or null), `ping` (0-9999 ms or null), `can_host`? (bool), `nat`? (`open`/`nat`) | `version`; the member's own report of how it reaches the host, shown in every roster; the host's path and ping are ignored; `can_host` and `nat` rank it as the next host; 8 / 10 s per member |
 | `POST /rooms/<id>/hostlost` | member (not host) | | `version`; its game lost its connection to the host (**Host migration**) |
@@ -204,7 +204,8 @@ closes it, **Host migration**); a member
 with no request for 30 s and no poll parked is removed - except while the
 room is `launched`: then only the host's heartbeat counts, nobody is reaped,
 and a member whose game crashed can re-join its seat for a new ticket (the
-roster is what the host admits against). `reopen` gives every member a fresh
+roster is what the host admits against); from API 6 one the host's `seated` no
+longer names is reaped then too (**Seats in a running match**). `reopen` gives every member a fresh
 30 s. A client should still keep its state poll running through the match:
 that is how it hears the room close.
 
@@ -251,6 +252,30 @@ the rooms close. A restart is then told to the seats from before it by the
 410 (`restart_notice`, "HTTP API" above): the game shows that when it leaves
 the room. For a warning a while ahead, say a notice first, wait, then
 restart.
+
+## Seats in a running match
+
+API 6. A launched room takes joiners while its match runs (the host seats
+them in the match in progress), but the room's own count (`humans()`, members
+who are not spectators) only fell when a member left: nobody is reaped while a
+room is launched (a game may stop polling in a match, and a crashed player
+must still be on the roster to come back within the host's hold). So a
+member whose game crashed or dropped mid-match kept its room seat to the
+match's end and a newcomer heard "the room is full" while the match had an
+open seat (F3 20261012-020922, dab).
+
+Now the host's heartbeat carries `seated`: the accounts its session has (each
+client connected under a name, player or spectator, and each seat held for a
+dropped player within its hold; netsession.c `netSessionHostAccountsJson`).
+While the room is launched and that list is fresh (`seated_fresh`, 16 s, from
+the current host), a non-host member not on it, with no poll parked and
+nothing from it for `member_timeout` (30 s), is removed ("gone from the host's
+match; seat freed"): its seat is the room's again and a newcomer joins into
+the match in progress. A member still polling is never removed this way (a
+joiner connecting, a member back in the Game Lobby after End Game - the game
+offers it back into the match). A host without `seated` (older games), a
+stale list, or a list from a host since replaced reaps nobody mid-match, as
+before. A new launch forgets the last one's list.
 
 ## Host migration
 

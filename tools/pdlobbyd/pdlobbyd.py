@@ -59,7 +59,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-API_VERSION = 5   # 2: host migration (README "Host migration"); 3: the same shape, hardened (README "Limits"); 4: the main menu's chat (README "Main menu chat"); 5: the server's notices (README "Server notices")
+API_VERSION = 6   # 2: host migration (README "Host migration"); 3: the same shape, hardened (README "Limits"); 4: the main menu's chat (README "Main menu chat"); 5: the server's notices (README "Server notices"); 6: a launched room's host names who its session has, and a member gone from it frees its seat (README "Seats in a running match")
 
 
 def env(name, default):
@@ -146,6 +146,9 @@ class Config:
         self.hostlost_keep = 20.0
         self.hostlost_votes = 2
         self.member_timeout = 30.0
+        # api 6: a launched room's host's "seated" list counts this long
+        # after its beat (three missed 5 s beats: no word, nobody reaped)
+        self.seated_fresh = 16.0
         self.gone_keep = 120.0
         self.reap_interval = 1.0
 
@@ -806,6 +809,12 @@ class Room:
         self.forced = False
         self.launched_at = 0
         self.host_seen = now
+        # api 6: the accounts the launched room's host has in its session
+        # (connected players and spectators, seats held for a drop), from its
+        # heartbeat; who sent it and when. None: no word (an older game).
+        self.seated = None
+        self.seated_by = None
+        self.seated_at = 0.0
         self.host_rtt = None
         self.probe_nonce = None
         self.probe_sent = 0.0
@@ -1663,6 +1672,7 @@ class Lobby:
         room.countdown_handle = None
         room.status = "launched"
         room.launched_at = int(time.time())
+        room.seated = None    # the last launch's word is not this one's
         room.changed()
         log("room %s launched" % room.id)
 
@@ -1883,6 +1893,11 @@ class Lobby:
     def act_heartbeat(self, req, room, m, body):
         self.require_host(m)
         room.host_seen = time.monotonic()
+        seated = body.get("seated")
+        if isinstance(seated, list):
+            room.seated = set(str(u).lower()[:64] for u in seated[:64])
+            room.seated_by = m.token
+            room.seated_at = room.host_seen
         if "endpoints" in body:
             eps = read_endpoints(body.get("endpoints"), req.ip)
             if eps != room.endpoints:
@@ -2001,6 +2016,19 @@ class Lobby:
             if room.status != "launched":
                 for m in list(room.members.values()):
                     if not m.host and m.poll is None and now - m.seen > self.cfg.member_timeout:
+                        self.remove_member(room, m, "you timed out of the room")
+            elif (room.seated is not None and host is not None and room.seated_by == host.token
+                  and now - room.seated_at <= self.cfg.seated_fresh):
+                # api 6: the host says who its session has (its heartbeat's
+                # "seated"); a member it has not, whose game has stopped
+                # asking too (crashed, gone), gives its seat back to the
+                # room, so a newcomer can take it in the match in progress.
+                # One the host still holds a seat for (its drop's hold) stays
+                # on the roster to come back to it.
+                for m in list(room.members.values()):
+                    if (not m.host and m.poll is None and now - m.seen > self.cfg.member_timeout
+                            and m.user.lower() not in room.seated):
+                        log("room %s: %s gone from the host's match; seat freed" % (room.id, m.user))
                         self.remove_member(room, m, "you timed out of the room")
             if room.udp_ok_host(now, self.cfg.udp_ttl) and now - room.probe_sent > self.cfg.probe_interval:
                 self.send_probe(room, now)

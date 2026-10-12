@@ -412,7 +412,7 @@ class RoomTests(Base):
         self.assertEqual(Client(self.srv.port).req("POST", "/notice", {"text": "x"})[0], 404)
         self.assertEqual(admin.req("GET", "/rooms")[0], 404)
         self.assertEqual(admin.req("POST", "/notice", {"text": " \x1b "})[0], 400)
-        self.assertEqual(Client(self.srv.port).req("GET", "/ping")[1]["api"], 5)
+        self.assertEqual(Client(self.srv.port).req("GET", "/ping")[1]["api"], 6)
 
     def test_notice_port_taken_is_not_fatal(self):
         # a second lobby on the same notice port: it runs, without notices
@@ -678,6 +678,87 @@ class ReapTests(Base):
         th.join(5)
         self.assertEqual(out["r"][0], 200)
         self.assertEqual(len(out["r"][1]["members"]), 2)
+
+
+class SeatedTests(Base):
+    """API 6: the launched room's host names who its session has; a member
+    gone from it whose game stopped asking frees its seat for a newcomer."""
+    over = dict(host_timeout=5.0, member_timeout=0.8)
+
+    def launched(self):
+        host, (a, b) = self.room_with("alpha", "bravo", max_humans=3)
+        a.act("ready")
+        b.act("ready")
+        self.assertEqual(host.act("launch")[0], 200)
+        for _ in range(40):
+            if a.state()[1]["room"]["state"] == "launched":
+                break
+            time.sleep(0.05)
+        self.assertEqual(a.state()[1]["room"]["state"], "launched")
+        return host, a, b
+
+    def beat(self, host, polling, seated, secs=1.5):
+        end = time.time() + secs
+        while time.time() < end:
+            body = {} if seated is None else {"seated": seated}
+            self.assertEqual(host.act("heartbeat", body)[0], 200)
+            for c in polling:
+                c.state()
+            time.sleep(0.2)
+
+    def members(self, host):
+        return sorted(m["user"] for m in host.state()[1]["members"])
+
+    def test_gone_member_frees_its_seat(self):
+        host, a, b = self.launched()
+        c = self.client("charlie")
+        self.assertEqual(c.join(host.room)[1]["reason"], "full")
+        # bravo's game died: the host has only alpha, and bravo asks nothing
+        self.beat(host, [a], ["alpha"])
+        self.assertEqual(self.members(host), ["alpha", "hostess"])
+        self.assertEqual(b.state()[0], 410)
+        # the newcomer takes the seat in the match in progress, with a ticket
+        st, r = c.join(host.room)
+        self.assertEqual(st, 200, r)
+        self.assertIn("ticket", r)
+
+    def test_member_still_asking_keeps_its_seat(self):
+        # bravo used End Game: out of the host's session, but back in the
+        # Game Lobby and polling - its seat is its own (offered back in)
+        host, a, b = self.launched()
+        self.beat(host, [a, b], ["alpha"])
+        self.assertEqual(self.members(host), ["alpha", "bravo", "hostess"])
+        self.assertEqual(self.client("charlie").join(host.room)[1]["reason"], "full")
+
+    def test_held_seat_and_no_word_reap_nobody(self):
+        host, a, b = self.launched()
+        # the host holds bravo's seat for its drop: bravo stays to come back
+        self.beat(host, [a], ["alpha", "bravo"])
+        self.assertEqual(self.members(host), ["alpha", "bravo", "hostess"])
+        # an older host (no "seated"): nobody is reaped mid-match, as before
+        host2, a2, b2 = host, a, b
+        self.beat(host2, [a2], None)
+        self.assertEqual(self.members(host2), ["alpha", "bravo", "hostess"])
+
+    def test_old_list_not_used_after_reopen_and_relaunch(self):
+        host, a, b = self.launched()
+        self.beat(host, [a, b], ["alpha"], secs=0.4)
+        self.assertEqual(host.act("reopen")[0], 200)
+        a.act("ready")
+        b.act("ready")
+        self.assertEqual(host.act("launch")[0], 200)
+        for _ in range(40):
+            if a.state()[1]["room"]["state"] == "launched":
+                break
+            time.sleep(0.05)
+        # the new launch has no list yet: bravo, silent, is not reaped on the
+        # last launch's word
+        end = time.time() + 1.5
+        while time.time() < end:
+            self.assertEqual(host.act("heartbeat")[0], 200)
+            a.state()
+            time.sleep(0.2)
+        self.assertEqual(self.members(host), ["alpha", "bravo", "hostess"])
 
 
 # ------------------------------------------------------------------ tickets
