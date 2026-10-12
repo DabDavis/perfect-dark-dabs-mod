@@ -3623,3 +3623,31 @@ reached the host with the command and switched the host's copy, but:
   (`--net-test-trace`, whose player lines now end in `devices` and
   `cloaked`) its switch, its own cloak and magazine, and the second client's
   puppet of it must be the host's.
+
+## The CamSpy online (F3 20261012-022730, no wire change)
+
+The CamSpy goes out when its device bit is set (`currentPlayerSetDeviceActive`,
+from the radial menu's `amApply` or the pause inventory) and `playerTick`'s
+`eyespyTryLaunch` finds a clear line from the player to 100 units ahead. Three
+faults, one per seat:
+
+- **The host under Akimbo Triggers**: the radial key opens the left hand's
+  menu (`amOpenForHand`), and its `amApply` branch took guns only, so the
+  CamSpy (and goggles, cloak) it listed did nothing; offline too. It switches
+  a device now as the right hand's does.
+- **A guest's launch**: another machine's player is posed on a client, never
+  ticked, so its collision cylinder (`periminfo`) stayed where its last own
+  tick left it - the co-op spawn spot all players start stacked on. The
+  launch's `cdExamLos08` from beside it hit that player ("Not enough room to
+  launch"). `netPupChr` moves a posed player's cylinder with the pose.
+- **A guest's flight**: the host's copy of a guest's CamSpy is an ordinary
+  chr, sent as a dynamic body (`NETDESC_BODY`), so the guest saw its own
+  CamSpy twice and its local one bumped into the late copy and drifted off
+  the host's path. `netHostSendSnap` leaves a client's own CamSpy out of its
+  snapshots, as it does the client's own player. Another player's CamSpy still
+  comes as a body (the guest's own hidden copy of it stays at its pad).
+
+`netcooptest.sh camspy` drives both radial menus with `--net-test-input`
+(a script line's first match wins: lines must not overlap) and reads both
+machines through gdb. In CONTROLMODE_PC the CamSpy flies forward on the right
+stick (`rsy`); the left stick's `sy` lifts it.

@@ -95,19 +95,24 @@
 #   pdguest  a third player's objectives on Defection: the co-op uplink given
 #           to it too, its necklace completing the objective (host and its own
 #           screen), the PC's list taking it as the one who used it.
+#   camspy  the CamSpy on Investigation (F3 20261012-022730): the host (Akimbo
+#           Triggers on, its radial key the left hand's menu) and a guest each
+#           pick it from the radial menu and fly it; out, viewed and moved on
+#           the host and on the guest's own machine, the guest's in one place
+#           on both (case_camspy below).
 #   (campleave also reads A's level frame in B's mission: a game that hosted
 #           before had run every match it joined paused, F3 20261010-053457.)
 #
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest tankride gfrespawn),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest tankride gfrespawn camspy),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest tankride gfrespawn}
+CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom campleave gebunker pdguest tankride gfrespawn camspy}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -1435,6 +1440,79 @@ case_gfrespawn() {
 	grep -q "player: stage 0x[0-9a-f]*'s intro has" "$H" && fail "$name: $(grep -o "player: stage.*" "$H" | head -1)" || pass "$name: no intro command refused"
 }
 
+# ---------------------------------------------------------------- camspy
+# The CamSpy online (F3 20261012-022730, ElmoBear: "i cannot use my camspy rn
+# in an online mission"). dataDyne Investigation gives every player one. The
+# host plays with Akimbo Triggers on, as the reporter did: its radial key
+# opens the left hand's menu, which listed the CamSpy and did nothing with
+# it. Each player opens its radial menu with the script's D-pad down, holds
+# the stick at the CamSpy's slot (the bottom one) and lets go, then flies
+# it forward with the right stick: the host from tick 700, the client from
+# 1100. Checked through gdb: the host's CamSpy out and moved on the host;
+# the client's out, its view on it (camera mode 2) and moved on its own
+# machine (its launch from the co-op spawn spot had been refused there,
+# "Not enough room to launch": the host's player's collision cylinder never
+# left that spot on a client) and on the host; and the two machines' places
+# for the client's CamSpy agree (the host's copy sent back to the client had
+# been a second body its own bumped into and drifted off the host's path by).
+cat > "$OUT/camspy.py" <<'PY'
+import gdb
+def i(e): return int(gdb.parse_and_eval(e))
+def f(e): return float(gdb.parse_and_eval(e))
+gdb.execute("break netTickEnd if g_NetTick >= %d" % T)
+gdb.execute("continue")
+gdb.execute("delete")
+for pn in PNS:
+    p = "g_Vars.players[%d]" % pn
+    if not i("(long)%s->eyespy" % p):
+        print("STAGE camspy %s: player %d has no CamSpy" % (WHO, pn))
+        continue
+    print("STAGE camspy %s: player %d deployed %d active %d camera %d at %.0f %.0f body %.0f %.0f tick %d" % (WHO, pn,
+        i(p + "->eyespy->deployed"), i(p + "->eyespy->active"), i(p + "->cameramode"),
+        f(p + "->eyespy->prop->pos.x"), f(p + "->eyespy->prop->pos.z"), f(p + "->prop->pos.x"), f(p + "->prop->pos.z"), i("g_NetTick")))
+PY
+case_camspy() {
+	local name=camspy port=$((PORT + 14)) H=$OUT/camspy-host.log C=$OUT/camspy-client.log
+	echo "== $name"
+	# from to buttons sx sy rsx rsy mdx mdy: D-pad down, then the stick down with it, then the right stick forward
+	printf '700 719 0400 0 0 0 0 0 0\n720 760 0400 0 -80 0 0 0 0\n800 1000 0 0 0 0 80 0 0\n' > "$OUT/camspy-host.script"
+	printf '1100 1119 0400 0 0 0 0 0 0\n1120 1160 0400 0 -80 0 0 0 0\n1200 1400 0 0 0 0 80 0 0\n' > "$OUT/camspy-client.script"
+	game camspy-host 300 '[Mod]\nAkimboTriggers=1\n' --host "$port" --net-test-host 1 --rng-seed 7 --net-test-coop 1 --net-test-difficulty 0 \
+		--skip-cutscenes --net-test-invincible --net-test-input "$OUT/camspy-host.script" --exit-frame 2400 &
+	local host=$!
+	waitfor "$H" "net: hosting on UDP port" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; return; }
+	game camspy-client 290 '[Mod]\n' --connect "127.0.0.1:$port" --net-test-join --net-test-input "$OUT/camspy-client.script" --exit-frame 2200 &
+	local client=$!
+	waitfor "$C" "net: match 1: GO" 150 || echo "     no GO on the client"
+	local hp cp; hp=$(gamepid camspy-host); cp=$(gamepid camspy-client)
+	[ -n "$hp" ] && timeout 60 gdb -p "$hp" -batch -ex "python T=1050; WHO='host'; PNS=[0]" -x "$OUT/camspy.py" 2>/dev/null | grep "^STAGE" | tee -a "$OUT/stage.log" | sed 's/^/     /'
+	# both after the client's flight, at once
+	[ -n "$cp" ] && timeout 60 gdb -p "$cp" -batch -ex "python T=1460; WHO='client'; PNS=[1]" -x "$OUT/camspy.py" 2>/dev/null | grep "^STAGE" > "$OUT/camspy-c.stage" &
+	local g=$!
+	[ -n "$hp" ] && timeout 60 gdb -p "$hp" -batch -ex "python T=1460; WHO='host'; PNS=[1]" -x "$OUT/camspy.py" 2>/dev/null | grep "^STAGE" | tee -a "$OUT/stage.log" | sed 's/^/     /'
+	wait $g; tee -a "$OUT/stage.log" < "$OUT/camspy-c.stage" | sed 's/^/     /'
+	wait $client; local cx=$?; [ "$cx" = 143 ] && cx=0
+	wait $host; local hx=$?; [ "$hx" = 143 ] && hx=0
+	crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
+	crashed "$C" && fail "$name: the client crashed" || { [ "$cx" = 0 ] && pass "$name: client ran to the end" || fail "$name: client exit $cx"; }
+	local l0 l1h l1c
+	l0=$(grep "STAGE camspy host: player 0 " "$OUT/stage.log" | tail -1)
+	l1h=$(grep "STAGE camspy host: player 1 " "$OUT/stage.log" | tail -1)
+	l1c=$(grep "STAGE camspy client: player 1 " "$OUT/stage.log" | tail -1)
+	# out, active, the view on it, and flown 300 units or more from the body
+	flown() { echo "$1" | awk '{for (k = 1; k <= NF; k++) { if ($k == "at") { x = $(k+1); z = $(k+2) } if ($k == "body") { bx = $(k+1); bz = $(k+2) } }
+		exit !(/deployed 1 active 1 camera 2 / && (x-bx)*(x-bx) + (z-bz)*(z-bz) >= 300*300)}'; }
+	flown "$l0" && pass "$name: the host's CamSpy from its left hand's menu, flown: ${l0#*player 0 }" || fail "$name: the host's CamSpy: ${l0:-not read}"
+	flown "$l1c" && pass "$name: the client's CamSpy on its own machine: ${l1c#*player 1 }" || fail "$name: the client's CamSpy on its machine: ${l1c:-not read}"
+	flown "$l1h" && pass "$name: and on the host: ${l1h#*player 1 }" || fail "$name: the client's CamSpy on the host: ${l1h:-not read}"
+	local xh zh xc zc
+	xh=$(echo "$l1h" | grep -o ' at [-0-9]* [-0-9]*' | awk '{print $2}'); zh=$(echo "$l1h" | grep -o ' at [-0-9]* [-0-9]*' | awk '{print $3}')
+	xc=$(echo "$l1c" | grep -o ' at [-0-9]* [-0-9]*' | awk '{print $2}'); zc=$(echo "$l1c" | grep -o ' at [-0-9]* [-0-9]*' | awk '{print $3}')
+	awk -v a="${xh:-0}" -v b="${zh:-0}" -v c="${xc:-99999}" -v d="${zc:-99999}" 'BEGIN { exit !((a-c)*(a-c) + (b-d)*(b-d) <= 30*30) }' \
+		&& pass "$name: the client's CamSpy where the host has it ($xc $zc against $xh $zh)" \
+		|| fail "$name: the client's CamSpy at ${xc:-?} ${zc:-?}, the host's copy at ${xh:-?} ${zh:-?}"
+}
+
 {
 for c in $CASES; do
 	case $c in
@@ -1454,6 +1532,7 @@ for c in $CASES; do
 		pdguest) case_pdguest ;;
 		tankride) case_tankride ;;
 		gfrespawn) case_gfrespawn ;;
+		camspy) case_camspy ;;
 		*) fail "unknown case $c" ;;
 	esac
 done

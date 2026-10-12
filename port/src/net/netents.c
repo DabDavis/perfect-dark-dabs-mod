@@ -1229,6 +1229,11 @@ static void netHostSendSnap(s32 slot)
 	struct netsnaphdr hdr;
 	const s32 pn = netPlayerOfSlot(slot);
 	struct prop *self = pn >= 0 ? g_Vars.players[pn]->prop : NULL;
+	// the client's own CamSpy is its own machine's (it flies it there as it
+	// flies here); the host's copy sent back came as a second body, a ghost
+	// a few ticks behind that its own bumped into and drifted off the
+	// host's path by (F3 20261012-022730)
+	struct prop *selfeyespy = pn >= 0 && g_Vars.players[pn]->eyespy ? g_Vars.players[pn]->eyespy->prop : NULL;
 	u32 *seen = pn >= 0 && pn < MAX_PLAYERS ? s_Seen[pn] : NULL;
 	u8 lp[NETLP_SIZE];
 	s32 n = 0;
@@ -1247,7 +1252,7 @@ static void netHostSendSnap(s32 slot)
 		s32 recent;
 		s32 near;
 
-		if (!c->valid || (self && &g_Vars.props[i] == self)) {
+		if (!c->valid || (self && &g_Vars.props[i] == self) || (selfeyespy && &g_Vars.props[i] == selfeyespy)) {
 			continue;
 		}
 

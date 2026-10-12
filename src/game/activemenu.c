@@ -331,8 +331,15 @@ void amApply(s32 slot)
 
 			if (invindex < invGetCount()) {
 				weaponnum = invGetWeaponNumByIndex(invindex);
+				state = weaponnum ? currentPlayerGetDeviceState(weaponnum) : DEVICESTATE_UNEQUIPPED;
 
-				if (weaponnum && currentPlayerGetDeviceState(weaponnum) == DEVICESTATE_UNEQUIPPED) {
+				if (state != DEVICESTATE_UNEQUIPPED) {
+					// A device is no hand's gun: switched as the right
+					// hand's menu does. The radial key opens this menu
+					// under Akimbo Triggers, and the CamSpy, goggles and
+					// cloak listed here did nothing (F3 20261012-022730)
+					currentPlayerSetDeviceActive(weaponnum, state == DEVICESTATE_INACTIVE);
+				} else if (weaponnum) {
 					amApplyLeftWeapon(weaponnum);
 				}
 			}
