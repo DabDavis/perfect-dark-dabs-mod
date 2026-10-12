@@ -939,6 +939,14 @@ static struct invaimsettings *gegunsAim(s32 i, const struct invaimsettings *src,
 	// Inaccuracy where the cartridge's single shots go nearly true (F3
 	// 20261004-174748). GoldenEye's own rows agree with their hosts but for
 	// the sniper rifle, whose Inaccuracy is 0.
+	// GoldenEye's camera is wound in and out in aim mode as the sniper rifle
+	// is (its WEAPONSTATBITFLAG_DISABLE_CROUCH, bondview2.c; camera_zoom,
+	// gun.c): Perfect Dark's manual zoom (currentPlayerGetGunZoomFov()). Its
+	// host, the Data Uplink, has none, so it never zoomed (F3 20261011-071518)
+	if (WEAPON_GE_FIRST + i == WEAPON_GE_CAMERA) {
+		aim->flags |= INVAIMFLAG_MANUALZOOM;
+	}
+
 	if (stat->bitflags) {
 		aim->flags &= ~(INVAIMFLAG_AUTOAIM | INVAIMFLAG_ACCURATESINGLESHOT);
 

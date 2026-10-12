@@ -257,6 +257,12 @@ f32 currentPlayerGetGunZoomFov(void)
 		return g_Vars.currentplayer->gunzoomfovs[index];
 	}
 
+#ifndef PLATFORM_N64
+	if (bgunGetWeaponNum2(0) == WEAPON_GE_CAMERA) {
+		return g_Vars.currentplayer->gecamerazoom;
+	}
+#endif
+
 	weapon = weaponFindById(bgunGetWeaponNum2(0));
 
 	if (weapon) {
@@ -308,6 +314,16 @@ void currentPlayerZoomOut(f32 fovpersec)
 			g_Vars.currentplayer->gunzoomfovs[index] = ADJUST_ZOOM_FOV(60);
 		}
 	}
+#ifndef PLATFORM_N64
+	else if (bgunGetWeaponNum2(0) == WEAPON_GE_CAMERA) {
+		// GoldenEye's camera_sniper_zoom_out(): the sniper rifle's rate and bounds
+		g_Vars.currentplayer->gecamerazoom *= 1.0f + fovpersec * gunZoomSpeed() * LVUPDATE60FREAL() * 0.1f;
+
+		if (g_Vars.currentplayer->gecamerazoom > ADJUST_ZOOM_FOV(60)) {
+			g_Vars.currentplayer->gecamerazoom = ADJUST_ZOOM_FOV(60);
+		}
+	}
+#endif
 }
 
 void currentPlayerZoomIn(f32 fovpersec)
@@ -340,6 +356,15 @@ void currentPlayerZoomIn(f32 fovpersec)
 			g_Vars.currentplayer->gunzoomfovs[index] = ADJUST_ZOOM_FOV(minfov);
 		}
 	}
+#ifndef PLATFORM_N64
+	else if (bgunGetWeaponNum2(0) == WEAPON_GE_CAMERA) {
+		g_Vars.currentplayer->gecamerazoom /= 1.0f + fovpersec * gunZoomSpeed() * LVUPDATE60FREAL() * 0.1f;
+
+		if (g_Vars.currentplayer->gecamerazoom < ADJUST_ZOOM_FOV(7)) {
+			g_Vars.currentplayer->gecamerazoom = ADJUST_ZOOM_FOV(7);
+		}
+	}
+#endif
 }
 
 bool weaponHasFlag(s32 itemid, u32 flag)

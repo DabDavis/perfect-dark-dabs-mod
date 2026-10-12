@@ -287,6 +287,9 @@ void bgunReset(void)
 	g_Vars.currentplayer->gunzoomfovs[0] = ADJUST_ZOOM_FOV(15);
 	g_Vars.currentplayer->gunzoomfovs[1] = ADJUST_ZOOM_FOV(60);
 	g_Vars.currentplayer->gunzoomfovs[2] = ADJUST_ZOOM_FOV(30);
+#ifndef PLATFORM_N64
+	g_Vars.currentplayer->gecamerazoom = ADJUST_ZOOM_FOV(20); // GoldenEye's camera_stats.Zoom (initBondDATA.c)
+#endif
 
 	if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_AIRBASE) {
 		g_Weapons[WEAPON_EYESPY]->name = L_GUN_061; // "DrugSpy"
