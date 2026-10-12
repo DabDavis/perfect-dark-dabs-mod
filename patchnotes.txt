@@ -31,6 +31,35 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 62 2026-10-12
+Online: the Briefing Room's right-hand window is titled Room Info and only shows a room while one is highlighted (thanks ElmoBear and dab)
+Online: the room count is in the room list's title, "Rooms (3)", so a long name no longer cuts it off (thanks Shockwave S08 and dab)
+Online: press Select or L2 (P on the keyboard) in the Briefing Room to see who is online and where they are (thanks dab)
+Online: Main Menu Chat and the Game Lobby chat use the whole width of their window (thanks Shockwave S08)
+Online: the chat no longer stops showing new messages, and what you type, after a long chat session (thanks Shockwave S08)
+Online: scroll back through the chat with the right stick, PgUp/PgDn or the mouse wheel (thanks dab)
+Online: each sender's name in the chat has its own colour (thanks dab)
+Online: choosing Chat in the Game Lobby opens the full-length chat line, as T or Space do, and the controller keyboard's text box is wider (thanks dab)
+Online: Player Setup and Team Control show your account name instead of "Player 1" (thanks dab)
+Online: you have your own online player profile (character, controls and options), kept between sessions, with Copy From Offline Player in the online Player Setup (thanks dab)
+Online: Create Room's Create and Back are centred, and the page fits on a Steam Deck's screen (thanks Shockwave S08)
+Online: the co-op and counter-op Mission list scrolls and shows every mission, in all four campaigns (thanks Shockwave S08)
+Online: GoldenEye and Goldfinger 64 rooms say Agent / Secret Agent / 00 Agent, and Tomorrow Never Dies 64 rooms Easy / Normal / Hard (thanks Shockwave S08)
+Online: the Game Lobby shows a ticked box beside each ready player and an empty one for the rest (thanks dab)
+Online: play over long links no longer rubber-bands you after network hiccups (thanks dab)
+Online: walking along a table or a crate no longer jerks you back, so the armour on Bunker 1's table picks up cleanly (thanks dab)
+GoldenEye maps: a Perfect Dark shield sounds like a shield and says so when picked up; GoldenEye's body armour keeps its own sound and words (thanks dab)
+Online: free-for-alls no longer end early when several players' kills add up to the team score limit
+Online co-op: night vision, X-ray and the IR scanner stay on while your menu is open (thanks ElmoBear)
+Combat Simulator: the Arena list has a tab for each game (Perfect Dark, GoldenEye, GE-X, Goldfinger 64, TND64, Mods), switched with the shoulder buttons, Left/Right or the mouse; online rooms' Arena list too (thanks dab)
+Combat Simulator: a free-for-all with more than eight simulants no longer ends early when the extra simulants' kills add up to the team score limit
+Leaving the online pages, or the Combat Simulator after a match, no longer leaves the Combat Simulator's swirl behind the Perfect Menu (thanks dab)
+GoldenEye Bunker and Bunker 2, HD look: the sky no longer shows rings of blue triangles over the clouds (thanks dab)
+GoldenEye: guards climb the steps the conversion had walled off for them, as on the cartridge - Aztec's Jaws follows you up the grated stair instead of waiting at its foot
+GoldenEye Bunker: guards no longer spot you through a shut glass door from the floor above it, as on the cartridge
+GoldenEye Facility, HD look: the scientist wears the XBLA release's own Dr. Rakhmanov face again, or the Community Edition's detailed Dr. Doak face when it is installed
+Fixed a rare crash, or sounds cutting out, in a big firefight with many different sounds playing at once
+
 notes 61 2026-10-12
 Online: new Counter-Op Mission rooms, for Perfect Dark's, GoldenEye's, Goldfinger 64's and Tomorrow Never Dies 64's missions: everyone picks a side in the Game Lobby with Change Side (thanks dab)
 Counter-Op Mission: the agents play the mission together as in co-op, while each counter-op takes over one of the mission's guards - its body, gun and health - and A, Z or START puts them in the next guard after a death (thanks dab)
