@@ -15133,3 +15133,48 @@ machine's own picture. Shots: `~/wt/f3-1010c-gehd-run/shots/art-toggle.png`, `do
   the corridor walls - a band of wall smeared across the corridor in front of it, left standing when it slid
   up (F3 20261011-053059). A door whose thickness is more than half its narrower face is a block and gets no
   reveals (one log line each). **Changes the built HD level: HDCACHE_VERSION bump needed** (left to the merge).
+
+## F3 pass 37 (gemission): routes, infinite ammo, a folder font's stale glyphs; three open
+
+- **A guard's route on a converted mission is GoldenEye's** (F3 20261011-055946, Archives' outdoor guards through
+  the wrong door). GoldenEye's `waypointFindRoute()` (its padhalllv.c) is deterministic: the first neighbour one
+  step nearer (`findPadWithDistAndSet`), the first neighbouring group (`waygroupFindByDist`) and the **first**
+  segment into it (`sub_GAME_7F08F438` returns on the first match). Perfect Dark's port tosses a coin at each
+  (`padrandomroutes`, seeded per chr) and, coin or not, its `waypointFindSegmentIntoGroup()` keeps looping and
+  takes the **last** segment. With identical waypoint graphs (dumped both sides: 194 lines, no difference),
+  Archives chr 22 to pad 59 ran 90,92,89,88,5 (the doorway in the report) where GoldenEye runs 90,91,7,8,9, and
+  47,62 where GoldenEye runs 47,48,57,62. `navGeRoutes()` (padhalllv.c): on a remake stage outside a match the
+  three choosers take GoldenEye's first; simulants in a match keep Perfect Dark's. Start/end waypoints still
+  differ in method (GoldenEye: nearest tile with a waypoint pad by `stanFillSearch`, then the closest neighbour
+  - comparing against the first pad's distance, not the running best; ours: rooms + line of sight), though here
+  they agree. Scenarios (both sides, `--oracle port` for function calls): `tools/gefidelity/world/_route.py`,
+  `_wpdump.py` in the pass's worktree (not committed).
+- **Infinite Ammo on a GoldenEye stage tops up after the pickups** (F3 20261011-061056, Egyptian's golden
+  bullets). GoldenEye's `set_max_ammo_for_cur_player()` runs in `lvlRender()`, after the tick's pickups, so a
+  reload's draw leaves the reserve under its maximum for that frame's pickup test (`propPickupByPlayer()`'s
+  precheck refuses a crate whose reserve is full) - on the cartridge the box on the Golden Gun's case is taken
+  "while the gun is reloading". Perfect Dark tops up in `bgunTickGameplay()`, before `propsTestForPickup()`,
+  and the box was never taken. The top-up moves to after `propsTestForPickup()` in `lvTick()` on a remake stage.
+  The box (record 43) is set uncollectable (GoldenEye flag 0x1000 = our 0x100000) by the level's list until the
+  case's door opens, on both games.
+- **A freed font's glyphs stayed in the renderer's cache** (F3 20261011-063840, Goldfinger 64's folder: "AKent",
+  "InGustries FounGry"). gexfront.c draws a glyph straight out of the font file's buffer and the texture cache is
+  keyed by address, format and palette - not size. `frontUnload()` freed the fonts without evicting them; the
+  Goldfinger font loaded 5440 bytes below where GoldenEye's Bank Gothic had been, which put Zurich's 'd' (offset
+  10960) on Bank Gothic's 'G' (5520) and 'g' (11248) on 'K' (5808) - 288 apart in both - and the small capitals
+  were drawn in their place. `frontFreeFont()` evicts the buffer's range first. Any other freed buffer that is
+  drawn from needs the same (`videoFreeCachedTextures()`).
+- Open, diagnosed only:
+  - **A guard frozen standing in death** (F3 20261011-055132, -055703, Archives): the bodies are ACT_DEAD with
+    their prop at standing height (prop y 108 over the floor where a lying body is ~15). Synthetic deaths
+    (every hitpart, four angles, PD deaths in the pool, punches, moving guards, 165 FPS) all end lying.
+  - **The Laptop Gun's sentry on Egyptian's columns** (F3 20261011-060738): thrown at a column it stops at one
+    x,z whatever the height (-2219,2409 from the report's spot), never through `objLand()` (its zero angles
+    stay 0,0), with no line of sight from there to anything; on the floor it lands and sees. The column is not
+    collision geometry the projectile stops on - it stops where its move fails. GoldenEye has no laptop.
+  - **Caverns' HD water** (F3 20261011-183645): reproduced at the report's spot (a lighter band on the left with
+    no ripples, uniform in the N64 look); skipping rooms 0-63 in four ranges in `bgRenderRoomOpaque/Xlu` left
+    it, so the band is not one room's draw. Probe `world/_camshot.py`, `_roomskip.py`.
+  - **Janus outrunning Bond to the Caverns lift** (F3 20261011-185035): the list's commands convert as GoldenEye
+    has them (RunToPad -> JOG, SprintToPad -> RUN); a chr's ground speed on those (AI off) measures alike on the
+    native port and ours (run ~4-5 a tick both). Not measured: the ending itself on the cartridge.
