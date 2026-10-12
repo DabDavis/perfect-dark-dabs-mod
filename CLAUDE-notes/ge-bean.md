@@ -84,6 +84,7 @@ the long form.
 - **The N64 look's fog, Frigate's sea and the portal walk against the cartridge** — ge-bean.md, "Fog per vertex, the sea through the palette, GoldenEye's portal walk and the GE Plus timer" (2026-10-01, fid-look): a converted level in the N64 look is fogged per vertex as the RSP does it (`G_FOG_VERTEX_EXT`, set by `envStartFog()`; `gfx_emit_tri3()` clips at the eye plane and the FRUSTRATIO_2 guard band and works the new corners' fog out - not at the near plane, the cartridge draws nearer things); GoldenEye's `texSelect()` loads a picture in the texture's own format, so Frigate's sea is CI8 indices looked up in the TLUT by each 16-bit texel's upper byte; `bgTickPortalsWalkGe()` is GoldenEye's queue walk, which re-enters rooms and raises their draw order (Surface's fence under the trees); the mission timer sits under the bottom-message line and never moves the messages
 - **GoldenEye arenas made from a solo setup** — ge-bean.md, "Arenas from a level's solo setup: keys, the dish, the vent hatch, Streets' jeeps; GoldenEye's MP eye and team score" (35th F3 pass, 2026-10-10): the thirteen arenas GoldenEye has no MP setup for carry the level's own objects (`objects()`, `fromsolo`): a door the level's own keys open is unlocked, a door no key opens stays shut; a never-aiming autogun (Surface's dish) and a lock on a fall-away door (Surface 2's vent hatch) are carried; vehicles carried as plain objects take the vehicle box and GoldenEye's first-tick height at run time (`gexPlusVehicleArenaPlace()`); the arena eye is GoldenEye's `headpos.y * pov + 7`; GoldenEye mode ignores the team score in a free-for-all; the folder's Simulants rows read the setup's own roster
 - **GoldenEye's mines dropped and held, the detonator's draw, a knife on a degenerate tile, wreckage, the HD camera's lens** — ge-bean.md, "Mines, the detonator, a spinning knife, wreckage and the HD lens" (35th F3 pass, 2026-10-10): a simulant's crate throwables are GoldenEye's (`botactGetWeaponByAmmoType()` asks `ammotypeGeWeaponFor()` with the bot's own inventory); the thrown ones hold and drop as their own props (`gegunsOwnPropModel()`); a held remote mine never detonates; the detonator has no host draw/put-away; `cdGetGeoNormal()` sums the polygon on a converted tile whose first three points are in line; later destroyed levels blow GoldenEye's debris row 16; an HD camera's hit asks the ROM lens (`cctvMeshHitLens()`)
+- **A guard up a climb wall, and a guard's sight through a door its walk crosses** — ge-bean.md, "A guard up a climb wall; a guard's sight meets the doors of the rooms its walk crosses" (38th F3 pass, 2026-10-12): GoldenEye's guard moves by the tile graph alone and stands on the walked tile, so it goes up links the conversion raised a climb wall on for the player (Aztec's grated stair, a 76 riser: Jaws stuck at its foot) - `geStanChrClimb()`; and its sight test takes the props of the rooms its walk's tiles are in, which Perfect Dark's 3-D portal walk can pass over (Bunker's glass doors seen through from upstairs) - `geStanLineRooms()` in `chrHasLosToChr()`
 
 
 > **2026-09-21:** the checkbox and `Mod.XblaGoldenEye` are gone; everything
@@ -15217,3 +15218,49 @@ nothing is cut by the near plane here - both renderers clamp depth and the CPU p
 plane, as the RSP does - so whatever comes nearer than it is drawn at depth 0, where the first drawn wins: a near
 plane raised past 100 (`call viSetZRange(...)` from gdb) hid the pipe by the wall, 100-120 from the eye, behind
 the wall it stands on. A protrusion the player can get within 10 units of would do that in play.
+
+## A guard up a climb wall; a guard's sight meets the doors of the rooms its walk crosses (38th F3 pass, 2026-10-12, fix/f3-1012-geai)
+
+- **Aztec's Jaws stuck at the foot of the grated stair** (F3 20261012-035807). The stair from the corridor (room 92,
+  floor 61) up into room 61 (floor 208) is, in GoldenEye's tile graph, a riser of two upright tiles 76 high (208/209
+  at z 750, x -5330..-5183 ours) and then a ramp (206/207). geconvert.c's `stanClimb()` raises a climb wall on any
+  link that climbs more than 60 (`WALL_CLIMB`), for the player, who `geStanClimbFloor()` lifts over it; nothing
+  lifted a guard, so Jaws' attack walk stopped at z 772 every time and his route 47 -> 37 -> 46 could never be
+  walked. On the cartridge (ares, `world/_jaws2.py`: every other guard's list cleared, Bond held at the report's
+  spot, Jaws made to hear him every 30 ticks) the same attack walk takes him from y 190 in room 92 to y 320-330 in
+  room 61 - GoldenEye's `sub_GAME_7F01F614()` walks links only (line walk plus volume test, no height test) and
+  the chr's ground is `stanGetPositionYValue()` of the walked tile. A walk at x -5335 is stopped there too (the
+  unlinked edge west of -5330), so on the cartridge he comes up or not by where he happens to be. Now a non-bot
+  chr's move on a converted level runs with `geStanSetChrClimb(true)` (climb walls left out of its cylinder
+  tests) and `geStanChrClimb()` asks the walk with and without the climb links: where they part and the walk ends
+  on a floor holding the destination, its surface is the chr's ground (manground eases up; PD's clamp keeps it
+  within 30); where the walk crossed a climb wall onto no floor, the move is refused. `geStanReaches()` (a guard's
+  cut past waypoints, and the floor `chrNavSweepYMin()` sweeps a route from) walks the climb links too now - it
+  stopped at them only because nothing lifted a guard, and with it the route 47 -> 37 was swept from the
+  corridor's floor into the climb wall and Jaws backed off once before going up. With Bond unseen by guards
+  (GoldenEye's `g_VisibleToGuardsFlag` 0x800364c4 = 0; ours `g_Vars.bondvisible` 0) both games now run Jaws from
+  his pad up the stair into room 61 on the same samples. Simulants and the player are unchanged; the eight replay
+  cases are identical at 60 FPS (no guard of Dam's first 3000 frames crosses a climb link).
+- **Bunker's glass doors seen through from upstairs** (F3 20261012-042236). GoldenEye's trislide glass doors (model
+  139) carry no AI-see-through flag (0x04000000); `chrCanSeeBond()`'s `stanTestLineUnobstructed()` tests the props
+  of the rooms of the tiles its walk crosses (`sub_GAME_7F0B0C24()` notes each tile's room, `roomGetProps()`), and
+  the doors are filed in room 1, the corridor under the floor the guard stood on. Perfect Dark's line of sight
+  walks portals in three dimensions: from chr 19 upstairs (room 3, floor -232) to Bond (room 6) it went 3 -> 6
+  over room 1 and never met the doors (`world/_los.py`: "line passes rooms [3, 6]"; with room 1 added the doors
+  block). On the cartridge the guard at the report's spot never sees Bond (`seen_bond_time` - note GoldenEye's
+  `lastseetarget60` is set at the end of every attack action, sight or not); with Bond in the corridor on his side
+  both see him. `geStanLineRooms()` gives the walk's rooms and `chrHasLosToChr()` tests the doors, objects and
+  path blockers in them (`cdTestAToB`) for a non-bot guard looking at a player on a converted level. Shots were
+  already harmless: the base guard attacked through the doors for 1,800 ticks and Bond lost nothing, as on the
+  cartridge.
+- **Crash 20261012-164544** (stable v3.14.0): `sndLoadSound()`'s ALSound DMA read `g_ALSoundRomOffsets[sfxnum - 1]`
+  = 0x5efb27b610, a pointer just under the main thread's stack - a garbage table entry or table pointer, on an
+  object hit's sound. The only writers of the table are `sndAppendSound()` (gesfx.c, modborrow.c, the PD copies)
+  and the boot load, each a bank pointer plus a record offset; banks are never freed; `sndStart()` refuses ids
+  past `g_NumSounds`. Not reproduced, no commit since touches the path. One latent overrun remains in both: with
+  all 45 cache slots referenced `sndLoadSound()` takes slot 0xffff and writes far past `g_SndCache` - headless
+  runs never start the sound player (dummy driver: 3 add-refs in 3000 frames), so its occupancy is not measured.
+- Probes (in the pass's worktree, not committed): `tools/gefidelity/world/_jaws2.py` (both sides: `JAWS_CHR`,
+  `JAWS_OFF`, `JAWS_B` Bond's spot and floor, `JAWS_AT` a teleport - on ares the model's root rwdata pos, prop pos,
+  stan, rooms and `CHRFLAG_INIT` -, `JAWS_HEAR`, `JAWS_LIST` a forced list, door states by model), `_los.py`,
+  `_tiles.py` (our tiles in a box with links and climb flags), `_doors.py`.
