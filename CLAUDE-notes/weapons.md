@@ -5,7 +5,7 @@
 The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
-- **The CamSpy launched into a wall** — a launch tests only the player's line of sight to the spot, so a wall beside the line put the CamSpy's body (radius 26) into it and every move after collided: it could not fly on or change height (pre-existing, every CamSpy mission). `eyespyFitLaunchPos()` finds the nearest spot the body fits in. See "The CamSpy's launch spot".
+- **The CamSpy launched into a wall** — a launch tests only the player's line of sight to the spot, so a wall beside the line put the CamSpy's body (radius 26) into it and every move after collided: it could not fly on or change height (pre-existing, every CamSpy mission). `eyespyFitLaunchPos()` finds the nearest spot the body fits in. See "The CamSpy's launch spot". A second cause, on a mod: the CamSpy's floor is 30 only on the stages `eyespyTryLaunch()` names (G5 Building, the CI) and 80 elsewhere, and a mod can move them - Offices did, for its vents (mods.md, "Offices (Oofjay)").
 - **Weapon numbers, `flags2`, converting a `weaponnum` comparison** — [weapons.md](CLAUDE-notes/weapons.md): the four checks, and what is deliberately not converted; a launcher branch keyed on the number must test the function's type, or a mod's table crashes it; and **weapons past the stock table** (2026-09-15, GoldenEye's guns 0x5e-0x76): every switch or `==` on a weapon number asks `weaponHost()`, range tests were decided one by one because some guard arrays indexed by the real number, and the check that stock is unchanged is a seeded match compared pixel for pixel
 
 

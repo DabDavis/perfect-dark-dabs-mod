@@ -27,6 +27,13 @@
 #ifndef PLATFORM_N64
 #include "input.h"
 #include "net/net.h"
+#include "mod.h"
+// The stages the CamSpy flies low on, as the mod's launch code has them:
+// Offices (Oofjay) moves G5 Building's low floor to its own stage, in
+// Investigation's slot, so the CamSpy fits through its vents
+#define EYESPYSTAGE(x) modDataEyespyStage(x)
+#else
+#define EYESPYSTAGE(x) (x)
 #endif
 
 u8 g_EyespyPickup = false;
@@ -656,8 +663,8 @@ bool eyespyTryLaunch(void)
 	g_Vars.currentplayer->eyespy->up.z = 0;
 	g_Vars.currentplayer->eyespy->startuptimer60 = 0;
 
-	if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING
-			|| stageGetIndex(g_Vars.stagenum) == STAGEINDEX_CITRAINING) {
+	if (stageGetIndex(g_Vars.stagenum) == EYESPYSTAGE(STAGEINDEX_G5BUILDING)
+			|| stageGetIndex(g_Vars.stagenum) == EYESPYSTAGE(STAGEINDEX_CITRAINING)) {
 		g_EyespyMinHeight = 30;
 	} else {
 		g_EyespyMinHeight = 80;

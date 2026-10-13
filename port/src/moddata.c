@@ -2020,6 +2020,20 @@ s32 modDataBgStage(s32 def)
 	return def;
 }
 
+static s32 modNumEyespyStages;
+static u16 modEyespyStages[4][2];
+
+// A stage index the CamSpy flies low on, as the mod's launch code has it
+s32 modDataEyespyStage(s32 def)
+{
+	for (s32 i = 0; i < modNumEyespyStages; ++i) {
+		if (modEyespyStages[i][0] == (u16)def) {
+			return modEyespyStages[i][1];
+		}
+	}
+	return def;
+}
+
 // The default outfit's body and head come through the map like the rest;
 // playerbody/playerhead in the block are the older form of the same fact
 s32 modDataPlayerBody(s32 def)
@@ -2549,6 +2563,13 @@ s32 modDataImport(const struct moddataspec *spec)
 		sysLogPrintf(LOG_NOTE, "moddata: the camera-pinned rooms and star field are the mod's (%d stages, %d room numbers, %d star field stages changed)", modNumRoomStages, modNumRoomNums, modNumBgStages);
 	}
 
+	modNumEyespyStages = spec->numeyespystages;
+	memcpy(modEyespyStages, spec->eyespystages, sizeof(modEyespyStages));
+
+	if (modNumEyespyStages) {
+		sysLogPrintf(LOG_NOTE, "moddata: %d of the CamSpy's low-flight stages are the mod's", modNumEyespyStages);
+	}
+
 	if (modPlayerBody >= 0 || modPlayerHead >= 0) {
 		sysLogPrintf(LOG_NOTE, "moddata: the solo player is body %d head %d", modPlayerBody, modPlayerHead);
 	}
@@ -2796,6 +2817,7 @@ void modDataUnload(void)
 	modNumRoomNums = 0;
 	modNumRoomStages = 0;
 	modNumBgStages = 0;
+	modNumEyespyStages = 0;
 
 	if (written) {
 		sysLogPrintf(LOG_NOTE, "moddata: the data segment's import was undone");
@@ -3170,6 +3192,8 @@ void modDataDump(const char *path)
 	h = dumpHash(h, modRoomStages, sizeof(u16) * 2 * modNumRoomStages);
 	h = dumpHash(h, &modNumBgStages, sizeof(s32));
 	h = dumpHash(h, modBgStages, sizeof(u16) * 2 * modNumBgStages);
+	h = dumpHash(h, &modNumEyespyStages, sizeof(s32));
+	h = dumpHash(h, modEyespyStages, sizeof(u16) * 2 * modNumEyespyStages);
 	h = dumpHash(h, &modMpWeaponSlotsSet, sizeof(modMpWeaponSlotsSet));
 	if (modMpWeaponSlotsSet) {
 		h = dumpHash(h, modMpWeaponSlots, sizeof(modMpWeaponSlots));

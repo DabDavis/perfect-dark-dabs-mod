@@ -51,9 +51,10 @@ s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePa
 // holds for each weapon, the sights, and the Maian head tests; 33: the sparks
 // a shot throws off a wall and its tracer's texture, by weapon, and the
 // Mauler's charge beam; 34: the Mauler's charge as two flags, its pitch and
-// the shot spending it, which GE-X's code tests apart).
-#define MODIMPORT_VERSION 34
-#define MODIMPORT_VERSION_LINE "importer: 34 (the game's own)"
+// the shot spending it, which GE-X's code tests apart; 35: the stages the
+// CamSpy flies low on, which Offices moves to its own).
+#define MODIMPORT_VERSION 35
+#define MODIMPORT_VERSION_LINE "importer: 35 (the game's own)"
 
 #ifdef __cplusplus
 }

@@ -2281,6 +2281,8 @@ static const struct { const char *name; u32 start; u32 end; } codeSyms[] = {
 	{ "tex_load_from_gdl",         0x7f1756c0, 0x7f175ef4 },
 	{ "room_populate_mtx",         0x7f166a6c, 0x7f166bc0 },
 	{ "bg_render_scene",           0x7f15a6f4, 0x7f15b114 },
+	{ "eyespy_try_launch",         0x7f0d0310, 0x7f0d0928 },
+	{ "alarm_tick",                0x7f090db4, 0x7f091030 },
 	{ "weather_reset",             0x7f0132a0, 0x7f013540 },
 	{ "weather_is_room_weatherproof", 0x7f132a1c, 0x7f132e28 },
 	{ "weather_render",            0x7f131060, 0x7f1312d8 },
@@ -4378,6 +4380,39 @@ static s32 weaponSwitchValue(const u8 *code, u32 codelen, u32 start, u32 end, u3
 	return (s32)((y & 0xffff) / 12);
 }
 
+#define ALARM_BEGIN "# importer: alarm begin"
+#define ALARM_END   "# importer: alarm end"
+// the switch on the stage id that picks the siren alarm_tick repeats, by the
+// stock address of its `jr`
+#define ALARM_JR 0x7f090dec
+
+/**
+ * The siren a stage's alarm sounds through alarm_tick's switch: the `li a1,N`
+ * its case loads, after a `b` or not, and so does the default. -1 where it
+ * does not read.
+ */
+static s32 alarmSwitchValue(const u8 *code, u32 codelen, u32 start, u32 end, u32 table, u32 count, s32 bias, u32 def, s32 stagenum)
+{
+	const s32 i = stagenum - bias;
+	u32 target = def, t, x;
+	if (i >= 0 && (u32)i < count) {
+		const u32 o = table - GAME_VRAM + 4 * (u32)i;
+		if (table < GAME_VRAM || o + 4 > codelen) {
+			return -1;
+		}
+		target = be32(code, o);
+	}
+	t = target - GAME_VRAM;
+	if (target < GAME_VRAM || t < start || t + 8 > end || t + 8 > codelen) {
+		return -1;
+	}
+	x = be32(code, t);
+	if ((x >> 16) == 0x1000) {
+		x = be32(code, t + 4);
+	}
+	return (x >> 16) == 0x2405 ? (s32)(x & 0xffff) : -1;
+}
+
 /* -- the unlocks: what the mod's code forces to true ----------------------- */
 
 #define UNLOCKS_BEGIN "# importer: unlocks begin"
@@ -5645,6 +5680,33 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	// The stages the CamSpy flies low on: eyespy_try_launch() gives it a
+	// floor of 30 rather than 80 above the ground on two stage indexes, G5
+	// Building's and the CI's training room's, each a `li at,N` at its own
+	// site (the `li a2,10` above them is the G5 safe room's test, not this
+	// one). Offices (Oofjay) moves G5's to its own stage, in Investigation's
+	// slot, so the CamSpy fits through its vents.
+	if (t.followed) {
+		static const u32 sites[] = { 0x7f0d03e8, 0x7f0d03fc };
+		u32 start, end, n = 0, listlen = 0;
+		char list[128];
+		if (codeSym("eyespy_try_launch", &start, &end)) {
+			for (u32 i = 0; i < sizeof(sites) / sizeof(sites[0]); ++i) {
+				u32 sf, mf;
+				if (sites[i] - GAME_VRAM >= start && sites[i] - GAME_VRAM < end
+						&& immediatePairAt(t.stockcode, t.stockcodelen, t.modcode, t.modcodelen, sites[i], &sf, &mf)
+						&& sf != mf) {
+					LINE("  eyespystage 0x%x %u\n", sf, mf);
+					listlen += snprintf(list + listlen, sizeof(list) - listlen, "%s0x%x->%u", listlen ? ", " : "", sf, mf);
+					n++;
+				}
+			}
+			if (n) {
+				rep("  %u CamSpy low-flight stage%s changed in the mod's launch code: %s", n, n == 1 ? "" : "s", list);
+			}
+		}
+	}
+
 #undef LINE
 
 	// The weather: which stages have it, in which rooms, how hard the wind
@@ -6472,6 +6534,47 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	// The siren each stage's alarm sounds: alarm_tick switches on the stage id
+	// with a jump table in rodata, and the port keeps it as a stage's `alarm`.
+	// Offices points Defection's entry, where its Suburb sits, at Chicago's
+	// siren. Only what differs from stock is written.
+	char *alarmcfg = NULL;
+	u32 alarmlen = 0, alarmcap = 0;
+	if (t.followed) {
+		u32 start, end, table[2], count[2], def[2];
+		s32 bias[2], lo = 0, hi = 0;
+		char prose[512] = "";
+		u32 proselen = 0;
+		s32 ok = codeSym("alarm_tick", &start, &end) && ALARM_JR - GAME_VRAM >= start && ALARM_JR - GAME_VRAM < end
+			&& weaponSwitchAt(t.stockcode, t.stockcodelen, start, ALARM_JR, &table[0], &count[0], &bias[0], &def[0])
+			&& weaponSwitchAt(t.modcode, t.modcodelen, start, ALARM_JR, &table[1], &count[1], &bias[1], &def[1]);
+		if (ok) {
+			lo = bias[0] < bias[1] ? bias[0] : bias[1];
+			hi = bias[0] + (s32)count[0] > bias[1] + (s32)count[1] ? bias[0] + (s32)count[0] : bias[1] + (s32)count[1];
+		}
+		for (s32 st = lo; ok && st < hi; ++st) {
+			ok = alarmSwitchValue(t.stockcode, t.stockcodelen, start, end, table[0], count[0], bias[0], def[0], st) >= 0
+				&& alarmSwitchValue(t.modcode, t.modcodelen, start, end, table[1], count[1], bias[1], def[1], st) >= 0;
+		}
+		for (s32 st = lo; ok && st < hi; ++st) {
+			const s32 sv = alarmSwitchValue(t.stockcode, t.stockcodelen, start, end, table[0], count[0], bias[0], def[0], st);
+			const s32 mv = alarmSwitchValue(t.modcode, t.modcodelen, start, end, table[1], count[1], bias[1], def[1], st);
+			if (sv != mv) {
+				appendf(&alarmcfg, &alarmlen, &alarmcap, "stage 0x%x { alarm 0x%x }\n", st, mv);
+				proselen += snprintf(prose + proselen, sizeof(prose) - proselen, "%s0x%x 0x%x (stock 0x%x)",
+						proselen ? ", " : "", st, mv, sv);
+				if (proselen >= sizeof(prose)) {
+					proselen = sizeof(prose) - 1;
+				}
+			}
+		}
+		if (!ok) {
+			rep("  the alarm sirens in alarm_tick do not read; left as the port has them");
+		} else if (proselen) {
+			rep("  stages sound other alarms: %s", prose);
+		}
+	}
+
 	// The mod's own AI commands that go to their label on one of the game's
 	// options: GE-X fills the empty slots 0xe6 and 0xe7 with handlers in a
 	// code cave that test the Language Filter (its "Additional Dialogue") and
@@ -6859,12 +6962,13 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				}
 			}
 			{
-				static const char *const tailmarks[8][2] = {
+				static const char *const tailmarks[9][2] = {
 					{ CHRMODEL_BEGIN, CHRMODEL_END }, { SIGHT_BEGIN, SIGHT_END }, { GUNFX_BEGIN, GUNFX_END },
+					{ ALARM_BEGIN, ALARM_END },
 					{ AICMD_BEGIN, AICMD_END }, { MOVEMENT_BEGIN, MOVEMENT_END }, { KOH_BEGIN, KOH_END },
 					{ COLOURS_BEGIN, COLOURS_END }, { MAPS_BEGIN, MAPS_END }
 				};
-				for (u32 i = 0; i < 8; ++i) {
+				for (u32 i = 0; i < 9; ++i) {
 					at = strstr(text, tailmarks[i][0]);
 					if (at) {
 						char *end = strstr(at, tailmarks[i][1]);
@@ -6879,9 +6983,9 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + reloadlen + 256 + chrmodellen + 256 + sightlen + 256 + gunfxlen + 256 + aicmdlen + 256 + unlockslen + 256 + movementlen + 256 + kohlen + 256 + colourslen + 256 + mapslen + 512 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + reloadlen + 256 + chrmodellen + 256 + sightlen + 256 + gunfxlen + 256 + alarmlen + 256 + aicmdlen + 256 + unlockslen + 256 + movementlen + 256 + kohlen + 256 + colourslen + 256 + mapslen + 512 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
 				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
 				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
 				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
@@ -6911,6 +7015,9 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				gunfxcfg ? "# The sparks a shot throws off a wall and the texture its tracer is drawn with, by\n"
 				           "# weapon: read from the mod's code. Written by the game's mod importer.\n" GUNFX_BEGIN "\n" : "",
 				gunfxcfg ? gunfxcfg : "", gunfxcfg ? GUNFX_END "\n\n" : "",
+				alarmcfg ? "# The siren each stage's alarm sounds, as the mod's code picks it: read from its\n"
+				           "# jump table. Written by the game's mod importer.\n" ALARM_BEGIN "\n" : "",
+				alarmcfg ? alarmcfg : "", alarmcfg ? ALARM_END "\n\n" : "",
 				aicmdcfg ? "# The mod's own AI commands that go to their label on one of the game's options:\n"
 				           "# read from the mod's handlers. Written by the game's mod importer.\n" AICMD_BEGIN "\n" : "",
 				aicmdcfg ? aicmdcfg : "", aicmdcfg ? AICMD_END "\n\n" : "",
@@ -6945,6 +7052,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		free(aicmdcfg);
 		free(sightcfg);
 		free(gunfxcfg);
+		free(alarmcfg);
 		free(unlocks);
 		free(movementcfg);
 		free(kohcfg);

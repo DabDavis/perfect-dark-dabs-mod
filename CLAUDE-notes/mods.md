@@ -13,6 +13,7 @@ the long form.
 - **A mod entered live: segments (2026-10-09)** — mods.md, "A mod entered live: segments": `romdataSegSwap()` + `modSegsEnter/Leave()` (modsegs.c) swap every non-audio segment between stages and back; the boot's and ROM's copies kept, appended animation rows rebased not renumbered, `g_NumListTextures` for a longer texture list; test with `--mod-segs-enter`/`--mod-dump-segs`/`--mod-segs-boot-stock`
 - **A mod entered live: online (2026-10-09, protocol 25)** — mods.md, "A mod entered live: online", and netplay.md's "Content follows the host": a guest follows the host's entered mod at the STAGE_LOAD's stage change (its own copy, or the host's served into `$N/<name>`), the key and RULES resolved again after the swap, no save switch, its own mod back after the session; fs.c resolves "$N" overlays for relative loads
 - **A rule or colour a mod's code changes that is not a weapon's** — mods.md, "The tail": `game/modrules.h` holds it with the stock default, a modconfig block sets it through one setter in mod.c, both importers read it; the branch `lua-pipeline` is the Lua experiment of 2026-09-07, kept and not merged. mods.md, "A GE-X tester's seven reports" (2026-09-13, importer 32): a jump table in rodata is *data* to modcodediff (the third person guns, the sights); GE-X's green menus are dialog **type bytes**, not the palette; a boot re-imports every stale mod, so never run two after a version bump; mods.md, "GE-X's guns threw green sparks behind green tracers" (2026-09-26, importer 33): the wall sparks and tracer texture are two more rodata jump tables on the weapon number (`hitsparks`/`beamtexture` keys), and the Klobb's green tracer was the Mauler's charge beam (`WEAPONFLAG3_CHARGEBEAM`); mods.md, "The Mauler's charge is two flags" (importer 34): `chargeable` is the pitch, `chargespent` the reset, GE-X tests them apart
+- **Offices (Oofjay), 2026-10-13, importer 35** — mods.md, "Offices (Oofjay)": the CamSpy's low floor (30, not 80) is per stage in the ROM's `eyespy_try_launch`, and Offices moves G5's to its own stage so the CamSpy fits its vents (`eyespystage` pairs, `EYESPYSTAGE()`); a stage's siren is a rodata jump table (`stage N { alarm }` between `# importer: alarm` markers); a mod's longer texture list bounds the texture-config, surface and gun-loader reads too (`g_NumListTextures`); how the vents were found (a 10-unit clearance scan) and the gdb flight that reproduces "the CamSpy stays too high"
 - **A mod entered live: audio** — mods.md, "A mod entered live: audio (2026-10-09)": `modaudio.c` swaps the sound table, music bank and sequence table between stages without moving the boot segments' starts (appended GoldenEye/borrowed sounds hang off them); sound ids reserved at boot for the longest installed bank, appended sequences numbered from `SEQ_EXTRA_BASE` (0x200); quiesce first, then every sample cache is flushed (sound cache, players' banks, ADMA); `--mod-audio-enter "A|B|-"` + `--mod-dump-audio FILE` are the test switches
 
 ### GE-X import: where to pick up (2026-09-05)
@@ -2462,3 +2463,74 @@ keeps those now. A swap followed online does not switch the per-mod save
 PerfectDarkAllSoloLevelsInMultiplayer and GE-X (netcontenttest `pdmodown`,
 `pdmodfetch`, `PDMOD=GE-X_6a_01-19-25`: 2833 files, 26.6 MB fetched in 3.4 s,
 every stage hash component the host's).
+
+## Offices (Oofjay): the CamSpy's low floor, a stage's siren, a longer texture list (2026-10-13, importer 35)
+
+`Offices[oofjay].zip` (one xdelta against NTSC 1.1, a readme, a promo PNG) puts
+a new mission in Investigation's slot (stage 0x33, `bg_ear`), its Combat
+Simulator map in Pipes' (0x29, `bg_crad`), and an updated Suburb in Defection's
+(0x30) and Skedar's (0x32). The zip drops into `mods/` and imports as it is;
+both importers write the same `files/`, `segs/` and modconfig. Three things the
+mod's code changes were not followed before this, found from `modcodediff`'s
+list of 25 changed regions:
+
+- **The CamSpy's low floor.** `eyespyTryLaunch()` gives the CamSpy a floor of
+  30 above the ground on G5 Building and the CI's training room
+  (`STAGEINDEX_G5BUILDING` 10, `STAGEINDEX_CITRAINING` 18) and 80 everywhere
+  else. Offices makes the first of those two `li at,N` sites 31 (its own
+  stage index), because the mission is played through a vent: room 34, one
+  duct climbing from the ground floor (y -314) to the first (y 107), opens at
+  the foot of a wall in three places - room 7's east wall (x 3980, z -761,
+  ground floor), room 10's (x 3980, z -1559) and room 13's north wall (x 4297,
+  z -1596) - and the CamSpy only fits those openings at a floor of 30. The body a move tests reaches from ground + 30 to the camera
+  + 15, so the floor decides the top: at 80 it hit the opening's lintel and
+  the CamSpy hung at H/M 0.80 against the wall with down held - the testers'
+  "the CamSpy stays too high, it can't go through the vent". Now the
+  `eyespystage` pairs of the datasegment block (stock index -> mod index, read
+  from the two sites by their stock addresses 0x7f0d03e8 and 0x7f0d03fc; the
+  `li a2,10` above them is the G5 safe room's test and is not followed) and
+  `EYESPYSTAGE()` in bondeyespy.c. Reproduce without input: boot 0x33 with
+  `--moddir`, put the player's prop at (3880, -151, -664) room 7 with
+  vv_ground -310 and vv_theta 191.6, set `devicesactive |= 4`, turn the
+  CamSpy to theta 90, then hold the PC mode's forward and down by breaking on
+  `joyGetButtons` (`return (u32)8`) and `joyGetStickY` (`return (s8)-70`):
+  it reaches room 34 at x 4015 at a floor of 30, and stops at x 3947 with
+  `'moddata.c'::modNumEyespyStages = 0` (stock's 80). `playerPrepareWarpType1()`
+  only holds a camera at the pad; it does not move the player for a test.
+  Finding the vents was a scan, gdb Python over every room on a 10-unit grid
+  and every floor level under each point (`cdFindGroundInfoAtCyl()` from the
+  room's top, again from just under each floor found), asking
+  `cdTestVolume(pos, 26, rooms, CDTYPE_ALL, CHECKVERTICAL_YES, 15, 30 - h - 0.1)`
+  at h 30 and 80: a 40-unit grid missed them, as only a duct's centre line
+  fits. Name gdb convenience variables carefully: `$fp` and `$sp` are the
+  registers.
+- **A stage's siren.** `alarmTick()` takes the port's `g_Stages[].alarm`; the
+  ROM switches on the stage id with a jump table in rodata (`jr` at
+  0x7f090dec, stages 29-52). Offices points Defection's entry at Chicago's
+  siren (0x6455), and so did the older Suburb patch. Both importers read the
+  table (`weaponSwitchAt()` / `weapon_switch_at()` decode it; a case is the
+  `li a1,N` it loads after a `b` or not, and so is the default) and write
+  `stage 0xNN { alarm 0xNNNN }` between `# importer: alarm begin/end`, only
+  where the siren differs from stock. Across the archive that is also GE-X
+  (six stages to the default siren) and G5 Car Park (Chicago's to the
+  default). A modconfig's stage block writes `g_Stages` in place, which the
+  stage snapshot (`modTablesSnapshot()`) puts back on a switch.
+- **The texture list's length.** The mod adds 14 textures (3503-3516) and
+  renumbers the bound at eleven sites (`slti 3503` -> 3517). `texLoad()` and
+  the hit sounds already took `g_NumListTextures`; `texLoadFromConfigs()`,
+  `texLoadFromConfig()`, `texSelect()`, the wall-hit and splat surface reads
+  and the gun loader still said `NUM_TEXTURES`, so the Special Agent stall
+  doors (the AF1 cargo door model) and the sunshades had ten texture configs
+  taken for pointers into the model file (`configs[i].texturenum += arg3`).
+  No picture changed - their display lists load the same numbers through
+  `texLoad()` - but those configs now hold textures, as the mod's code has
+  them. Stock's list is 3503, so stock is unchanged (replaytest compare: all
+  eight cases the same).
+
+Not followed, with no visible difference found: `room_init_lights` moves
+Extraction's moon flag (`ROOMFLAG_RENDERALWAYS` for room 1, unlit colours) to
+Suburb's Combat Simulator map (index 14 -> 30); forcing the flag on there
+changed no pixel from the spawn. Its star field and pinned moon already
+follow through `bgstage`/`roomstage`, and lvReset's star reset (a jump table
+entry for 0x32) through the same `bgstage` map. The other changed sites are
+the texture segment's addresses, the weather and the no-op `player_tick` word.

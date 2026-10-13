@@ -1835,6 +1835,7 @@ static const struct { const char *key; u16 arrofs; u16 countofs; u16 max; u16 wi
 	DSPAIRS("roomnum", roomnums, numroomnums, 2),
 	DSPAIRS("roomstage", roomstages, numroomstages, 2),
 	DSPAIRS("bgstage", bgstages, numbgstages, 2),
+	DSPAIRS("eyespystage", eyespystages, numeyespystages, 2),
 };
 #undef DSPAIRS
 

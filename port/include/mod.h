@@ -150,6 +150,10 @@ struct moddataspec {
 	// the stage ids bgRenderScene() draws its star field for: stock -> mod
 	s32 numbgstages;
 	u16 bgstages[16][2];
+	// the stage indexes eyespyTryLaunch() lets the CamSpy fly low on (stock
+	// G5 Building and the CI's training room): stock -> mod
+	s32 numeyespystages;
+	u16 eyespystages[4][2];
 	u32 commandlengths;  // g_CommandLengths[], for the mod's own AI commands
 	s32 numcommandlengths;
 	u32 solostages;      // g_SoloStages[], the mission list
@@ -205,6 +209,10 @@ s32 modDataRoomStage(s32 stockindex, s32 defid);
 
 // A stage id bgRenderScene() tests for its star field, as the mod's code has it
 s32 modDataBgStage(s32 def);
+
+// A stage index eyespyTryLaunch() gives the CamSpy its low floor on, as the
+// mod's code has it
+s32 modDataEyespyStage(s32 def);
 
 // Rebuild the weapon definitions and model tables from that segment. A second
 // import undoes the first (modDataUnload()) before it starts.

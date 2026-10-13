@@ -2145,6 +2145,59 @@ def gunfx_from_code(stockcode, modcode, codesyms, nweapons):
     return out
 
 
+ALARM_BEGIN = '# importer: alarm begin'
+ALARM_END = '# importer: alarm end'
+# the switch on the stage id that picks the siren alarm_tick repeats, by the
+# stock address of its `jr`
+ALARM_JR = ('alarm_tick', 0x7f090dec)
+
+
+def alarms_from_code(stockcode, modcode, codesyms):
+    """The siren each stage's alarm sounds, from the jump table in rodata
+    alarm_tick switches on the stage id with (Chicago, G5 Building, Air Base,
+    Pelagic II, the Attack Ship and Infiltration their own, the rest the
+    default): a case is the `li a1,N` it loads, after a `b` or not, and so is
+    the default. Offices points Defection's entry, where its Suburb sits, at
+    Chicago's. {'stock': {stage: siren}, 'mod': {...}} over the stage ids
+    either table covers, or None where one does not read."""
+    fn, jr = ALARM_JR
+    if fn not in codesyms:
+        return None
+    start, end = (a - GAME_VRAM for a in codesyms[fn])
+    if not start <= jr - GAME_VRAM < end:
+        return None
+    switches = {}
+    for name, code in (('stock', stockcode), ('mod', modcode)):
+        switches[name] = weapon_switch_at(code, start, jr)
+        if switches[name] is None:
+            return None
+    lo = min(sw[2] for sw in switches.values())
+    hi = max(sw[2] + sw[1] for sw in switches.values())
+    out = {}
+    for name, code in (('stock', stockcode), ('mod', modcode)):
+        table, count, bias, default = switches[name]
+        values = {}
+        for st in range(lo, hi):
+            i = st - bias
+            target = default
+            if 0 <= i < count:
+                o = table - GAME_VRAM + 4 * i
+                if o < 0 or o + 4 > len(code):
+                    return None
+                target = be32(code, o)
+            t = target - GAME_VRAM
+            if t < start or t + 8 > end or t + 8 > len(code):
+                return None
+            x = be32(code, t)
+            if x >> 16 == 0x1000:
+                x = be32(code, t + 4)
+            if x >> 16 != 0x2405:
+                return None
+            values[st] = x & 0xffff
+        out[name] = values
+    return out
+
+
 def slti_change(stockcode, modcode, start, end, stockvalue):
     """The immediate the mod's code compares with where the stock code has
     `slti rt,rs,stockvalue`, or None where it did not change it."""
@@ -4172,6 +4225,24 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
             notes.append('%d pinned rooms\' stages changed in the mod\'s room and scene code: %s'
                          % (len(pairs), ', '.join('%#x->%#x' % (k, v) for k, v in sorted(pairs.items()))))
 
+    # The stages the CamSpy flies low on: eyespy_try_launch() gives it a floor
+    # of 30 rather than 80 above the ground on two stage indexes, G5
+    # Building's and the CI's training room's, each a `li at,N` at its own
+    # site (the `li a2,10` above them is the G5 safe room's test, not this
+    # one). Offices (Oofjay) moves G5's to its own stage, in Investigation's
+    # slot, so the CamSpy fits through its vents.
+    if followed and 'eyespy_try_launch' in codesyms:
+        start, end = codesyms['eyespy_try_launch']
+        found = []
+        for site in (0x7f0d03e8, 0x7f0d03fc):
+            pair = immediate_pair_at(stockcode, modcode, site) if start <= site < end else None
+            if pair and pair[0] != pair[1]:
+                lines.append('  eyespystage 0x%x %d' % pair)
+                found.append(pair)
+        if found:
+            notes.append('%d CamSpy low-flight stage%s changed in the mod\'s launch code: %s'
+                         % (len(found), '' if len(found) == 1 else 's', ', '.join('0x%x->%d' % p for p in found)))
+
     # The weather: which stages have it, in which rooms, how hard the wind
     # blows. weather_reset and weather_is_room_weatherproof decide those by
     # stage index, and GE-X rewrote both as new chains of compares rather than
@@ -4540,6 +4611,22 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
                            '# weapon: read from the mod\'s code. Written by tools/importmod.\n'
                            + GUNFX_BEGIN + '\n' + '\n'.join(lines_) + '\n' + GUNFX_END + '\n')
 
+    # The siren each stage's alarm sounds, from the code's jump table: the port
+    # keeps it as a stage's `alarm`; only what differs from stock
+    alarmregion = ''
+    if followed and codesyms:
+        al = alarms_from_code(stockcode, modcode, codesyms)
+        if al is None:
+            notes.append('the alarm sirens in alarm_tick do not read; left as the port has them')
+        else:
+            changed = [(st, al['mod'][st], al['stock'][st]) for st in sorted(al['mod']) if al['mod'][st] != al['stock'][st]]
+            if changed:
+                alarmregion = ('# The siren each stage\'s alarm sounds, as the mod\'s code picks it: read from its\n'
+                               '# jump table. Written by tools/importmod.\n'
+                               + ALARM_BEGIN + '\n' + '\n'.join('stage 0x%x { alarm 0x%x }' % c[:2] for c in changed)
+                               + '\n' + ALARM_END + '\n')
+                notes.append('stages sound other alarms: ' + ', '.join('0x%x 0x%x (stock 0x%x)' % c for c in changed))
+
     # The mod's own AI commands that go to their label on one of the game's
     # options: GE-X fills the empty slots 0xe6 and 0xe7 with handlers in a
     # code cave that test the Language Filter (its "Additional Dialogue") and
@@ -4687,6 +4774,7 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(RELOAD_BEGIN) + r'\n.*?' + re.escape(RELOAD_END) + r'\n*',
                           '', existing, flags=re.S)
         for begin, end in ((CHRMODEL_BEGIN, CHRMODEL_END), (SIGHT_BEGIN, SIGHT_END), (GUNFX_BEGIN, GUNFX_END),
+                           (ALARM_BEGIN, ALARM_END),
                            (AICMD_BEGIN, AICMD_END),
                            (MOVEMENT_BEGIN, MOVEMENT_END), (KOH_BEGIN, KOH_END),
                            (COLOURS_BEGIN, COLOURS_END), (MAPS_BEGIN, MAPS_END)):
@@ -4703,6 +4791,7 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
                            + (chrmodelregion + '\n' if chrmodelregion else '')
                            + (sightregion + '\n' if sightregion else '')
                            + (gunfxregion + '\n' if gunfxregion else '')
+                           + (alarmregion + '\n' if alarmregion else '')
                            + (aicmdregion + '\n' if aicmdregion else '')
                            + (unlocksregion + '\n' if unlocksregion else '')
                            + (movementregion + '\n' if movementregion else '')
