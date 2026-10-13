@@ -1959,6 +1959,9 @@ void func0f004c6c(void)
 
 	ptr += g_NumPortals * sp34;
 	var80061428 = (void *)ptr;
+#ifndef PLATFORM_N64
+	mempNoteStageScratch(ptr + sp3c); // built in the free pool, not allocated
+#endif
 	ptr = backupptr;
 
 	s4 = sp38;

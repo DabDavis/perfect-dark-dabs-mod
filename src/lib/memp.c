@@ -1,4 +1,7 @@
 #include <ultra64.h>
+#ifndef PLATFORM_N64
+#include <string.h>
+#endif
 #include "constants.h"
 #include "bss.h"
 #include "lib/boot.h"
@@ -59,6 +62,77 @@ struct memorypool {
 
 struct memorypool g_MempOnboardPools[9];
 struct memorypool g_MempExpansionPools[9];
+
+#ifndef PLATFORM_N64
+/**
+ * How far the stage pool was used since its last reset, per bank: the highest
+ * left side and the lowest right side it reached. mempResetPool() zeroes that
+ * much at the next stage load, so a stage reads zero wherever it does not set
+ * what it allocated - what the first load reads from the heap's untouched
+ * pages - instead of the last stage's leftovers. Those leftovers include old
+ * pointers, which differ from run to run with address randomisation (F3 pass
+ * 38's randrun flake: a guard's yvisang). Only the used part is cleared, so
+ * the heap's never-touched pages stay uncommitted.
+ */
+static u8 *g_MempStageHigh[2];
+static u8 *g_MempStageLow[2];
+
+static void mempNoteStageUse(struct memorypool *bank, u8 *high, u8 *low)
+{
+	s32 i = bank == g_MempOnboardPools ? 0 : 1;
+
+	if (high && high > g_MempStageHigh[i]) {
+		g_MempStageHigh[i] = high;
+	}
+
+	if (low && (g_MempStageLow[i] == NULL || low < g_MempStageLow[i])) {
+		g_MempStageLow[i] = low;
+	}
+}
+
+/**
+ * For code that writes past the stage pool's left side without allocating
+ * (dlights' portal tables are built in the free space at load). Whatever it
+ * leaves there is the next allocations' "uninitialised" memory this stage, and
+ * the next stage's unless it is cleared too.
+ */
+void mempNoteStageScratch(void *end)
+{
+	u8 *p = end;
+
+	if (p > g_MempOnboardPools[MEMPOOL_STAGE].leftpos && p <= g_MempOnboardPools[MEMPOOL_STAGE].end
+			&& g_MempOnboardPools[MEMPOOL_STAGE].leftpos) {
+		mempNoteStageUse(g_MempOnboardPools, p, NULL);
+	} else if (p > g_MempExpansionPools[MEMPOOL_STAGE].leftpos && p <= g_MempExpansionPools[MEMPOOL_STAGE].end
+			&& g_MempExpansionPools[MEMPOOL_STAGE].leftpos) {
+		mempNoteStageUse(g_MempExpansionPools, p, NULL);
+	}
+}
+
+static u32 mempClearStageUse(struct memorypool *bank)
+{
+	s32 i = bank == g_MempOnboardPools ? 0 : 1;
+	struct memorypool *pool = &bank[MEMPOOL_STAGE];
+	u32 cleared = 0;
+
+	if (pool->start && g_MempStageHigh[i] > pool->start) {
+		u8 *high = g_MempStageHigh[i] < pool->end ? g_MempStageHigh[i] : pool->end;
+		memset(pool->start, 0, high - pool->start);
+		cleared += high - pool->start;
+	}
+
+	if (pool->end && g_MempStageLow[i] && g_MempStageLow[i] < pool->end) {
+		u8 *low = g_MempStageLow[i] > pool->start ? g_MempStageLow[i] : pool->start;
+		memset(low, 0, pool->end - low);
+		cleared += pool->end - low;
+	}
+
+	g_MempStageHigh[i] = NULL;
+	g_MempStageLow[i] = NULL;
+
+	return cleared;
+}
+#endif
 
 void mempInit(void)
 {
@@ -230,6 +304,12 @@ void *mempAllocFromBank(struct memorypool *pool, u32 size, u8 poolnum)
 	pool->leftpos += size;
 	pool->prevallocation = allocation;
 
+#ifndef PLATFORM_N64
+	if (poolnum == MEMPOOL_STAGE) {
+		mempNoteStageUse(pool - poolnum, pool->leftpos, NULL);
+	}
+#endif
+
 	if (1);
 
 	return (void *)allocation;
@@ -329,6 +409,10 @@ s32 mempRealloc(void *allocation, s32 newsize, u8 poolnum)
 	pool->leftpos += growsize;
 #ifndef PLATFORM_N64
 	pool->leftpos = (u8 *)ALIGN16((uintptr_t) pool->leftpos);
+
+	if (poolnum == MEMPOOL_STAGE) {
+		mempNoteStageUse(pool - poolnum, pool->leftpos, NULL);
+	}
 #endif
 	return 1;
 }
@@ -393,6 +477,18 @@ void mempResetPool(u8 pool)
 		g_MempOnboardPools[MEMPOOL_PERMANENT].end = g_MempOnboardPools[MEMPOOL_PERMANENT].leftpos;
 	}
 
+#ifndef PLATFORM_N64
+	if (pool == MEMPOOL_STAGE) {
+		u64 t0 = sysGetMicroseconds();
+		u32 cleared = mempClearStageUse(g_MempOnboardPools) + mempClearStageUse(g_MempExpansionPools);
+
+		if (cleared) {
+			sysLogPrintf(LOG_NOTE, "memp: zeroed the last stage's %u KB of the stage pool in %u us",
+					cleared / 1024, (u32)(sysGetMicroseconds() - t0));
+		}
+	}
+#endif
+
 	g_MempOnboardPools[pool].leftpos = g_MempOnboardPools[pool].start;
 	g_MempExpansionPools[pool].leftpos = g_MempExpansionPools[pool].start;
 	g_MempOnboardPools[pool].prevallocation = 0;
@@ -436,6 +532,12 @@ void *mempAllocFromBankRight(struct memorypool *pool, u32 size, u8 poolnum)
 	}
 
 	pool->rightpos -= size;
+
+#ifndef PLATFORM_N64
+	if (poolnum == MEMPOOL_STAGE) {
+		mempNoteStageUse(pool - poolnum, NULL, pool->rightpos);
+	}
+#endif
 
 	return (void *)pool->rightpos;
 }

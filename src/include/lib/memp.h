@@ -18,5 +18,8 @@ u32 mempGetPoolSize(u8 poolnum, u32 bank);
 void mempResetPool(u8 pool);
 void mempDisablePool(u8 pool);
 void *mempAllocFromRight(u32 len, u8 pool);
+#ifndef PLATFORM_N64
+void mempNoteStageScratch(void *end);
+#endif
 
 #endif

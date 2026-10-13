@@ -274,6 +274,18 @@ tables, `chrStartPatrol()`'s stock read of act_gopos.waydata.mode, which on
 64-bit lies past act_patrol); zeroing the whole used pool at the reset would
 cover those too.
 
+**The stage pool is zeroed at every stage load now (F3 pass 39,
+fix/f3-1013-stagemem).** memp.c tracks how far the stage pool was used since
+its last reset - the highest left side (mempAllocFromBank, mempRealloc growth)
+and the lowest right side (mempAllocFromBankRight, the texture cache) per bank
+- and `mempResetPool(MEMPOOL_STAGE)` memsets exactly that much, so every load
+reads what a first load reads from the heap's never-touched pages. The heap's
+unused tail stays untouched (uncommitted). Code that builds tables in the free
+pool without allocating must call `mempNoteStageScratch(end)` - dlights'
+`func0f004c6c()` does (its portal tables sit past leftpos at load and become
+the next allocations' contents). The log says `memp: zeroed the last stage's
+N KB of the stage pool in T us` at each load after the first.
+
 ## Run to a level frame, not for a wall-clock span
 
 `--exit-frame N` quits when `lvframenum` reaches N (lv.c), and `tools/perf/perfframes.sh` counts a
