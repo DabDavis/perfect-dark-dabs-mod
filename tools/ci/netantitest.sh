@@ -27,6 +27,13 @@
 #   hostanti  the host the counter-op and the client the agent (bond a
 #           client's seat): the sides on both, the host in a guard, the
 #           agents' win the host's end screen "failed".
+#   agentwalk  hostanti's sides on dataDyne Investigation at 68 ms (F3
+#           20261013-052532: the agent rubberbanding), the client walking,
+#           turning, strafing, pressing use and firing by script. The mission
+#           hands the agent a CamSpy, and the prediction ring had taken a
+#           carried one for one flown: no tick could be replayed, and every
+#           correction left the ring stale (51% matched, 0 ticks replayed).
+#           Prediction 95% or better and some ticks replayed.
 #   lobby   a local pdlobbyd: a room made as a Counter-Op Mission
 #           (--net-lobby-anti), the joiner on the counter-ops' side
 #           (--net-lobby-side 1): the room's summary says "Counter-Op Agent",
@@ -47,13 +54,13 @@
 #   netantitest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: BUILD (build/), OUT (build/netanti-out), PORT (27700; uses PORT .. PORT+11),
-# CASES (pair3 ga ge hostanti lobby lobbyhost), MODDIR (mod_allinone, the lobby cases).
+# CASES (pair3 ga ge hostanti agentwalk lobby lobbyhost), MODDIR (mod_allinone, the lobby cases).
 # Exit status: 0 all good, 1 a check failed.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netanti-out}; PORT=${PORT:-27700}
-CASES=${CASES:-pair3 ga ge hostanti lobby lobbyhost}
+CASES=${CASES:-pair3 ga ge hostanti agentwalk lobby lobbyhost}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
@@ -176,6 +183,14 @@ playerof() { grep -o "p$2 dead [01] body [-0-9]* head [-0-9]*" <<< "$1" | head -
 # the clients' START a few ticks in every 150 from tick 1500: the pause menu
 # while alive, the respawn into the next guard when dead
 for t in $(seq 1500 150 12000); do echo "$t $((t + 3)) 1000 0 0 0 0 0 0"; done > "$OUT/start.script"
+# agentwalk's client: from to buttons(hex) sx sy rsx rsy mdx mdy by the match's tick; walk (0x0008),
+# turn by the mouse, strafe (0x0001/0x0002), use (0x4000), fire (0x2000)
+for k in 0 1 2 3 4 5; do
+	b=$((120 + k * 560))
+	printf '%d %d 8 0 0 0 0 0 0\n%d %d 8 0 0 0 0 0.6 0\n%d %d 1 0 0 0 0 0 0\n%d %d 8 0 0 0 0 -0.4 0\n%d %d 4000 0 0 0 0 0 0\n%d %d 8 0 0 0 0 0 0\n%d %d 2000 0 0 0 0 0 0\n%d %d 2 0 0 0 0 0.3 0\n' \
+		$b $((b + 119)) $((b + 120)) $((b + 179)) $((b + 180)) $((b + 259)) $((b + 260)) $((b + 379)) \
+		$((b + 380)) $((b + 381)) $((b + 382)) $((b + 499)) $((b + 500)) $((b + 501)) $((b + 502)) $((b + 559))
+done > "$OUT/walk.script"
 
 predicts() {
 	local name=$1 log=$2 pr pct compared
@@ -395,6 +410,28 @@ case_hostanti() {
 	predicts "$name" "$G"
 }
 
+# ---------------------------------------------------------------- agentwalk
+case_agentwalk() {
+	local name=agentwalk port=$((PORT + 7)) H=$OUT/agentwalk-host.log G=$OUT/agentwalk-agent.log pr replayed
+	echo "== $name"
+	game agentwalk-host 300 '[Mod]\n' --host "$port" --net-test-host 1 --rng-seed 7 --net-test-coop 1 --net-test-anti 1 \
+		--skip-cutscenes --net-sim 0,34 --exit-frame 4000 &
+	waitfor "$H" "net: hosting on UDP port" 90 || { fail "$name: host did not start"; stopall agentwalk-host; wait; return; }
+	game agentwalk-agent 290 '[Mod]\n' --connect "127.0.0.1:$port" --net-test-join --net-test-input "$OUT/walk.script" \
+		--net-sim 0,34 --exit-frame 3600 &
+	waitfor "$G" "net: prediction at exit" 280
+	stopall agentwalk-host
+	wait
+	crashed "$H" && fail "$name: the host crashed"; crashed "$G" && fail "$name: the client crashed"
+	grep -q "net: counter-op: 2 players, counter-ops 0x001: bond is player 1, anti 0" "$G" \
+		&& pass "$name: the client is the agent" || fail "$name: sides: $(grep -o 'counter-op: [0-9]* players.*' "$G" | head -1)"
+	predicts "$name" "$G"
+	pr=$(lastline "$G" "net: prediction ")
+	replayed=$(num "$pr" "ticks replayed")
+	[ "${replayed:-0}" -gt 0 ] && pass "$name: corrections replayed $replayed ticks" \
+		|| fail "$name: no tick replayed (a carried CamSpy taken for a flown one?): ${pr:-no summary}"
+}
+
 # ---------------------------------------------------------------- lobby
 case_lobby() {
 	local name=lobby port=$((PORT + 8)) L=$OUT/lobby-pdlobbyd.log H=$OUT/lobby-host.log J=$OUT/lobby-join.log
@@ -530,6 +567,7 @@ for c in $CASES; do
 		ga) case_ga ;;
 		ge) case_ge ;;
 		hostanti) case_hostanti ;;
+		agentwalk) case_agentwalk ;;
 		lobby) case_lobby ;;
 		lobbyhost) case_lobbyhost ;;
 		*) fail "unknown case $c" ;;
