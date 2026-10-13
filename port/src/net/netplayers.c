@@ -2732,6 +2732,15 @@ void netPlayersTickReadPad(void)
 	}
 }
 
+// the weapon a player's body holds in a hand (-1 none): what other
+// machines see in its hand
+static s32 netTraceHeld(struct player *p, s32 hand)
+{
+	struct prop *held = p->prop && p->prop->chr ? p->prop->chr->weapons_held[hand] : NULL;
+
+	return held && held->weapon ? held->weapon->weaponnum : -1;
+}
+
 static void netPlayersTrace(void)
 {
 	s32 i;
@@ -2750,13 +2759,15 @@ static void netPlayersTrace(void)
 
 		// (busy: the commands played for that pad so far that held any
 		// input; speed: the walk's forwards and sideways, the shot push)
-		sysLogPrintf(LOG_NOTE, "net: trace tick %u player %d pad %d%s pos %.1f %.1f %.1f theta %.2f verta %.2f weapon %d ammo %d dead %d busy %u speed %.2f %.2f push %.1f %.1f devices %#x cloaked %d",
+		sysLogPrintf(LOG_NOTE, "net: trace tick %u player %d pad %d%s pos %.1f %.1f %.1f theta %.2f verta %.2f weapon %d ammo %d dead %d busy %u speed %.2f %.2f push %.1f %.1f devices %#x cloaked %d held %d/%d func %d charge %.2f",
 				g_NetTick, i, pad, netPadIsRemote(pad) ? " (remote)" : netIsLocalSlot(i) ? " (local)" : "",
 				p->prop->pos.x, p->prop->pos.y, p->prop->pos.z, p->vv_theta, p->vv_verta,
 				p->gunctrl.weaponnum, p->hands[HAND_RIGHT].loadedammo[0], p->isdead,
 				pad >= 0 && pad < MAX_PLAYERS ? s_Pads[pad].busy : 0, p->speedforwards, p->speedsideways,
 				p->bondshotspeed.x, p->bondshotspeed.z, p->devicesactive,
-				p->prop->chr ? (p->prop->chr->hidden & CHRHFLAG_CLOAKED) != 0 : -1);
+				p->prop->chr ? (p->prop->chr->hidden & CHRHFLAG_CLOAKED) != 0 : -1,
+				netTraceHeld(p, HAND_RIGHT), netTraceHeld(p, HAND_LEFT),
+				p->hands[HAND_RIGHT].gset.weaponfunc, p->hands[HAND_RIGHT].matmot1);
 	}
 
 	if (g_NetMode == NETMODE_CLIENT) {

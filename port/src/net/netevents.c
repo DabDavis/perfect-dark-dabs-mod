@@ -580,11 +580,19 @@ static const char *netRefText(struct prop *prop, char *buf, s32 size)
 	return buf;
 }
 
+// set while the host sounds a client's shot on that player's body
+// (netEvHostRemoteShotSound): the fireslot it goes through is no event, the
+// shot already went to everyone as PLAYERSHOT
+static s32 s_HostOwnFireslot = 0;
+static s32 netEvGeRocketLaunch(struct chrdata *chr, s32 handnum);
+static u32 s_HostRemoteShots = 0;       // a client's shots the host played (netEvPlayerShot)
+static u32 s_HostRemoteShotsSounded = 0; // ... that began the gun's sound here (not one still sounding)
+
 void netEvChrFireslot(struct chrdata *chr, s32 handnum, s32 withsound, s32 withbeam, struct coord *from, struct coord *to)
 {
 	struct netbuf b;
 
-	if ((!withsound && !withbeam) || !chr || !chr->prop || !netEvHostOn()) {
+	if ((!withsound && !withbeam) || !chr || !chr->prop || !netEvHostOn() || s_HostOwnFireslot) {
 		return;
 	}
 
@@ -636,6 +644,39 @@ static s32 netEvWeaponBeam(s32 weaponnum)
 }
 
 /**
+ * A client's player fired on the host: the host hears it from where that
+ * player stands, as every client hears it on its puppet (NETEV_PLAYERSHOT's
+ * apply below: the held gun's fireslot, its sound alone). The gun's own
+ * sound in bondgun.c is the shooter's first person one, which the remote
+ * pass leaves to the shooter's machine (g_NetRemotePass): the host had
+ * heard nothing of any client's gun, a sim's shots only (F3
+ * 20261013-053505, "other players guns don't make sounds. Simulants are
+ * fine"). GoldenEye's guns go the same way (chrUpdateFireslot's
+ * g_PsShootReplaces), and its rocket launcher, silent there, by its launch.
+ */
+static void netEvHostRemoteShotSound(struct player *player, s32 handnum)
+{
+	struct chrdata *chr = player->prop ? player->prop->chr : NULL;
+
+	if (!chr || player->isdead) {
+		return;
+	}
+
+	s_HostRemoteShots++;
+	chr->hidden2 &= ~CHRH2FLAG_FIRESOUNDDONE;
+	s_HostOwnFireslot = 1;
+	chrUpdateFireslot(chr, handnum, true, false, &player->chrmuzzlelastpos[handnum], &player->hands[handnum].hitpos);
+	s_HostOwnFireslot = 0;
+
+	if (netEvGeRocketLaunch(chr, handnum)) {
+		geSfxPlayAt(GESFX_ROCKET_LAUNCH, player->prop, NULL, NULL, PSTYPE_NONE, 0);
+		s_HostRemoteShotsSounded++;
+	} else if (chr->hidden2 & CHRH2FLAG_FIRESOUNDDONE) {
+		s_HostRemoteShotsSounded++;
+	}
+}
+
+/**
  * E2 (handTickAttack, a shot fired): the shooter's machine made its own
  * muzzle, sound and tracer when it fired; everybody else gets them on its
  * puppet. The shooter's machine gets the event too, with the command it
@@ -672,6 +713,10 @@ void netEvPlayerShot(s32 handnum)
 	netWritePos(&b, &player->hands[handnum & 1].hitpos);
 	netBufWriteU32(&b, cmd);
 	netEvEnd(&b, NETEV_PLAYERSHOT, -1, -1);
+
+	if (netPlayersHostSlotIsRemote(g_Vars.currentplayernum)) {
+		netEvHostRemoteShotSound(player, handnum & 1);
+	}
 }
 
 void netEvExplosion(struct prop *source, struct coord *pos, RoomNum *rooms, s32 type, s32 playernum,
@@ -1383,10 +1428,11 @@ static void netEvHostLog(const char *why)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: events host %s (tick %u): recorded %u (%s); %u messages, %u bytes (game %u/%u, fx %u/%u, shot %u/%u: messages/bytes; explosion and hit copies %u, explosions caught up %u), %u dropped (buffer full), %u too big for a datagram, %u hudmsgs again within a second not sent",
+	sysLogPrintf(LOG_NOTE, "net: events host %s (tick %u): recorded %u (%s); %u messages, %u bytes (game %u/%u, fx %u/%u, shot %u/%u: messages/bytes; explosion and hit copies %u, explosions caught up %u), %u dropped (buffer full), %u too big for a datagram, %u hudmsgs again within a second not sent; clients' shots heard here %u of %u",
 			why, g_NetTick, s_HostRecordedTotal, counts, s_HostMsgs, s_HostSentBytes,
 			s_HostClassMsgs[NETEV_GAME], s_HostClassBytes[NETEV_GAME], s_HostClassMsgs[NETEV_FX], s_HostClassBytes[NETEV_FX],
-			s_HostClassMsgs[NETEV_SHOT], s_HostClassBytes[NETEV_SHOT], s_SureCopies, s_SureCatchUp, s_HostDroppedFull, s_HostShotTooBig, s_HudDupes);
+			s_HostClassMsgs[NETEV_SHOT], s_HostClassBytes[NETEV_SHOT], s_SureCopies, s_SureCatchUp, s_HostDroppedFull, s_HostShotTooBig, s_HudDupes,
+			s_HostRemoteShotsSounded, s_HostRemoteShots);
 }
 
 /**
@@ -2651,6 +2697,7 @@ void netEventsStageStart(void)
 	s_SureCopies = s_SureDupes = s_SureCatchUp = 0;
 	memset(s_HostClassBytes, 0, sizeof(s_HostClassBytes));
 	s_HostShotTooBig = 0;
+	s_HostRemoteShots = s_HostRemoteShotsSounded = 0;
 	memset(s_RecvClassMsgs, 0, sizeof(s_RecvClassMsgs));
 	memset(s_RecvClassBytes, 0, sizeof(s_RecvClassBytes));
 	memset(s_ClassLastTick, 0, sizeof(s_ClassLastTick));
