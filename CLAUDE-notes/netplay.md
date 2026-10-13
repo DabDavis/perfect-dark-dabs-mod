@@ -4091,3 +4091,25 @@ sims?".
 - **Sims' heads are the host's numbers on a client** (RULES' head rows; 8 profile sims with random
   heads, the client in the HD look: every headnum/bodynum equal). A look difference is each machine's
   own look.
+
+## F3 pass 39: a remote player's gun (2026-10-13, no wire change, protocol stays 32)
+
+- **Every second Quick Weapon Swap left the body empty handed.** `weaponDeleteFromChr()` only marks
+  the old gun `OBJHFLAG_DELETING`; the chr's next tick (`chr0f022214`) frees it and empties the hand.
+  Quick swap lowers and raises on one tick, so `playermgrCreateWeapon()` found the hand still full
+  and made nothing; the hand then emptied, and the next swap worked (alternating). Online the host's
+  body of a client is what every machine sees (the snapshot's held weapon), so "rcp120 / pp9i /
+  phoenix invisible to host" (F3 20261013-102408 and four more, owner dab with QuickWeaponSwap=1).
+  Offline split-screen had the same. A gun on its way out now counts as none (either hand, so a
+  new gun never pairs with one being freed). netpuppettest `held` gates it (Grid, quick swap on).
+- **The host heard no client's gun.** A player's shot sound is the first person `sndStart` in
+  bondgun.c, which a remote pass mutes (`g_NetRemotePass`); clients hear a remote shot through
+  PLAYERSHOT on the puppet (`chrUpdateFireslot`), the host had nothing (F3 20261013-053505, "other
+  players guns don't make sounds. Simulants are fine"). `netEvPlayerShot` now sounds a remote
+  shooter's fireslot on the host the same way (its E1 left out: `s_HostOwnFireslot`), GoldenEye guns
+  and the rocket launcher's launch included; "clients' shots heard here N of M" in the host's events
+  summary.
+- **A deployed Laptop Gun's kill read "RC-P45"**: `autogunTick` fires the RC-P45's gset (stock);
+  the kill feed is told around the match branch's hit (`killfeedSetSentry`).
+- **The Mauler's charge** reaches the host (same charge and magazine as the client, traced); Perfect
+  Dark draws the charge only on the first person gun, so other players never see it (notabug).

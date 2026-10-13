@@ -878,6 +878,27 @@ void playermgrCreateWeapon(s32 hand)
 {
 	struct chrdata *chr = g_Vars.currentplayer->prop->chr;
 
+#ifndef PLATFORM_N64
+	// A gun put away is only marked for deletion (weaponDeleteFromChr());
+	// the chr's next tick frees it and empties the hand. Quick Weapon Swap
+	// takes the old gun out and puts the new one in on the same tick, which
+	// found the hand still full and made nothing: every second swap left
+	// the body empty handed, for everyone watching it (F3 20261013-102408,
+	// "rcp120 invisible to host"). A gun on its way out is no gun in the
+	// hand, as an aibot's swap has it (chrEquipWeapon()); either
+	// hand, so that a new gun never pairs with one being freed.
+	{
+		s32 i;
+
+		for (i = 0; i < 2; i++) {
+			if (chr->weapons_held[i] && chr->weapons_held[i]->obj
+					&& (chr->weapons_held[i]->obj->hidden & OBJHFLAG_DELETING)) {
+				chr->weapons_held[i] = NULL;
+			}
+		}
+	}
+#endif
+
 	if (chr->weapons_held[hand] == NULL) {
 		s32 weaponnum = bgunGetWeaponNum(hand);
 		s32 modelnum = playermgrGetModelOfWeapon(weaponnum);

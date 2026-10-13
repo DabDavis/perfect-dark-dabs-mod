@@ -41,6 +41,10 @@ void killfeedNoteHit(struct chrdata *chr, struct gset *gset, struct prop *aprop,
 void killfeedNoteExplosion(s32 index, struct prop *source);
 void killfeedSetExplosion(s32 index);
 
+// Around a deployed Laptop Gun's hit (autogunTick in a match): the hit is
+// named for the Laptop Gun, its rounds being the RC-P45's (true, then false)
+void killfeedSetSentry(s32 on);
+
 // The weapon of a death between these mpchr player numbers, for the wire
 // (netEvRecordDeath): KILLFEED_WEAPON_* or a weapon number
 u8 killfeedDeathWeapon(s32 aplayernum, s32 vplayernum);

@@ -40,6 +40,15 @@
 #           in other players' passes), so its magazine never drained there,
 #           and the host's switch-off at an empty magazine never reached it:
 #           its next press cloaked the host's player and uncloaked its own.
+#   held    (Grid, 0x47, no sims, two clients, the first with Quick Weapon
+#           Swap on) the host hands the client's player the RC-P120, PP9i,
+#           Phoenix and Mauler in turn (--net-test-give) and it fires each:
+#           on the host its body must hold every gun it holds (the quick swap
+#           took the old gun out and put the new one in on one tick, and
+#           every second swap left the hand empty for everyone: F3
+#           20261013-102408, -103444, -104201, -102018, -103931), and the
+#           host must hear its shots (it heard no client's gun: F3
+#           20261013-053505).
 #   laptop  (0x32, 2 sims, the client's player invincible) the client's player is given the Laptop Gun
 #           (--net-test-give) and fires it with the alt mode button held
 #           (its second function): thrown to deploy as a sentry. The host's laptopDeploy makes an
@@ -58,7 +67,7 @@
 #   netpuppettest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: OUT (build/netpuppet-out), PORT (27200; uses PORT..PORT+4), MODDIR
-# (mod_allinone), CASES (skedar lossy doors two alarm laptop cloak shots; shots only takes the
+# (mod_allinone), CASES (skedar lossy doors two alarm laptop cloak held shots; shots only takes the
 # screenshots, its players invincible and moved, so it gates on nothing but a
 # clean run).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
@@ -67,7 +76,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpuppet-out}; PORT=${PORT:-27200}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-skedar lossy doors two alarm laptop cloak shots}
+CASES=${CASES:-skedar lossy doors two alarm laptop cloak held shots}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -126,6 +135,19 @@ cat > "$OUT/cloak.script" <<'EOF'
 800 805 0020 0 0 0 0 0 0
 1300 1305 0020 0 0 0 0 0 0
 EOF
+# held: the client stands, turned a little, while the host hands it gun
+# after gun, and fires each (the Mauler charged first: the alt mode button)
+cat > "$OUT/held.script" <<'EOF'
+60 90 0 0 0 0 0 0.3 0
+500 501 2000 0 0 0 0 0 0
+560 561 2000 0 0 0 0 0 0
+900 901 2000 0 0 0 0 0 0
+960 961 2000 0 0 0 0 0 0
+1300 1301 2000 0 0 0 0 0 0
+1360 1361 2000 0 0 0 0 0 0
+1600 1605 0020 0 0 0 0 0 0
+1800 1801 2000 0 0 0 0 0 0
+EOF
 cat > "$OUT/shots.script" <<'EOF'
 60 300 0008 0 0 0 0 0 0
 EOF
@@ -143,6 +165,7 @@ game() {
 	rm -rf "$save"; mkdir -p "$save"
 	printf '%b' "$INI" > "$save/pd.ini"
 	case $label in alarm-*) printf 'GuardsAlerted=1\nAlertedGuards=4\nGuardSpawnSpeed=16\n' >> "$save/pd.ini" ;; esac
+	case $label in held-client) printf 'QuickWeaponSwap=1\n' >> "$save/pd.ini" ;; esac
 	cd "$BUILD" || exit 2
 	exec timeout -k 5 "$t" stdbuf -oL -eL "$BIN" --savedir "$save" --skip-intro --no-sound "$@" > "$OUT/$label.log" 2>&1
 }
@@ -262,6 +285,7 @@ run() {
 	[ "$label" = shots ] && { extra=1500; cscript=shots.script; }
 	[ "$label" = laptop ] && cscript=laptop.script
 	[ "$label" = cloak ] && cscript=cloak.script
+	[ "$label" = held ] && cscript=held.script
 	game "$label-host" 240 --moddir "$MODDIR" --host "$port" --net-test-host "$nclients" --net-test-stage "$stage" \
 		--net-test-sims "$sims" --endless --rng-seed 1 --mp-weapons 1,4,7,9,10,1 \
 		--net-test-input "$OUT/host.script" --net-snap-dump "$OUT/$label-host.dump" \
@@ -537,6 +561,7 @@ check_run() {
 		alarm)  run alarm $((PORT + i)) 0x17 0 1 2400 --chr-trace ;;
 		laptop) run laptop $((PORT + i)) 0x32 2 1 2400 --net-test-give 300,0x0e --net-test-invincible-pad 1 ;;
 		cloak)  run cloak $((PORT + i)) 0x32 0 2 1800 --net-test-give 300,0x0d --net-test-trace 30 ;;
+		held)   run held $((PORT + i)) 0x47 0 2 2000 --net-test-give 300,0x0d/700,0x24/1100,0x07/1500,0x06 --net-test-trace 30 ;;
 		esac
 		i=$((i + 1))
 	done
@@ -595,6 +620,32 @@ else:
     print(f"FAIL cloak: {len(bad)} samples off the host's (on {ons}, off {offs}, dry {dry})"); sys.exit(1)
 PY
 	        grep "net: local block .*cloaks set" "$OUT/cloak-client.log" | tail -1 | sed "s/^.*net: /     cloak client: /" ;;
+	held)   check_run held client client2
+	        python3 - "$OUT/held-host.log" <<'PY' || status=1
+import re, sys
+T = {}
+heard = None
+for l in open(sys.argv[1]):
+    m = re.search(r"net: trace tick (\d+) player 1 .* weapon (\d+) .* held (-?\d+)/(-?\d+)", l)
+    if m: T[int(m.group(1))] = (int(m.group(2)), int(m.group(3)))
+    m = re.search(r"clients' shots heard here (\d+) of (\d+)", l)
+    if m: heard = (int(m.group(1)), int(m.group(2)))
+bad = []
+guns = set()
+for k in sorted(T):
+    w, h = T[k]
+    # in the hand for 60 ticks: the body holds it (a sample's gap for the swap)
+    if k >= 150 and k < 1980 and w > 1 and all(T.get(k - d, (None,))[0] == w for d in (30, 60)):
+        guns.add(w)
+        if h != w: bad.append(f"tick {k}: the client's player holds 0x{w:02x} on the host, its body 0x{h & 0xff:02x}" if h >= 0 else f"tick {k}: the client's player holds 0x{w:02x} on the host, its body nothing")
+print(f"     held: {len(guns)} guns held in turn ({' '.join('0x%02x' % g for g in sorted(guns))}); the host heard {heard[0] if heard else '?'} of the client's {heard[1] if heard else '?'} shots")
+if len(guns) >= 5 and not bad and heard and heard[1] >= 4 and heard[0] >= 4:
+    print("ok   held: every gun the client's player held was in its body's hand on the host (Quick Weapon Swap on), and the host heard its shots")
+else:
+    for b in bad[:10]: print("     " + b)
+    print(f"FAIL held: {len(bad)} samples empty handed or holding another gun, {len(guns)} guns (want 5), shots heard {heard}"); sys.exit(1)
+PY
+	        ;;
 	laptop) check_run laptop client
 	        grep -q "net: --net-test-give: slot 1 given guns 0x0e" "$OUT/laptop-host.log" || fail "laptop: the host never gave the client's player the Laptop Gun"
 	        lp=$(grep "net: puppets " "$OUT/laptop-client.log" | tail -1 | sed -n 's/.*thrown laptops made \([0-9]*\), autogun shots drawn \([0-9]*\).*/\1 \2/p')

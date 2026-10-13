@@ -83,6 +83,7 @@ static u8 s_LastHit[MAX_MPCHRS];        // the weapon of each mpchr's latest hit
 static u8 s_ExpWeapon[128];             // the weapon each explosion was made by
 static s32 s_CurExplosion = -1;         // the explosion dealing damage now
 static s32 s_WireWeapon = -1;           // a client's: the weapon DEATH carried
+static s32 s_Sentry = 0;                // a deployed Laptop Gun's hit going on (killfeedSetSentry)
 static s32 s_Log = -1;                  // --killfeed-log: every line to the log
 
 s32 killfeedIsOn(void)
@@ -160,6 +161,13 @@ void killfeedNoteHit(struct chrdata *chr, struct gset *gset, struct prop *aprop,
 		return;
 	}
 
+	// a deployed Laptop Gun fires the RC-P45's rounds (autogunTick's gset):
+	// "laptop gun shot fro but says rcp45" (F3 20261013-102618)
+	if (s_Sentry && weapon == WEAPON_RCP45) {
+		s_LastHit[index] = WEAPON_LAPTOPGUN;
+		return;
+	}
+
 	if (weapon < NUM_WEAPONS) {
 		weapon = killfeedLauncher(weapon);
 
@@ -202,6 +210,11 @@ u8 killfeedDeathWeapon(s32 aplayernum, s32 vplayernum)
 	}
 
 	return s_LastHit[vplayernum];
+}
+
+void killfeedSetSentry(s32 on)
+{
+	s_Sentry = on;
 }
 
 void killfeedSetWireWeapon(s32 weapon)

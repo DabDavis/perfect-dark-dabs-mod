@@ -122,6 +122,7 @@
 #include "gexfront.h"
 #include "gecinema.h"
 #include "net/net.h"
+#include "killfeed.h"
 #endif
 #endif
 
@@ -10547,7 +10548,15 @@ void autogunTickShoot(struct prop *autogunprop)
 								}
 
 								chrEmitSparks(hitchr, hitprop, hitpart, &hitpos, &dir, ownerchr);
+#ifndef PLATFORM_N64
+								// the kill feed names a sentry's kill for the Laptop Gun,
+								// not the RC-P45 its rounds are (killfeed.c)
+								killfeedSetSentry(g_Vars.normmplayerisrunning);
+#endif
 								func0f0341dc(hitchr, damage, &dir, &gset, ownerprop, HITPART_GENERAL, hitprop, hitnode, hitmodel, hitside, NULL);
+#ifndef PLATFORM_N64
+								killfeedSetSentry(false);
+#endif
 							}
 						} else {
 							missed = true;
