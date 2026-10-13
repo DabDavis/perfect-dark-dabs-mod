@@ -730,6 +730,25 @@ void netTestOwnOptions(void)
 			sysLogPrintf(LOG_NOTE, "net: --net-test-forward-pitch: this machine's own player 1 forward pitch %d", s_TestPitch != 0);
 		}
 	}
+
+	// --net-test-flip-pitch TICK (netpredicttest pitchkeep): a client turns
+	// its seat's Reverse Pitch round once at that match tick, as the pause
+	// menu's Control page does (netRulesKeepSeatOptions keeps it after)
+	{
+		static s32 fliptick = -2;
+
+		if (fliptick == -2) {
+			fliptick = sysArgGetInt("--net-test-flip-pitch", -1);
+		}
+
+		if (fliptick >= 0 && g_NetMode == NETMODE_CLIENT && s_MatchActive && !s_Spectating
+				&& s_ClientSlot >= 0 && s_ClientSlot < MAX_PLAYERS && g_NetTick >= (u32)fliptick) {
+			g_PlayerConfigsArray[s_ClientSlot].options ^= OPTION_FORWARDPITCH;
+			sysLogPrintf(LOG_NOTE, "net: --net-test-flip-pitch: tick %u: seat %d forward pitch now %d", g_NetTick, s_ClientSlot,
+					(g_PlayerConfigsArray[s_ClientSlot].options & OPTION_FORWARDPITCH) != 0);
+			fliptick = -1;
+		}
+	}
 }
 
 /**
@@ -4668,6 +4687,11 @@ void netStageStopped(void)
 	}
 
 	netMigrateMatchStopped();
+
+	if (s_Role == NETROLE_CLIENT && !s_Spectating) {
+		netRulesKeepSeatOptions(s_ClientSlot);
+	}
+
 	netRulesRestore();
 	netEventsMatchStopped();
 	netWorldMatchStopped();
