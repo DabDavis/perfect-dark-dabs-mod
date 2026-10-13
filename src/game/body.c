@@ -646,6 +646,13 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 				chr->hidden2 |= CHRH2FLAG_BLUESIGHT;
 			}
 
+#ifndef PLATFORM_N64
+			// GoldenEye's Natalya is Bond's friend: blue in the sight
+			if (gexPlusRomRowIsAlly(bodynum)) {
+				chr->hidden2 |= CHRH2FLAG_BLUESIGHT;
+			}
+#endif
+
 			chr->flags = packed->flags;
 			chr->flags2 = packed->flags2;
 

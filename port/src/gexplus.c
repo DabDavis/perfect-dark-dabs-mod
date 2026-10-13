@@ -1193,6 +1193,41 @@ s32 gexPlusRomChrForRow(s32 row)
 	return -1;
 }
 
+/**
+ * Natalya on one of GoldenEye's own missions (F3 20261012-220653, Archives:
+ * the Farsight's target box red round her). Perfect Dark's sight shows a chr
+ * blue by team or CHRH2FLAG_BLUESIGHT (sightIsPropFriendly()); a converted
+ * setup puts every chr on team 0 beside its guards, as GoldenEye has no sides,
+ * so she read as an enemy. She is never one in GoldenEye. A ROM hack's
+ * character 16 is its own (Goldfinger's list is another), so only GoldenEye's
+ * own conversion's.
+ */
+#define GEROM_CHR_NATALYA 16
+
+s32 gexPlusRomRowIsAlly(s32 row)
+{
+	const char *dir;
+	const char *base;
+	s32 index;
+
+	if (g_Vars.normmplayerisrunning || !modloaderStageIsMission(g_Vars.stagenum)
+			|| row < 0 || row >= NUM_HEADSANDBODIES || gexPlusRomChrForRow(row) != GEROM_CHR_NATALYA) {
+		return 0;
+	}
+
+	index = romdataFileGetModDir(g_HeadsAndBodies[row].filenum);
+	dir = index >= 0 ? fsGetModDirAt(index) : NULL;
+	base = dir;
+
+	for (const char *c = dir; c && *c; ++c) {
+		if (*c == '/' || *c == '\\') {
+			base = c + 1;
+		}
+	}
+
+	return base && strcasecmp(base, GEXPLUSROM_DIR) == 0;
+}
+
 s32 gexPlusRomIsPoolRow(s32 num)
 {
 	for (s32 i = 0; i < g_GeRomNumRows; i++) {

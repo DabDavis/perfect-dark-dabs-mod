@@ -3651,13 +3651,16 @@ s32 chrTick(struct prop *prop)
 					// or a helmet is lifted clear of hair standing through it
 					// (xblaMeshHatSeat(), F3 20260930-020448, 022258), made
 					// as much bigger as covers it, and set down onto hair it
-					// floats over (F3 20261004-153345 to 155030). A beret
+					// floats over (F3 20261004-153345 to 155030) - a side cap
+					// by no more than 2, as a lift off a full head of hair
+					// stood it in the air (F3 20261013-001948). A beret
 					// and a fur hat measured so were lifted off their heads by
 					// their own flaps, and need nothing.
 					if (hatmodel && hatmodel->matrices && (chr->weapons_held[2]->flags & PROPFLAG_ONTHISSCREENTHISTICK)
 							&& headdef && xblaMeshHatSeat(model, headdef, hatmodel,
 								hattype == 1 /* side cap */ ? 1.25f
-								: hattype == HATTYPE_2 /* peaked cap */ || hattype == HATTYPE_METAL ? 1.12f : 0.0f, seat)) {
+								: hattype == HATTYPE_2 /* peaked cap */ || hattype == HATTYPE_METAL ? 1.12f : 0.0f,
+								hattype == 1 ? XBLAMESH_HAT_SIDECAP_MAXLIFT : XBLAMESH_HAT_MAXLIFT, seat)) {
 						// set on the hair, and sized about the middle of its
 						// rim to cover it: (offset + anchor) * size(anchor)
 						struct coord hatpos = {

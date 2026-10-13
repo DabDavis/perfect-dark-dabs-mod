@@ -14397,7 +14397,9 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
  * 0.77 to 1.18); hair through the crown a lift clears. The smallest size with
  * the sides clear and the crown within 4 units, up to `maxscale` (1.25 for a
  * side cap, 1.12 for a helmet or a peaked cap, which look like buckets past
- * that); then the lift, 2 clear, at most 14 - a few hairs through it beat a hat
+ * that); then the lift, 2 clear, at most 14 (a side cap 2: F3 20261013-001948
+ * and 002134, a side cap lifted 6 to 8 off Alan's and Karl's hair stood over
+ * it with its lining showing from below) - a few hairs through it beat a hat
  * in the air. Each the third worst, so one stray strand is not the answer;
  * through the sides deeper than 12 is a brow or a nape under the band, which
  * no size fixes. A hat nothing stands through is set down until it meets the
@@ -14430,8 +14432,6 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 #define XBLAMESH_HAT_GAIN   0.5f
 // The most a hat is lifted at a size before a bigger one is tried
 #define XBLAMESH_HAT_LIFTOK 4.0f
-// The most a hat is lifted at all: a few hairs through it beat a hat in the air
-#define XBLAMESH_HAT_MAXLIFT 14.0f
 // How near a hat's corners stand to a point of the head to be its rim there
 #define XBLAMESH_HAT_RIMNEAR 16.0f
 // The furthest a hat standing over the hair is set down onto it
@@ -14446,6 +14446,7 @@ static struct {
 	s32 headrow; // the release's rows, plus one, for the log
 	s32 hatrow;
 	f32 maxscale;
+	f32 maxlift;
 	f32 offset[7];
 } hatSeats[XBLAMESH_HAT_CACHE];
 static s32 hatSeatNext;
@@ -14686,7 +14687,7 @@ static void xblaMeshHatSeatNeed(const f32 *pts, s32 numpts, const f32 anchor[3],
 }
 
 static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, f32 maxscale,
-		f32 out[7], s32 *outheadrow, s32 *outhatrow)
+		f32 maxlift, f32 out[7], s32 *outheadrow, s32 *outhatrow)
 {
 	const struct xblameshentry *he = xblaMeshBeanEntry(headdef);
 	const struct xblameshentry *te = xblaMeshBeanEntry(hatmodel->definition);
@@ -15269,7 +15270,7 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 
 	worst[2] = lift;
 	lift = lift > 0.0f ? lift + XBLAMESH_HAT_CLEAR : 0.0f;
-	lift = lift > XBLAMESH_HAT_MAXLIFT ? XBLAMESH_HAT_MAXLIFT : lift;
+	lift = lift > maxlift ? maxlift : lift;
 
 	// Nothing through it, a hat standing over the hair is set down onto it
 	if (scale == 1.0f && lift == 0.0f && drop > XBLAMESH_HAT_CLEAR) {
@@ -15322,7 +15323,7 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 	return 1;
 }
 
-s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, f32 maxscale, f32 out[7])
+s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, f32 maxscale, f32 maxlift, f32 out[7])
 {
 	s32 at = -1;
 	s32 same = -1;
@@ -15333,7 +15334,7 @@ s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct mod
 
 	for (s32 i = 0; i < XBLAMESH_HAT_CACHE; i++) {
 		if (hatSeats[i].chrmodel && hatSeats[i].headdef == headdef && hatSeats[i].hatdef == hatmodel->definition
-				&& hatSeats[i].maxscale == maxscale) {
+				&& hatSeats[i].maxscale == maxscale && hatSeats[i].maxlift == maxlift) {
 			if (hatSeats[i].chrmodel == chrmodel) {
 				at = i;
 				break;
@@ -15361,8 +15362,9 @@ s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct mod
 			hatSeats[at].headdef = headdef;
 			hatSeats[at].hatdef = hatmodel->definition;
 			hatSeats[at].maxscale = maxscale;
+			hatSeats[at].maxlift = maxlift;
 			hatSeats[at].headrow = hatSeats[at].hatrow = 0;
-			hatSeats[at].ok = xblaMeshHatSeatMeasure(chrmodel, headdef, hatmodel, maxscale, hatSeats[at].offset, &headrow, &hatrow);
+			hatSeats[at].ok = xblaMeshHatSeatMeasure(chrmodel, headdef, hatmodel, maxscale, maxlift, hatSeats[at].offset, &headrow, &hatrow);
 			hatSeats[at].headrow = headrow;
 			hatSeats[at].hatrow = hatrow;
 		}
@@ -15635,7 +15637,7 @@ s32 xblaMeshGetEnabled(void) { return 0; }
 void xblaMeshSetEnabled(s32 enabled) { }
 void xblaMeshResetModels(void) { }
 void xblaMeshHitBegin(void) { }
-s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, f32 maxscale, f32 out[7]) { return 0; }
+s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, f32 maxscale, f32 maxlift, f32 out[7]) { return 0; }
 s32 xblaMeshTakeFineModel(struct model *model) { return 0; }
 s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node) { return 0; }
 s32 xblaMeshModelHasMesh(struct model *model) { return 0; }

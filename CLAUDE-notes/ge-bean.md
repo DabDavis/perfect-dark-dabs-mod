@@ -15303,3 +15303,32 @@ built-in had swapped for the release's headneil (curly hair, goatee, glasses) on
   GoldenEye arena sim as BODYFILE/HEADFILE. `RUNDIR=` picks a run dir (one with the CE zip, one without the ROM).
   `Video.DefaultWidth/Height` in the save's pd.ini sets the offscreen size; a relative `--savedir` resolves under
   the base dir (data/), so give it absolute.
+
+## F3 pass 39 (gechars, 2026-10-13, fix/f3-1013-gechars): side caps, Doak's spawn, Natalya blue
+
+- **A side cap lifted off a full head of hair (F3 20261013-001948, 002134, Facility HD).** The capped guards were
+  Alan (Cgx043Z, moustache; Ken 67 is the same mesh) and Karl (Cgx042Z). `xblaMeshHatSeat()` sized the side cap
+  1.24 / 1.23 and then lifted it 8.3 / 5.7 to clear the crown hair still through it; the lift stood the cap over
+  the hair with its lining and a band of hair showing from below (the tester's low, close view). A side cap is now
+  lifted at most 2 (`XBLAMESH_HAT_SIDECAP_MAXLIFT`, xblamesh.h; helmets and peaked caps keep 14), passed by
+  chrRender() as `maxlift`; the size is still measured. Dave 51 1.17 lifts 2 instead of 5.5; a head with
+  nothing through (52) is unchanged. Probe `~/wt/f3-1013-gechars-run/probe/hats.py` + `heads4.sh BIN TAG`: setup
+  chr slot 5 (a clear spot) wears each of 42 43 51 52 in turn (`FORCE` rewrites `g_ActiveMaleHeads` after
+  `gexPlusMissionHeads()`, the head at index 1 goes to slot 5), every other chr idled, orbit `PTHS`, `EYE`, `VERTA`.
+- **Doak and the decoder (F3 20261013-015322, 015435).** GoldenEye's own setup (decomp `UsetuparkZ.c`): the
+  decoder (tag 0) lies on the catwalk of room 32 from the start; background list 0x1004 (`ai_45`) waits for Bond
+  in pad 11's room (room 12, the vent past the start), then spawns Doak (body 35, head 51, list 0x425 = `ai_36`)
+  at one of seven pads by random seed (238-244; a refused pad falls through to the next), and `ai_36`'s
+  `chr_equip_object(0, self)` takes the decoder off the catwalk into his hand - so a decoder alone on the floor
+  means the spawn has not run. On every difficulty. Verified in the build: Bond put in room 12 -> Doak at pad 239
+  holding the decoder, all seven pads spawn (`probe/doakspawn.py`, `padspawn.py`). The converted 0x200 objective
+  bit reads as stage flag 0x20000 in a trace: `00000000` = the spawn list never got past its room test. The
+  tester's second attempt never spawned him (65 chrs at frame 1200 against 66 in the first).
+- **Natalya red in the Farsight (F3 20261012-220653, Archives).** Perfect Dark's sight is blue by team or
+  `CHRH2FLAG_BLUESIGHT` (`sightIsPropFriendly()`, the Farsight's target box and the crosshair); a converted setup
+  puts every chr on team 0 beside the guards (GoldenEye has no sides). `gexPlusRomRowIsAlly()`: GoldenEye's own
+  character 16 (Natalya) on its own missions, not a ROM hack's 16th, not a match - set at `bodyAllocateChr()` and
+  `chrSpawnAtCoord()`. Sight only; teams and AI untouched.
+- **Scientists' pistols (F3 20261013-002654)**: GoldenEye's global list 0x10 (`m_DrawPistolAndAttackBond`, ours
+  0x810) plays `ANIM_fire_standing_draw_one_handed_weapon_fast` frames 0-20 at 0.5 and gives the TT33 only after it
+  ends; ours does the same (traced: anim 1272 for 40 ticks, gun in hand the tick after). GoldenEye's own.
