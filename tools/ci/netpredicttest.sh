@@ -90,6 +90,13 @@
 #           value and its own by its own, the client its seat by its own, no
 #           "settings changed mid-match" with nothing changed, and the
 #           prediction gated as clean's
+#   pitchkeep  a client's own Reverse Pitch changed mid-match (F3
+#           20261012-225041: "randomly untick reverse tilt"): the client
+#           (forward pitch 0) turns its seat's round at tick 600 as the pause
+#           menu does (--net-test-flip-pitch), then the host quits and the
+#           client goes back to its menus; its player 1 must come back from
+#           the host's rules with forward pitch 1 (the restore had put the
+#           old 0 back)
 #   skipdeath  Skip Death Screen is the host's (the owner, pass 37: a
 #           desync with it set on one machine only): host 1, client 0; the
 #           host kills the client's seat at tick 600 (--net-test-kill) and the
@@ -117,7 +124,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpredict-out}; PORT=${PORT:-27300}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-clean lag relay loss wine sims chase time teamlimit hands cheats pitch skipdeath views views3p}
+CASES=${CASES:-clean lag relay loss wine sims chase time teamlimit hands cheats pitch pitchkeep skipdeath views views3p}
 MAXCPM=${MAXCPM:-10}
 FRAMES=${FRAMES:-3000}
 MINMATCH=${MINMATCH:-99}
@@ -421,6 +428,27 @@ run_time() {
 	wait "$client"; wait "$host"
 }
 
+# pitchkeep: the client's seat's Reverse Pitch turned round mid-match, then
+# the host goes and the client's match stops (H12)
+run_pitchkeep() {
+	local port=$1 label=pitchkeep
+	game "$label-host" 120 --moddir "$MODDIR" --host "$port" --net-test-host 1 --net-test-stage 0x32 \
+		--rng-seed 1 --endless --exit-frame 5000 &
+	local host=$!
+	waitfor "$OUT/$label-host.log" "net: hosting on UDP port" 60 || { echo "FAIL: $label host did not start"; kill -TERM $host; exit 2; }
+	# (no --net-test-join, which exits as the session ends)
+	game "$label-client" 110 --moddir "$MODDIR" --connect "127.0.0.1:$port" \
+		--net-test-forward-pitch 0 --net-test-flip-pitch 600 --exit-frame 5000 &
+	local client=$!
+	waitfor "$OUT/$label-client.log" "net-test-flip-pitch: tick" 90
+	sleep 2
+	kill -TERM "$host" 2>/dev/null
+	waitfor "$OUT/$label-client.log" "net: rules restored" 30
+	sleep 1
+	kill -TERM "$client" 2>/dev/null
+	wait "$client"; wait "$host"
+}
+
 check_time() {
 	local label=${1:-time} h c ht hl ct
 	h=$(grep -h "net: match clock at the end" "$OUT/$label-host.log" | tail -1)
@@ -594,6 +622,16 @@ check_pitch() {
 	measure pitch && pass "pitch: prediction" || fail "pitch: prediction"
 }
 
+check_pitchkeep() {
+	local C=$OUT/pitchkeep-client.log
+	grep -q 'net: --net-test-flip-pitch: tick [0-9]*: seat 1 forward pitch now 1' "$C" \
+		&& pass "pitchkeep: the client turned its seat's Reverse Pitch round mid-match" || fail "pitchkeep: the flip never happened"
+	grep -q 'net: rules: the match changed this machine.s options .* kept for its own player 1 (options 0x[0-9a-f]*, forward pitch 1)' "$C" \
+		&& pass "pitchkeep: the change was kept for its own player 1" || fail "pitchkeep: not kept: $(grep -o 'net: rules: the match changed.*' "$C")"
+	grep -q 'net: rules restored: .*forward pitch 1)' "$C" \
+		&& pass "pitchkeep: after the match its player 1 has forward pitch 1" || fail "pitchkeep: after the match: $(grep -o 'net: rules restored.*' "$C")"
+}
+
 check_cheats() {
 	local sets inv
 	check_run cheats || return
@@ -619,6 +657,7 @@ for c in $CASES; do
 		chase) run_chase $((PORT + i)) ;;
 		wine)  if [ -x "$(command -v wine)" ] && [ -e "$WINEEXE" ]; then run wine $((PORT + i)) "$FRAMES" 1 "${WINESIM-0,75}"; else echo "skip wine: no wine or no $WINEEXE"; fi ;;
 		time)  run_time $((PORT + i)) ;;
+		pitchkeep) run_pitchkeep $((PORT + i)) ;;
 		teamlimit) run_time $((PORT + i)) teamlimit --net-test-teamscorelimit 2 --net-test-givekills 1,600,4 ;;
 		hands) run_lp hands $((PORT + i)) "[Mod]\nAkimbo=1\n" "[Mod]\nAkimboTriggers=1\nQuickWeaponSwap=1\n" \
 				"--net-test-stage 0x17 --net-sim 0,72 --net-test-give 600,0x6d,-0x08/1200,0x08" "--net-sim 0,72" ;;
@@ -648,6 +687,7 @@ for c in $CASES; do
 			snaps "$c"
 			;;
 		pitch) [ -e "$OUT/pitch-client.log" ] && check_pitch ;;
+		pitchkeep) [ -e "$OUT/pitchkeep-client.log" ] && check_pitchkeep ;;
 		chase) [ -e "$OUT/chase-client.log" ] && check_chase ;;
 		skipdeath) [ -e "$OUT/skipdeath-client.log" ] && check_skipdeath ;;
 		views) [ -e "$OUT/views-client.log" ] && check_views views 0 ;;

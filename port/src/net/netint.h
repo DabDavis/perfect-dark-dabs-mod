@@ -505,6 +505,7 @@ void netRulesApply(void);           // a client: the stored blob over its own st
 struct mpplayerconfig *netRulesOwnPlayer(void); // a client under the host's rules: its own player 1's config as saved (else NULL)
 void netRulesSaveHost(void);        // the host: what it changes for remote slots
 void netRulesRestore(void);         // H12
+void netRulesKeepSeatOptions(s32 slot); // a client, before H12: its pause menu's changes to its seat kept
 void netRulesSetLocked(s32 locked);
 // Host migration (netmigrate.c): a client keeps the match's RULES past H12;
 // a machine that took the room over adopts them as its own setup (its

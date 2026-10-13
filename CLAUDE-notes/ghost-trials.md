@@ -212,3 +212,14 @@ the Security Question page on the tick after the answer lands (not in
 not they set one, and only while Ghost Trials is the dialog on top: a tick
 reaches every dialog on the stack, and pushing from underneath would open the
 page over whatever the player had gone on to open.
+
+**The page's rows shrink to make room (F3 20261013-104501, pass 39).** The big-font
+rows make a page ~220 units wide and as tall as the view, so the plaque and the
+Trial Rules window only have the pillars: ~100 units a side at 16:9, 80 at 16:10,
+50 at 4:3. `menuGhostTrialsFit()` (called from `ghostmenuRenderOverlay()`, where
+the view is the menu render's - a tick's `viGetView*` gave a different width) puts
+the rows in the small font when either window would reach the big page, measured
+from the page's `contentwidth` placed as `dialogCalculatePosition()` would (its
+`dstx` is off screen while it swipes in). Small rows need a newline in their
+literal text or they measure no height and draw on top of each other, so the text
+pointers are swapped too. Logged as `ghostmenu: Ghost Trials rows small/big`.

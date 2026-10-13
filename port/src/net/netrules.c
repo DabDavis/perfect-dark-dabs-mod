@@ -231,6 +231,11 @@ struct netrulessaved {
 
 static struct netrulessaved s_NetSaved;
 
+// A client: each seat's option bits as netRulesPut put them, so what the
+// match itself changed in its own seat (the pause menu's Control page) can
+// be told from what RULES brought (netRulesKeepSeatOptions)
+static u16 s_PutOptions[MAX_PLAYERS];
+
 // Host migration (netmigrate.c): the RULES of the match whose host went
 // away, kept past its H12; and, on a machine that took the room over and
 // plays on with them as its own setup, its own state until it stops hosting
@@ -1567,6 +1572,7 @@ static void netRulesPut(const struct netrulesmsg *rules, s32 coop)
 		p->base.displayoptions = h->displayoptions;
 		p->handicap = h->handicap;
 		p->options = h->options;
+		s_PutOptions[i] = h->options;
 
 		for (j = 0; j < 6; j++) {
 			p->gunfuncs[j] = h->gunfuncs[j];
@@ -1628,6 +1634,39 @@ static void netRulesPut(const struct netrulesmsg *rules, s32 coop)
 	}
 }
 
+/**
+ * A client whose match is over, before netRulesRestore: what its pause menu
+ * changed in its own seat during the match (Reverse Pitch, Look Ahead, Auto
+ * Aim, ... - the Control and Player Options pages edit the seat's config,
+ * ingame.c) goes into its own player 1 as saved, so the restore does not
+ * undo it. Before, a Reverse Pitch ticked mid-match was unticked again at
+ * the match's end and the next match played without it (F3 20261012-225041:
+ * "randomly untick reverse tilt ... leaving and joining"). Only the bits
+ * that changed since RULES put them are taken: in GoldenEye mode the seat's
+ * Reverse Pitch bit is GoldenEye's LOOK UP/DOWN (netWriteSlotCfg), which is
+ * not the player's own Perfect Dark setting.
+ */
+void netRulesKeepSeatOptions(s32 slot)
+{
+	u16 changed;
+	u16 cur;
+
+	if (!s_NetSaved.client || slot < 0 || slot >= MAX_PLAYERS) {
+		return;
+	}
+
+	cur = g_PlayerConfigsArray[slot].options;
+	changed = cur ^ s_PutOptions[slot];
+
+	if (changed) {
+		struct mpplayerconfig *own = &s_NetSaved.players[0];
+
+		own->options = (own->options & ~changed) | (cur & changed);
+		sysLogPrintf(LOG_NOTE, "net: rules: the match changed this machine's options 0x%04x -> 0x%04x in seat %d; kept for its own player 1 (options 0x%04x, forward pitch %d)",
+				s_PutOptions[slot], cur, slot, own->options, (own->options & OPTION_FORWARDPITCH) != 0);
+	}
+}
+
 static void netRulesRestoreFrom(const struct netrulessaved *saved);
 
 /**
@@ -1640,7 +1679,8 @@ void netRulesRestore(void)
 
 	if (s_NetSaved.client) {
 		netRulesRestoreFrom(&s_NetSaved);
-		sysLogPrintf(LOG_NOTE, "net: rules restored: this machine's own setup and settings are back");
+		sysLogPrintf(LOG_NOTE, "net: rules restored: this machine's own setup and settings are back (player 1 options 0x%04x, forward pitch %d)",
+				g_PlayerConfigsArray[0].options, (g_PlayerConfigsArray[0].options & OPTION_FORWARDPITCH) != 0);
 	} else if (s_NetSaved.host) {
 		for (i = 1; i < MAX_PLAYERS; i++) {
 			g_PlayerConfigsArray[i] = s_NetSaved.players[i];
