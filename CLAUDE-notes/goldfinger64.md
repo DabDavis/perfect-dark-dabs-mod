@@ -1165,3 +1165,38 @@ GoldenEye's knife (it is thrown as slot 186, which is the arena's there).
   unknown command (ends the walk) and a weapon or ammo type outside the
   tables, logging once ("player: stage 0x..'s intro has ..."). Gate:
   netcooptest.sh gfrespawn.
+
+## F3 pass 39 (2026-10-13, fix/f3-1013-gf64)
+
+- **Knox's ending: the guard stood on (F3 20261013-174215).** The ending
+  (list 0x1004 -> Bond's 0x406, chrs 2/3/4 on 0x405/0x407/0x408) has the
+  soldier (chr 3) fire at the guard (chr 4), then `ChrHitChr 3 4 part 8`.
+  GoldenEye's ChrHitChr hands its part straight to handles_shot_actors()
+  (head: 4x the held gun's damage). Perfect Dark's aiChrDamageChr() goes
+  through chrDamageByImpact(), whose chrCalculateShieldHit() (cshield is 0 on
+  every chr, so it runs) works the part out again from the victim's own
+  position - the pelvis, 1x: 1.5 of 4 and he stood. On a converted stage the
+  command's part is used (chrDamage()); ares: the guard drops in both now.
+  Probe: `~/wt/f3-1013-gf64-run/probe/endrun.py` (MISSION=15 --cinema-ending; gdbpd's frames()
+  deletes every breakpoint - use a local frames()), `probe/endlist.py` (an
+  ending's lists command by command, LISTS=406,...).
+- **Crab Key's vents (F3 20261013-175640).** Each vent mouth is a swinging
+  grate door (type 5, maxfrac 90) over a lip of two force-crouch tiles; the
+  room-9 one rises 126 over 16 (tiles 224/225). 225 is under 16 across, so
+  `stanTileSheer()` made it a wall whatever its height, and only a walk up
+  224's point got in. GoldenEye's rule (bondviewTryMoveToStan()): on a
+  force-crouch tile no move until fully squatted, then only an edge more than
+  175 over the eye stops it. geStanFloorAhead() now calls a sheer tile sheer
+  only when its top is over pos.y + 175: Crab Key's lip is walked up (ares:
+  Bond squats at ~30 from the lip, then climbs onto 224); Facility's lip, 257
+  over the toilet seat, still stops a player squatting there, and a standing
+  one may climb back into the vent as GoldenEye's own walk allows (fuzz from
+  the seat, 4 seeds x 3000 frames: nobody below the seat's room). Probes:
+  `~/wt/f3-1013-gf64-run/probe/ventwalk.py` (SPOT, DOOR, OPEN=B presses B), `fuzz.py`;
+  cartridge: `tools/gefidelity/scratch-gf64/vent_ares.py`, untracked (GF_AT, GF_OPEN,
+  GF_B). The room-7 vent (F3 -180303, lip 59 over 20, not sheer) walked in on
+  the base binary from the middle, 25 off it, diagonally and with the grate
+  opened by B from 30 away - not reproduced.
+- **Crash 20261013-203314 (v3.10.0)**: a `mods/Goldfinger 64` from a later
+  build loaded by a binary from before 613ea8fb7; 880e245c7 boots its Offices
+  arena (bg_gxdam33, the crash's stage 0x93) clean for 1800 frames.

@@ -1709,7 +1709,30 @@ bool geStanFloorAhead(s32 playernum, struct coord *pos, struct coord *to, f32 gr
 
 	g_StanPlayerTile[playernum] = end;
 	*surface = stanSurface(&g_Stan.tiles[end], to->x, to->z);
-	*sheer = stanTileSheer(end) && !stanTileLadder(end);
+	// A sheer tile stops the move only where GoldenEye's would: its only say
+	// on height is an edge more than 175 over Bond's eye (bondviewTryMoveToStan(),
+	// stanTestLocusEdgeAboveY()), and on a force-crouch tile it lets him move
+	// only once fully squatted - so Facility's vent lip, 257 over the toilet
+	// seat, is out of a squatting eye's reach and stays a wall, while Crab Key's
+	// vents (Goldfinger 64; a lip 126 up over 14 across, special 1, behind a
+	// grate door) are walked into from the floor, as on the cartridge (ares:
+	// Bond squats, then goes up the lip). Taken as sheer whatever its height, the
+	// lip's lower triangle stopped every walk into the vent but one along the
+	// other triangle's point (F3 20261013-175640, -180303)
+	*sheer = false;
+
+	if (stanTileSheer(end) && !stanTileLadder(end)) {
+		const struct stantile *t = &g_Stan.tiles[end];
+		s32 top = -0x7fffffff;
+
+		for (s32 k = 0; k < t->npts; k++) {
+			if (g_Stan.points[t->first + k].y > top) {
+				top = g_Stan.points[t->first + k].y;
+			}
+		}
+
+		*sheer = top > pos->y + 175.0f;
+	}
 
 	return true;
 }
