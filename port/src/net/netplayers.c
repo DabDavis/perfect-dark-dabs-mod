@@ -212,6 +212,7 @@ static u8 s_CmdBuf[NET_MAXUNRELIABLE];
 // replaced by a turn toward player N as this machine last drew it (Y units
 // above its prop's place), for the lag compensation harness
 static s32 s_AimAt = -1;
+#define NET_AIMAT_NEAREST 1000 // --net-test-aimat nearest: the nearest living chr this machine draws (a sim to chase)
 static f32 s_AimY = 0;
 static f32 s_AimGain = 0.5f;
 static u32 s_AimTick1 = 0;   // the tick the aim below is for, + 1
@@ -377,7 +378,7 @@ void netPlayersArgs(void)
 			float y = 0;
 			float gain = 0.5f;
 
-			s_AimAt = atoi(aim);
+			s_AimAt = strncmp(aim, "nearest", 7) == 0 ? NET_AIMAT_NEAREST : atoi(aim);
 			aim = strchr(aim, ',');
 
 			if (aim) {
@@ -2182,20 +2183,51 @@ void netPlayersClientMatchStart(s32 pad)
 static void netPlayersTestAim(void)
 {
 	struct player *me;
-	struct player *tg;
+	struct prop *tgprop = NULL;
 	f32 yaw;
 	f32 pitch;
 
 	s_AimTick1 = 0;
 
-	if (s_AimAt < 0 || s_AimAt >= PLAYERCOUNT() || s_AimAt == g_NetLocalSlot || g_NetLocalSlot < 0) {
+	if (s_AimAt < 0 || (s_AimAt >= PLAYERCOUNT() && s_AimAt != NET_AIMAT_NEAREST) || s_AimAt == g_NetLocalSlot || g_NetLocalSlot < 0) {
 		return;
 	}
 
 	me = g_Vars.players[g_NetLocalSlot];
-	tg = g_Vars.players[s_AimAt];
 
-	if (!me || !tg || !tg->prop || !me->prop || me->isdead) {
+	if (!me || !me->prop || me->isdead) {
+		return;
+	}
+
+	if (s_AimAt == NET_AIMAT_NEAREST) {
+		// the nearest chr alive and in the world here, a puppet as drawn
+		f32 best = 0;
+		s32 i;
+
+		for (i = 0; i < g_NumChrSlots; i++) {
+			struct chrdata *chr = &g_ChrSlots[i];
+			struct prop *prop = chr->prop;
+			f32 dx;
+			f32 dz;
+
+			if (chr->chrnum < 0 || !prop || prop == me->prop || prop->chr != chr || !(prop->flags & PROPFLAG_ENABLED)
+					|| chr->actiontype == ACT_DEAD || chr->actiontype == ACT_DIE) {
+				continue;
+			}
+
+			dx = prop->pos.x - me->prop->pos.x;
+			dz = prop->pos.z - me->prop->pos.z;
+
+			if (!tgprop || dx * dx + dz * dz < best) {
+				best = dx * dx + dz * dz;
+				tgprop = prop;
+			}
+		}
+	} else if (g_Vars.players[s_AimAt]) {
+		tgprop = g_Vars.players[s_AimAt]->prop;
+	}
+
+	if (!tgprop) {
 		return;
 	}
 
@@ -2231,9 +2263,9 @@ static void netPlayersTestAim(void)
 		u[0] = r[1] * f[2] - r[2] * f[1];
 		u[1] = r[2] * f[0] - r[0] * f[2];
 		u[2] = r[0] * f[1] - r[1] * f[0];
-		d[0] = tg->prop->pos.x - me->cam_pos.x;
-		d[1] = tg->prop->pos.y + s_AimY - me->cam_pos.y;
-		d[2] = tg->prop->pos.z - me->cam_pos.z;
+		d[0] = tgprop->pos.x - me->cam_pos.x;
+		d[1] = tgprop->pos.y + s_AimY - me->cam_pos.y;
+		d[2] = tgprop->pos.z - me->cam_pos.z;
 		x = d[0] * r[0] + d[1] * r[1] + d[2] * r[2];
 		y = d[0] * u[0] + d[1] * u[1] + d[2] * u[2];
 		z = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];

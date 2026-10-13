@@ -2734,7 +2734,9 @@ void bmoveTick(bool allowc1x, bool allowc1y, bool allowc1buttons, bool ignorec2)
 		if (modSpectateIsOn()) {
 			modSpectateTick();
 		} else {
+			if (g_NetMode == NETMODE_SERVER) netLagCompWalkBegin(); // netplay: a client's walk meets the others where it saw them (netlagcomp.c)
 			bwalkTick();
+			if (g_NetMode == NETMODE_SERVER) netLagCompWalkEnd();
 		}
 	}
 

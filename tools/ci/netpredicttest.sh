@@ -64,6 +64,16 @@
 #           it at every stable stretch: a reload for good. Now the block
 #           carries the left hand's gun (protocol 28): the client must hold
 #           the host's hands, no left magazine put in, the ammo sets few.
+#   chase   Sewers with 8 sims at 68 ms, the client invincible, running at
+#           whichever chr it draws nearest (--net-test-aimat nearest): the
+#           owner's own matches (2026-10-13), a correction burst at every sim
+#           met - chasing one, the client ran into where it was drawn while
+#           the host's walk ran free. The host walks the client among the
+#           chrs where its view had them (netLagCompWalkBegin), the client's
+#           replays stand them where each tick met them; bump corrections
+#           (the walk's speed cut on one machine and not the other, or a place
+#           off with the speeds the same; hits and lifts left out) at most
+#           MAXBUMPS (40) - 141-300 a run without, 8-21 with
 #   cheats  a client's own cheats (F3 20261010-050642): the client has All
 #           Guns and the host Unlimited Ammo (--net-test-cheats): the
 #           client must play the host's (RULES, protocol 28), and its
@@ -95,7 +105,7 @@
 #
 #   netpredicttest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netpredict-out), PORT (27300; uses PORT..PORT+7), MODDIR
+# Env: OUT (build/netpredict-out), PORT (27300; uses PORT..PORT+15), MODDIR
 # (mod_allinone), CASES (clean lag loss wine sims time hands cheats), FRAMES (3000),
 # WINEEXE (build-win/pd.x86_64.exe), MINMATCH (99, the matched share,
 # percent; the lossy, wine and sims runs are reported against it too),
@@ -107,7 +117,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpredict-out}; PORT=${PORT:-27300}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-clean lag relay loss wine sims time teamlimit hands cheats pitch skipdeath views views3p}
+CASES=${CASES:-clean lag relay loss wine sims chase time teamlimit hands cheats pitch skipdeath views views3p}
 MAXCPM=${MAXCPM:-10}
 FRAMES=${FRAMES:-3000}
 MINMATCH=${MINMATCH:-99}
@@ -442,6 +452,63 @@ run_lp() {
 	wait "$host"
 }
 
+# the chase run: run_chase PORT (a stage of its own, so not run's)
+run_chase() {
+	local port=$1
+	echo "300 5400 8 0 0 0 0 0 0" > "$OUT/chase.script"
+	INI="[Mod]\nStartArmed=1\n" game chase-host 300 --moddir "$MODDIR" --host "$port" --net-test-host 1 --net-test-stage 0x42 \
+		--net-test-sims 8 --rng-seed 4 --mp-weapons 1,4,7,9,10,1 --endless --net-test-invincible-pad 1 --net-sim 0,34 --exit-frame 5800 &
+	local host=$!
+	waitfor "$OUT/chase-host.log" "net: hosting on UDP port" 60 || { echo "FAIL: chase host did not start"; kill -TERM $host; exit 2; }
+	INI="[Mod]\nStartArmed=1\n" game chase-client 290 --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join --net-sim 0,34 \
+		--net-test-input "$OUT/chase.script" --net-test-aimat nearest,0,0.5 --net-predict-log "$OUT/chase-client.plog" --net-predict-diff \
+		--exit-frame 5400 &
+	local client=$!
+	wait "$client"
+	kill -TERM "$host" 2>/dev/null
+	wait "$host"
+}
+
+# the bump corrections in a prediction log: the walk's speed cut by a blocked
+# move on one machine alone, or a place off with the speeds the same; a lift
+# (liftground) or a hit's knock back (shotspeed) is not one
+chase_bumps() {
+	python3 -I -c '
+import sys
+lines = open(sys.argv[1]).read().split("\n")
+n = 0
+for i, l in enumerate(lines):
+    if not l.startswith("C "):
+        continue
+    f = l.split()
+    if (f[4], f[5], f[6]) == ("0", "0", "0") or int(f[1]) < 200:
+        continue
+    d = lines[i + 1] if i + 1 < len(lines) and lines[i + 1].startswith("D ") else "D"
+    offs = {}
+    for w in d.split()[2:]:
+        o, v = w.split(":", 1)
+        a, b = v.split("/")
+        offs[int(o)] = (float(a), float(b))
+    if 176 in offs or 36 in offs or 44 in offs:
+        continue
+    cut = any(o in offs and abs(abs(offs[o][0]) - abs(offs[o][1])) > 0.05 for o in (12, 16, 28))
+    if cut or float(f[3]) > 3:
+        n += 1
+print(n)
+' "$1"
+}
+
+check_chase() {
+	local walks moved bumps
+	walks=$(grep -o "guest walks among the chrs as seen [0-9]*" "$OUT/chase-host.log" | tail -1 | awk '{print $NF}')
+	moved=$(grep -o "chrs moved for them [0-9]*" "$OUT/chase-host.log" | tail -1 | awk '{print $NF}')
+	[ "${walks:-0}" -gt 0 ] && [ "${moved:-0}" -gt 0 ] && pass "chase: the host walked the client among the chrs as seen ($walks walks, $moved chrs moved)" \
+		|| fail "chase: no walk among the chrs as seen (walks ${walks:-none}, moved ${moved:-none})"
+	bumps=$(chase_bumps "$OUT/chase-client.plog")
+	[ -n "$bumps" ] && [ "$bumps" -le "${MAXBUMPS:-40}" ] && pass "chase: $bumps bump corrections (at most ${MAXBUMPS:-40})" \
+		|| fail "chase: ${bumps:-no} bump corrections (at most ${MAXBUMPS:-40})"
+}
+
 # rules runs: run_rules LABEL PORT HINI CINI SCRIPTLINES HARGS CARGS (the
 # client scripted by SCRIPTLINES, "from to buttons" a line)
 run_rules() {
@@ -549,6 +616,7 @@ for c in $CASES; do
 		loss)  run loss $((PORT + i)) "$FRAMES" 0 "2,75" ;;
 		relay) run relay $((PORT + i)) "$FRAMES" 0 "0,110,10,0,3000,300" ;;
 		sims)  SIMS=6 run sims $((PORT + i)) "$FRAMES" 0 "0,75" ;;
+		chase) run_chase $((PORT + i)) ;;
 		wine)  if [ -x "$(command -v wine)" ] && [ -e "$WINEEXE" ]; then run wine $((PORT + i)) "$FRAMES" 1 "${WINESIM-0,75}"; else echo "skip wine: no wine or no $WINEEXE"; fi ;;
 		time)  run_time $((PORT + i)) ;;
 		teamlimit) run_time $((PORT + i)) teamlimit --net-test-teamscorelimit 2 --net-test-givekills 1,600,4 ;;
@@ -580,6 +648,7 @@ for c in $CASES; do
 			snaps "$c"
 			;;
 		pitch) [ -e "$OUT/pitch-client.log" ] && check_pitch ;;
+		chase) [ -e "$OUT/chase-client.log" ] && check_chase ;;
 		skipdeath) [ -e "$OUT/skipdeath-client.log" ] && check_skipdeath ;;
 		views) [ -e "$OUT/views-client.log" ] && check_views views 0 ;;
 		views3p) [ -e "$OUT/views3p-client.log" ] && check_views views3p 1 ;;

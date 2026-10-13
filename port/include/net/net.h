@@ -415,6 +415,10 @@ void netLagCompPassBegin(void);
 void netLagCompRaiseOldDefault(void); // Mod.SettingsRevision 2: Net.LagCompMaxMs 200 -> 300
 void netLagCompPassEnd(void);
 const struct coord *netLagCompAimPos(struct prop *prop); // the autoaim's line of sight to a chr: its rewound place in a remote pass
+// bmoveTick, host: around a remote player's bwalkTick, the chrs near it where
+// its client saw them (Net.LagCompWalk)
+void netLagCompWalkBegin(void);
+void netLagCompWalkEnd(void);
 // A guest's blast (netlagcomp.c, F3 20261010-030750): an explosion from a
 // client player's projectile or Phoenix round hurts the chrs where that
 // player saw them. The host's own and offline play are untouched.

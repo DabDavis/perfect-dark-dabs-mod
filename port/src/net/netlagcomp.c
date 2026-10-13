@@ -152,12 +152,14 @@ void chrHandleJointPositioned(s32 joint, Mtxf *mtx);
 s32 g_NetLagComp = 1;
 static s32 s_MaxMs = 300;
 static s32 s_LagCompBlasts = 1;  // Net.LagCompBlasts: a guest's blasts where it saw the chrs
+static s32 s_LagCompWalk = 1;    // Net.LagCompWalk: a guest's walk among the chrs where it saw them
 
 PD_CONSTRUCTOR static void netLagCompConfigInit(void)
 {
 	configRegisterInt("Net.LagComp", &g_NetLagComp, 0, 1);
 	configRegisterInt("Net.LagCompMaxMs", &s_MaxMs, 0, 1000);
 	configRegisterInt("Net.LagCompBlasts", &s_LagCompBlasts, 0, 1);
+	configRegisterInt("Net.LagCompWalk", &s_LagCompWalk, 0, 1);
 }
 
 // Mod.SettingsRevision 2 (main.c): a pd.ini still at the old default
@@ -174,6 +176,24 @@ static s32 s_HistSlots = 0;
 
 static struct netlcrew *s_Rew = NULL; // [s_HistSlots]: every chr can be rebuilt for one shot or pass
 static s32 s_NumRew = 0;              // (a fixed 32 left a crowd's farther chrs tested where they are now)
+
+// A remote player's walk among the others where it saw them
+// (netLagCompWalkBegin): what each chr moved for it had before
+struct netlcwalk {
+	struct prop *prop;
+	struct chrdata *chr;
+	struct player *player;   // another player's: its collision cylinder (periminfo) moved too
+	f32 pos[3];
+	RoomNum rooms[8];
+	f32 manground;
+	f32 ground;
+	struct geocyl perim;
+	u8 reroomed;
+};
+
+static struct netlcwalk *s_Walk = NULL; // [s_HistSlots]
+static s32 s_NumWalk = 0;
+static s32 s_InWalk = 0;
 static s32 s_ListAdded = 0;    // props put on the end of the on-screen list for the rewind
 static s32 s_ListCount = 0;    // ... and the count before them
 static u32 s_Offscreen = 0;
@@ -208,9 +228,11 @@ static void netLcFree(void)
 	free(s_Hist);
 	free(s_Life);
 	free(s_Rew);
+	free(s_Walk);
 	s_Hist = NULL;
 	s_Life = NULL;
 	s_Rew = NULL;
+	s_Walk = NULL;
 	s_HistSlots = 0;
 }
 
@@ -226,6 +248,9 @@ static u32 s_OtherLife = 0;    // ... whose pose then was in an earlier life (a 
 static u32 s_Claims = 0;       // views claimed older than the host's own bound for that client
 static f64 s_RewindSum = 0;
 static f64 s_RewindMax = 0;
+static u32 s_Walks = 0;        // remote walks taken back
+static u32 s_WalkMoved = 0;    // ... chrs moved for them
+static u32 s_WalkRooms = 0;    // ... of those, put in the rooms they were in then
 static u32 s_GfxPeak[2] = {0, 0}; // vtx pool use at a tick's end: first half, second half of the match
 static u32 s_GfxPool = 0;
 static u32 s_PeakTick = 0;
@@ -1227,6 +1252,176 @@ void netLagCompPassEnd(void)
 	}
 }
 
+/*
+ * A remote player's walk (bmoveTick's bwalkTick, host): its client walked
+ * the player into the others where its screen had them, at the view the
+ * tick's command carries. The host's walk met them where they are now, a
+ * round trip and the puppets' delay later (the owner's matches on Sewers at
+ * 73 ms, 2026-10-13: a correction of 7-25 units every block for up to two
+ * seconds at each sim met - chasing one, the client ran into where it had
+ * been while the host's walk ran free; head on, the host's stopped where
+ * the client's screen had nothing yet). Each chr near the walker is put
+ * where that client saw it for the walk alone - its place, its rooms and its
+ * ground, another player's collision cylinder - and put back after, so both
+ * walks meet the same bodies. Bounded as a shot's rewind is (netLcViewFor);
+ * a dead chr has no cylinder to meet. Net.LagCompWalk=0 leaves the walk to
+ * the chrs as they are now.
+ */
+#define NETLC_WALKNEAR 500.f   // a chr farther than this from the walker, now and then, is left alone
+
+void netLagCompWalkBegin(void)
+{
+	const s32 slot = g_Vars.currentplayernum;
+	struct prop *self = g_Vars.currentplayer ? g_Vars.currentplayer->prop : NULL;
+	const f64 sview = s_ShotView;
+	const f64 srewind = s_ShotRewind;
+	const f32 sdelay = s_ShotDelay;
+	const s32 scapped = s_ShotCapped;
+	const u32 claims = s_Claims;
+	f64 view;
+	s32 ok;
+	s32 i;
+	s32 k;
+
+	s_NumWalk = 0;
+
+	if (!s_LagCompWalk || s_InWalk || !self || !s_Walk || !netPlayersHostSlotIsRemote(slot)
+			|| !netSessionMatchActive() || g_NetPass < NETPASS_TICK) {
+		return;
+	}
+
+	// a shot's numbers are the shot's: the walk's view leaves them be
+	ok = netLcViewFor(slot, &view);
+	s_ShotView = sview;
+	s_ShotRewind = srewind;
+	s_ShotDelay = sdelay;
+	s_ShotCapped = scapped;
+	s_Claims = claims;
+
+	if (!ok) {
+		return;
+	}
+
+	for (i = 0; i < s_HistSlots && i < g_NumChrSlots; i++) {
+		struct chrdata *chr = &g_ChrSlots[i];
+		struct prop *prop = chr->prop;
+		struct netlcwalk *w;
+		struct netlcpose pose;
+		f32 d[3];
+		f32 nx;
+		f32 nz;
+		f32 tx;
+		f32 tz;
+
+		if (chr->chrnum < 0 || !prop || prop == self || prop->chr != chr
+				|| (prop->type != PROPTYPE_CHR && prop->type != PROPTYPE_PLAYER)) {
+			continue;
+		}
+
+		if (!netLcPoseAt(chr, i, view, &pose) || pose.dead) {
+			continue;
+		}
+
+		nx = prop->pos.x - self->pos.x;
+		nz = prop->pos.z - self->pos.z;
+		tx = pose.pos[0] - self->pos.x;
+		tz = pose.pos[2] - self->pos.z;
+
+		if (nx * nx + nz * nz > NETLC_WALKNEAR * NETLC_WALKNEAR && tx * tx + tz * tz > NETLC_WALKNEAR * NETLC_WALKNEAR) {
+			continue;
+		}
+
+		d[0] = pose.pos[0] - prop->pos.x;
+		d[1] = pose.pos[1] - prop->pos.y;
+		d[2] = pose.pos[2] - prop->pos.z;
+
+		if (fabsf(d[0]) < 0.01f && fabsf(d[1]) < 0.01f && fabsf(d[2]) < 0.01f) {
+			continue;
+		}
+
+		w = &s_Walk[s_NumWalk++];
+		w->prop = prop;
+		w->chr = chr;
+		w->player = NULL;
+		w->pos[0] = prop->pos.x;
+		w->pos[1] = prop->pos.y;
+		w->pos[2] = prop->pos.z;
+		memcpy(w->rooms, prop->rooms, sizeof(w->rooms));
+		w->manground = chr->manground;
+		w->ground = chr->ground;
+		w->reroomed = 0;
+
+		// a chr's cylinder is its place and its ground (chrUpdateGeometry),
+		// as a client's puppet is posed (netpuppets.c)
+		prop->pos.x = pose.pos[0];
+		prop->pos.y = pose.pos[1];
+		prop->pos.z = pose.pos[2];
+		chr->manground += d[1];
+		chr->ground += d[1];
+
+		// another player's is the cylinder its own tick left
+		if (prop->type == PROPTYPE_PLAYER) {
+			const s32 pn = playermgrGetPlayerNumByProp(prop);
+
+			if (pn >= 0 && pn < MAX_PLAYERS && g_Vars.players[pn]) {
+				w->player = g_Vars.players[pn];
+				w->perim = w->player->periminfo;
+				w->player->periminfo.x += d[0];
+				w->player->periminfo.z += d[2];
+				w->player->periminfo.ymin += d[1];
+				w->player->periminfo.ymax += d[1];
+			}
+		}
+
+		// the walk's tests find props by room: the rooms it was in then
+		for (k = 0; k < 8 && pose.rooms[k] == prop->rooms[k] && pose.rooms[k] != -1; k++);
+
+		if (k < 8 && pose.rooms[k] != prop->rooms[k] && pose.rooms[0] != -1) {
+			propDeregisterRooms(prop);
+			memcpy(prop->rooms, pose.rooms, sizeof(prop->rooms));
+			propRegisterRooms(prop);
+			w->reroomed = 1;
+			s_WalkRooms++;
+		}
+	}
+
+	s_InWalk = 1;
+	s_Walks++;
+	s_WalkMoved += s_NumWalk;
+}
+
+void netLagCompWalkEnd(void)
+{
+	s32 i;
+
+	if (!s_InWalk) {
+		return;
+	}
+
+	for (i = s_NumWalk - 1; i >= 0; i--) {
+		struct netlcwalk *w = &s_Walk[i];
+
+		if (w->reroomed) {
+			propDeregisterRooms(w->prop);
+			memcpy(w->prop->rooms, w->rooms, sizeof(w->rooms));
+			propRegisterRooms(w->prop);
+		}
+
+		w->prop->pos.x = w->pos[0];
+		w->prop->pos.y = w->pos[1];
+		w->prop->pos.z = w->pos[2];
+		w->chr->manground = w->manground;
+		w->chr->ground = w->ground;
+
+		if (w->player) {
+			w->player->periminfo = w->perim;
+		}
+	}
+
+	s_NumWalk = 0;
+	s_InWalk = 0;
+}
+
 void netLagCompShotBegin(struct shotdata *sd, s32 isshooting)
 {
 	f64 view;
@@ -1541,7 +1736,8 @@ void netLagCompHostTickEnd(void)
 		s_Hist = calloc((size_t)g_NumChrSlots * NETLC_RING, sizeof(*s_Hist));
 		s_Life = calloc((size_t)g_NumChrSlots, sizeof(*s_Life));
 		s_Rew = calloc((size_t)g_NumChrSlots, sizeof(*s_Rew));
-		s_HistSlots = s_Hist && s_Life && s_Rew ? g_NumChrSlots : 0;
+		s_Walk = calloc((size_t)g_NumChrSlots, sizeof(*s_Walk));
+		s_HistSlots = s_Hist && s_Life && s_Rew && s_Walk ? g_NumChrSlots : 0;
 
 		if (!s_HistSlots) {
 			netLcFree();
@@ -1626,10 +1822,12 @@ void netLagCompLog(const char *why)
 
 	sysLogPrintf(LOG_NOTE, "net: lagcomp %s: on %d, cap %d ms, remote shots %u, rewound %u (mean %.2f ticks, most %.2f, capped %u), "
 			"autoaim passes rewound %u, chrs on screen %u, rebuilt %u (%u not on screen now), no history %u (another life then %u), claims past the host's bound %u, no gfx space %u, debug lines %u; "
-			"vtx pool peak %u / %u bytes (first half), %u (second half, tick %u); guest blasts rewound %u (mean %.2f ticks, blasts %d), chrs taken back %u (%u out of the blast's rooms now)",
+			"vtx pool peak %u / %u bytes (first half), %u (second half, tick %u); guest blasts rewound %u (mean %.2f ticks, blasts %d), chrs taken back %u (%u out of the blast's rooms now); "
+			"guest walks among the chrs as seen %u (walk %d), chrs moved for them %u (%u into the rooms they were in then)",
 			why, g_NetLagComp, s_MaxMs, s_Shots, s_ShotsRewound, s_ShotsRewound ? s_RewindSum / s_ShotsRewound : 0.0, s_RewindMax, s_Capped,
 			s_Passes, s_Cands, s_Rebuilt, s_Offscreen, s_NoPose, s_OtherLife, s_Claims, s_NoSpace, s_DebugLines, s_GfxPeak[0], s_GfxPool, s_GfxPeak[1], s_PeakTick,
-			s_Blasts, s_Blasts ? s_BlastRewindSum / s_Blasts : 0.0, s_LagCompBlasts, s_BlastMoved, s_BlastAdded);
+			s_Blasts, s_Blasts ? s_BlastRewindSum / s_Blasts : 0.0, s_LagCompBlasts, s_BlastMoved, s_BlastAdded,
+			s_Walks, s_LagCompWalk, s_WalkMoved, s_WalkRooms);
 }
 
 static void netLagCompAtExit(void)
@@ -1651,6 +1849,9 @@ void netLagCompStageStart(void)
 	s_ListAdded = 0;
 	s_Shots = s_ShotsRewound = s_Capped = s_Cands = s_Rebuilt = s_NoSpace = s_NoPose = s_OtherLife = s_Claims = 0;
 	s_RewindSum = s_RewindMax = 0;
+	s_NumWalk = 0;
+	s_InWalk = 0;
+	s_Walks = s_WalkMoved = s_WalkRooms = 0;
 	s_GfxPeak[0] = s_GfxPeak[1] = 0;
 	s_PeakTick = 0;
 }
