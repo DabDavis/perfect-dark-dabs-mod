@@ -10295,8 +10295,19 @@ void bgun0f0a5550(s32 handnum)
 
 #ifndef PLATFORM_N64
 				// Both in the camera's space: where across the view the
-				// muzzle is from the model's origin (COD Style Aiming)
-				hand->codaimmuzzlex = hand->muzzlemat.m[3][0] - hand->cammtx.m[3][0];
+				// muzzle is from the model's origin (COD Style Aiming).
+				// Not taken while a reload or function change animates
+				// the gun: its muzzle swings through the animation and the
+				// pose at the sights chased it, sliding the whole gun 17
+				// units across the view and back with jerks between (the
+				// RC-P120's reload, GoldenEye X's RC-P90 on it: F3
+				// 20261012-180519 "rcp90 reload now twitches"). The
+				// offset at rest from before the animation is kept.
+				// GoldenEye's own guns are left as they were
+				if (WEAPON_IS_GE(weaponnum)
+						|| (hand->state != HANDSTATE_RELOAD && hand->state != HANDSTATE_CHANGEFUNC)) {
+					hand->codaimmuzzlex = hand->muzzlemat.m[3][0] - hand->cammtx.m[3][0];
+				}
 #endif
 
 				mtx4TransformVecInPlace(camGetProjectionMtxF(), &hand->muzzlepos);

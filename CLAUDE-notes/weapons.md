@@ -495,3 +495,17 @@ player cannot see ("Not enough room to launch"), are exactly as before. On the
 G5 case the CamSpy lands 20 units aside and two seconds of stick up take it
 from 30 to its ceiling of 160.
 
+
+## COD Style Aiming holds the muzzle offset through a reload (F3 pass 39)
+
+At the sights the pose moves the gun so its barrel, not the model's origin, sits under the crosshair:
+`bgunRender()` stores the muzzle's sideways offset from the origin in camera space (`hand->codaimmuzzlex`,
+6c3746d6a, 2026-09-29) and the next frame's pose subtracts it. An animated reload swings the muzzle, so the
+whole gun chased it: GoldenEye X's RC-P90 (drawn on the RC-P120's reload) slid from -6.5 to +10.7 units and back
+with jerks (F3 20261012-180519 "rcp90 reload now twitches"; Steam Deck, CodAiming=1). It is not a
+frame-rate fault: at exactly 60 FPS v3.10.0, v3.13.0 and the base draw the reload identically when not
+aiming; v3.10.0 predates the muzzle offset. The offset is now kept from before the animation while the hand
+is in HANDSTATE_RELOAD or HANDSTATE_CHANGEFUNC (not for GoldenEye's own guns, left as they were).
+Probe recipe: gdb on `bgunTickHand` giving the gun (`invGiveSingleWeapon`, `bgunEquipWeapon`), setting
+`loadedammo[0]` and `modenext = HANDMODE_RELOAD`, `insightaimmode = 1` at `bgunTickGameplay` entry, and
+`screenshotRequest()` per frame; frame jitter by rewriting `frametimeApply`'s diffframe240 ($rsi).
