@@ -31,6 +31,12 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 63 2026-10-13
+Online: a Counter-Op Mission room whose host plays on the counter-ops' side no longer ends the moment it starts and crashes the host (thanks dab)
+Offices (Oofjay's mod): the CamSpy flies low enough to get through the vents, as it does on the cartridge (thanks savantique)
+Mods: a level sounds the alarm siren its mod chose, so Suburb in the Offices mod sounds Chicago's
+Mods: your imported console mods are imported again once at the next start, a few seconds, so the fixes above apply to them
+
 notes 62 2026-10-12
 Online: the Briefing Room's right-hand window is titled Room Info and only shows a room while one is highlighted (thanks ElmoBear and dab)
 Online: the room count is in the room list's title, "Rooms (3)", so a long name no longer cuts it off (thanks Shockwave S08 and dab)
