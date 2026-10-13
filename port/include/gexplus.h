@@ -68,6 +68,12 @@ s32 gexPlusRomIsPoolRow(s32 num);
 // the sleeve the player's own character is wearing (gewatch.c).
 s32 gexPlusRomChrForRow(s32 row);
 
+// Whether a body row is a friend of Bond's on one of GoldenEye's own missions -
+// Natalya, its character 16 - so Perfect Dark's sight shows her blue
+// (CHRH2FLAG_BLUESIGHT, set by bodyAllocateChr()). GoldenEye has no friend or
+// foe of its own: its guards are all one side and so is she.
+s32 gexPlusRomRowIsAlly(s32 row);
+
 // Whether DK Mode leaves this body and head at their own proportions: the
 // Japanese cartridge's named characters, under GE Plus's Japan region rules
 s32 gexPlusDkModeSpares(s32 bodynum, s32 headnum);

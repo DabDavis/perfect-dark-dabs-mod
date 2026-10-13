@@ -17876,6 +17876,13 @@ struct prop *chrSpawnAtCoord(s32 bodynum, s32 headnum, struct coord *pos, RoomNu
 						chr->noblood = true;
 					}
 
+#ifndef PLATFORM_N64
+					// GoldenEye's Natalya is Bond's friend: blue in the sight
+					if (gexPlusRomRowIsAlly(bodynum)) {
+						chr->hidden2 |= CHRH2FLAG_BLUESIGHT;
+					}
+#endif
+
 					return prop;
 				}
 

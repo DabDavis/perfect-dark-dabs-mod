@@ -399,8 +399,13 @@ s32 xblaMeshBeanSeatAt(struct modeldef *def, s32 head, f32 *out, s32 *outneckles
 // drawn so, with its seat in the hat's own space (measured when `maxscale`,
 // the biggest it may be made, is above 0; none otherwise): out[0-2] the
 // offset that sets it on the hair, out[3] the size it is worn at, about the
-// point out[4-6] - chrRender() uses it in place of the table
-s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, f32 maxscale, f32 out[7]);
+// point out[4-6] - chrRender() uses it in place of the table. `maxlift` is
+// the most it is lifted clear of hair standing through it: a few hairs
+// through it beat a hat in the air, and a side cap lifted off a full head of
+// hair stood over it with its lining showing (F3 20261013-001948, 002134)
+#define XBLAMESH_HAT_MAXLIFT 14.0f
+#define XBLAMESH_HAT_SIDECAP_MAXLIFT 2.0f
+s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, f32 maxscale, f32 maxlift, f32 out[7]);
 // Each vertex of the release's mesh for a model at rest: its main matrix and its place in that joint's frame
 s32 xblaMeshReleaseRestVertices(struct modeldef *def, s32 rigid, void (*fn)(s32 mtx, const f32 local[3], void *arg), void *arg);
 void xblaMeshNodeRestOffset(const struct modelnode *node, f32 out[3]);
