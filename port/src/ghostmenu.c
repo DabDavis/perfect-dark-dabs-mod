@@ -3279,6 +3279,26 @@ static char *g_GhostRulesLines[] = {
 // screen beside the menu to go into instead.
 #define MODGHOST_RULESBITE   32
 
+// The rules window's natural width: its longest line and the inset either side
+static s32 menuGhostRulesWidth(void)
+{
+	s32 width = 0;
+	s32 textwidth;
+	s32 textheight;
+	s32 i;
+
+	for (i = 0; i < (s32)ARRAYCOUNT(g_GhostRulesLines); i++) {
+		textMeasure(&textheight, &textwidth, (char *)langTr(g_GhostRulesLines[i]),
+				g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
+
+		if (textwidth > width) {
+			width = textwidth;
+		}
+	}
+
+	return width + MODGHOST_RULESINSET * 2;
+}
+
 static Gfx *menuGhostRenderRules(Gfx *gdl)
 {
 	const struct menucolourpalette *colours = &g_MenuColours[MENUDIALOGTYPE_DEFAULT];
@@ -3288,8 +3308,6 @@ static Gfx *menuGhostRenderRules(Gfx *gdl)
 	s32 viewright = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX;
 	s32 width = 0;
 	s32 maxwidth;
-	s32 textwidth;
-	s32 textheight;
 	s32 x1;
 	s32 x2;
 	s32 y1;
@@ -3305,16 +3323,7 @@ static Gfx *menuGhostRenderRules(Gfx *gdl)
 		return gdl;
 	}
 
-	for (i = 0; i < (s32)ARRAYCOUNT(g_GhostRulesLines); i++) {
-		textMeasure(&textheight, &textwidth, (char *)langTr(g_GhostRulesLines[i]),
-				g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
-
-		if (textwidth > width) {
-			width = textwidth;
-		}
-	}
-
-	width += MODGHOST_RULESINSET * 2;
+	width = menuGhostRulesWidth();
 
 	// How far right it may reach. The alignment moves this window left and
 	// leaves the dialog where it was, so on a widescreen display the gap
@@ -3367,6 +3376,36 @@ static Gfx *menuGhostRenderRules(Gfx *gdl)
 }
 
 /**
+ * The plaque's width, measured to the name it says (into g_GhostRowText).
+ *
+ * The account, or the fact that there is not one. A run recorded without an
+ * account still goes in the ghosts directory and still carries the
+ * character, so the plaque has something true to say either way.
+ */
+static s32 menuGhostPlaqueWidth(void)
+{
+	s32 width;
+	s32 textwidth;
+	s32 textheight;
+
+	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s\n",
+			ghostnetHasAccount() ? ghostnetGetAccountName() : "No Account");
+
+	textMeasure(&textheight, &textwidth, g_GhostRowText, g_CharsHandelGothicSm,
+			g_FontHandelGothicSm, 0);
+
+	width = MODGHOST_PLAQUEHEADW + textwidth + 9;
+
+	if (width < MODGHOST_PLAQUEMINW) {
+		width = MODGHOST_PLAQUEMINW;
+	} else if (width > MODGHOST_PLAQUEMAXW) {
+		width = MODGHOST_PLAQUEMAXW;
+	}
+
+	return width;
+}
+
+/**
  * Draw the plaque: the window, the head and the name.
  *
  * Called after the dialogs rather than among them, because it belongs to no
@@ -3391,8 +3430,6 @@ static Gfx *menuGhostRenderPlaque(Gfx *gdl)
 	s32 viewtop = viGetViewTop();
 	s32 viewright = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX;
 	s32 width;
-	s32 textwidth;
-	s32 textheight;
 	s32 x1;
 	s32 x2;
 	s32 y1;
@@ -3410,22 +3447,7 @@ static Gfx *menuGhostRenderPlaque(Gfx *gdl)
 		return gdl;
 	}
 
-	// The account, or the fact that there is not one. A run recorded without
-	// an account still goes in the ghosts directory and still carries the
-	// character, so the plaque has something true to say either way.
-	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s\n",
-			ghostnetHasAccount() ? ghostnetGetAccountName() : "No Account");
-
-	textMeasure(&textheight, &textwidth, g_GhostRowText, g_CharsHandelGothicSm,
-			g_FontHandelGothicSm, 0);
-
-	width = MODGHOST_PLAQUEHEADW + textwidth + 9;
-
-	if (width < MODGHOST_PLAQUEMINW) {
-		width = MODGHOST_PLAQUEMINW;
-	} else if (width > MODGHOST_PLAQUEMAXW) {
-		width = MODGHOST_PLAQUEMAXW;
-	}
+	width = menuGhostPlaqueWidth();
 
 	// The right edge of the view, which with the alignment set below is the
 	// right edge of the screen. Everything the menu draws is in view units and
@@ -3582,6 +3604,117 @@ static Gfx *menuGhostRenderPlaque(Gfx *gdl)
  * visit that says Online shares them.
  */
 static bool g_GhostOnline = false;
+
+/**
+ * Ghost Trials' rows in the main menu's big font only when the plaque and the
+ * rules window still fit beside the page (F3 20261013-104501: on a 16:10 Steam
+ * Deck the plaque with "Shockwave508" lay over the rows, and on 4:3 the
+ * plaque at its narrowest and the rules both reach into the page).
+ *
+ * The big rows make a page about 220 units wide and as tall as the view, so
+ * the room the two windows have is the pillars either side of it: 16:9 has
+ * about a hundred units a side, 16:10 eighty, 4:3 fifty. When either window
+ * would reach the page, the rows go to the settings pages' font instead. That
+ * page is narrow and short, centred in the view, so the plaque sits above it
+ * and the rules beside it at any aspect and with any name the plaque shows.
+ *
+ * Decided against the big page as last measured (its width does not depend
+ * on the window, only on the rows' words), so the choice does not flip back
+ * and forth with the page it chooses. Asked as the windows are drawn
+ * (ghostmenuRenderOverlay()), where the view is the menu's.
+ */
+static bool g_GhostTrialsCompact = false;
+static s32 g_GhostTrialsBigX = 0;
+static s32 g_GhostTrialsBigW = 0;
+
+static void menuGhostTrialsFit(struct menudialogdef *dialogdef)
+{
+	struct menudialog *dialog = g_Menus[g_MpPlayerNum].curdialog;
+	s32 viewleft = viGetViewLeft() / g_ScaleX;
+	s32 viewright = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX;
+	s32 ofs = menuGhostPlaqueAlignOffset();
+	s32 rightgap;
+	s32 leftgap;
+	bool compact;
+	s32 i;
+	static uintptr_t bigtext[16];
+	static char smalltext[16][32];
+
+	if (dialog == NULL || dialog->definition != dialogdef) {
+		return;
+	}
+
+	// its content's width rather than where it is: a page swiping in has its
+	// position off the screen (dialogCalculatePosition()), and it settles
+	// centred in the view
+	if (!g_GhostTrialsCompact && dialog->contentwidth > 0) {
+		g_GhostTrialsBigW = dialog->contentwidth;
+	}
+
+	if (g_GhostTrialsBigW <= 0) {
+		return;
+	}
+
+	{
+		// as dialogCalculatePosition() places it: no wider than the room
+		s32 xmin, ymin, xmax, ymax;
+		s32 bigw = g_GhostTrialsBigW;
+
+#if VERSION >= VERSION_JPN_FINAL
+		menuFindAvailableSize(&xmin, &ymin, &xmax, &ymax, dialog);
+#else
+		menuFindAvailableSize(&xmin, &ymin, &xmax, &ymax);
+#endif
+
+		if (bigw > xmax - xmin - 6) {
+			bigw = xmax - xmin - 6;
+		}
+
+		g_GhostTrialsBigX = (xmax + xmin - bigw) / 2;
+		rightgap = viewright + ofs - MODGHOST_PLAQUEMARGIN - (g_GhostTrialsBigX + bigw) - 2;
+	}
+
+	// what menuGhostRenderPlaque() and menuGhostRenderRules() have between
+	// their edge of the screen and the big page
+	leftgap = g_GhostTrialsBigX + MODGHOST_RULESBITE - 2 + ofs - (viewleft + MODGHOST_PLAQUEMARGIN);
+
+	compact = menuGhostPlaqueWidth() > rightgap || menuGhostRulesWidth() > leftgap;
+
+	if (compact == g_GhostTrialsCompact) {
+		return;
+	}
+
+	g_GhostTrialsCompact = compact;
+
+	sysLogPrintf(LOG_NOTE, "ghostmenu: Ghost Trials rows %s: plaque %d and rules %d wide, room %d and %d beside a page %d wide",
+			compact ? "small" : "big", menuGhostPlaqueWidth(), menuGhostRulesWidth(), rightgap, leftgap, g_GhostTrialsBigW);
+
+	// A big row's literal text has no newline (the Perfect Menu's way), and
+	// the small font measures a line by its newline: without one a row is no
+	// height at all and the rows draw over each other
+	for (i = 0; dialogdef->items[i].type != MENUITEMTYPE_END && i < (s32)ARRAYCOUNT(bigtext); i++) {
+		struct menuitem *item = &dialogdef->items[i];
+
+		if (item->type != MENUITEMTYPE_SELECTABLE) {
+			continue;
+		}
+
+		if (item->flags & MENUITEMFLAG_LITERAL_TEXT) {
+			if (bigtext[i] == 0) {
+				bigtext[i] = item->param2;
+				snprintf(smalltext[i], sizeof(smalltext[i]), "%s\n", (const char *)item->param2);
+			}
+
+			item->param2 = compact ? (uintptr_t)smalltext[i] : bigtext[i];
+		}
+
+		if (compact) {
+			item->flags &= ~MENUITEMFLAG_BIGFONT;
+		} else {
+			item->flags |= MENUITEMFLAG_BIGFONT;
+		}
+	}
+}
 
 static MenuDialogHandlerResult menudialogGhostTrials(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
@@ -3874,6 +4007,10 @@ struct menudialogdef g_GhostModeMenuDialog = {
  */
 Gfx *ghostmenuRenderOverlay(Gfx *gdl)
 {
+	// here rather than in the page's tick: the view's size in menu units is
+	// the menu render's, which a tick does not have in place
+	menuGhostTrialsFit(&g_GhostTrialsMenuDialog);
+
 	gdl = menuGhostRenderPlaque(gdl);
 	gdl = menuGhostRenderRules(gdl);
 
