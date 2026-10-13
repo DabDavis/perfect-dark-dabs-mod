@@ -3683,6 +3683,16 @@ there anyway. Packed commands grew from 32 to 36 bytes. Gate:
   a spectator's saved own (netRulesOwnPlayer), else [0]. Wire unchanged.
 - Gate: netpredicttest `pitch` (--net-test-forward-pitch: host 1, client 0;
   each seat's value logged at tick 600).
+- **The pause menu's changes outlive the match** (F3 20261012-225041, pass 39:
+  "randomly untick reverse tilt"). A client's pause menu edits its seat's
+  config (ingame.c sets g_MpPlayerNum to the seat), and H12's restore put the
+  pre-match player 1 back over everything, so a Reverse Pitch ticked mid-match
+  was gone the next match. `netRulesKeepSeatOptions` (netStageStopped, before
+  netRulesRestore) carries the option bits that changed since netRulesPut put
+  them into the saved player 1 - only those, since in GoldenEye mode the
+  seat's pitch bit is GoldenEye's LOOK UP/DOWN. Gate: netpredicttest
+  `pitchkeep` (--net-test-flip-pitch 600, then the host quits; the client
+  without --net-test-join, which exits as the session ends).
 
 ### Host rules for the death screen, third person and the free camera (pass 37, the owner)
 
