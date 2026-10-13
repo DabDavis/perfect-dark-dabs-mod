@@ -18,7 +18,9 @@
 #   - counts: per type, the client applied every event the host sent it
 #     (everything not for another player and not left out for this one);
 #   - kinds: shots with tracers (sims' and the host's player's), sparks,
-#     an explosion, chr hits, grunts and deaths came through;
+#     an explosion, chr hits, grunts and deaths came through; a staged blast
+#     on the floor (a scorch, so the floor's normal goes too) among them: the
+#     counts and the malformed check catch one the client refuses;
 #   - the client's scripted player fires at a sim the host keeps putting in
 #     front of it: the host registers the hit (a chrdamage with the client's
 #     player the attacker) and the client gets that hit event and at least
@@ -154,6 +156,24 @@ def boom(dist):
     gdb.execute("set var $e->x = %f" % x); gdb.execute("set var $e->y = %f" % y); gdb.execute("set var $e->z = %f" % z)
     ok = i("(int)explosionCreateSimple(0, $e, g_Vars.players[%d]->prop->rooms, 13, -1)" % pn)
     print("STAGE explosion %d units in front of player %d (%s)" % (dist, pn, "ok" if ok else "refused"))
+def floorboom(dist):
+    """a grenade's blast on the floor dist units in front of the client's
+    player, with a scorch, as explosionCreateComplex makes one: the floor's
+    normal is the tile's raw cross product, (0 1350000 0) on Temple's floors
+    (F3 20261013-101544: it failed the client's range check, and the
+    explosion was dropped as malformed). Skedar's tiles are smaller, so the
+    normal is given as Temple's"""
+    pn = remote()
+    if pn < 0: print("STAGE no remote player"); return
+    invincible(pn)
+    x, y, z, a = ahead(pn, dist)
+    gdb.execute("set $f = (struct coord *)malloc(16)")
+    gdb.execute("set var $f->x = %f" % x); gdb.execute("set var $f->y = %f" % (y - 20)); gdb.execute("set var $f->z = %f" % z)
+    gdb.execute("set $n = (struct coord *)malloc(16)")
+    gdb.execute("set var $n->x = 0"); gdb.execute("set var $n->y = 1350000"); gdb.execute("set var $n->z = 0")
+    p = "g_Vars.players[%d]->prop->rooms" % pn
+    ok = i("(int)explosionCreate(0, $f, %s, 13, -1, 1, $f, %s[0], $n)" % (p, p))
+    print("STAGE floor explosion %d units in front of player %d (%s)" % (dist, pn, "ok" if ok else "refused"))
 PY
 
 # shot1 PID FILE: one screenshot from that game into FILE
@@ -210,6 +230,7 @@ run() {
 		stage "$hp" "boom(450)"
 		sleep 0.35
 		shot1 "$cp" "$SHOTDIR/events-explosion.png"
+		stage "$hp" "floorboom(400)"
 		sleep 4
 		shot1 "$cp" "$SHOTDIR/events-client.png"
 		shot1 "$hp" "$SHOTDIR/events-host.png"

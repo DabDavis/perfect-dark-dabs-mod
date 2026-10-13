@@ -726,7 +726,27 @@ void netEvExplosion(struct prop *source, struct coord *pos, RoomNum *rooms, s32 
 	netBufWriteS16(&b, room);
 
 	if (arg8) {
-		netWritePos(&b, arg8);
+		// the scorch's normal, as a unit vector: explosionCreateComplex's
+		// comes straight from the floor tile (cdFindFloor...Normal), a cross
+		// product as long as the tile is big - (0 1350000 0) on Temple's
+		// floors - which the reader's world-range check (netReadF) refused,
+		// so the whole explosion was dropped as malformed on every client:
+		// grenades and rockets that burst on a floor never showed there
+		// (F3 20261013-101330/101544). wallhitCreate normalises it anyway.
+		struct coord n = *arg8;
+		const f32 len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+
+		if (len > 0.000001f && len == len && len < 1e30f) {
+			n.x /= len;
+			n.y /= len;
+			n.z /= len;
+		} else {
+			n.x = 0;
+			n.y = 1;
+			n.z = 0;
+		}
+
+		netWritePos(&b, &n);
 	}
 
 	// only a Phoenix round's blast is made by the shooter's own machine (its
