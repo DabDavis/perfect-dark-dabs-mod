@@ -1316,12 +1316,17 @@ s32 geWatchIsSettledFor(s32 playernum)
 }
 
 // GoldenEye's own clock for the watch: the real frame, which keeps running
-// while the level is frozen (speedgraphframes)
+// while the level is frozen (speedgraphframes), in sixtieths. Taken from the
+// 240ths: the sixtieths are whole, so over 60 frames a second they are 0 on
+// some frames and 1 on others, and the 0 was taken as a whole sixtieth -
+// at 120 fps everything on the watch ran twice as fast, the inventory's gun
+// turning a circle in 1.2 s where the cartridge takes 2.4 (2.5 degrees a
+// sixtieth; F3 20261013-014504). 60 fps is 4/4 = 1 as before.
 static f32 watchDelta(void)
 {
-	f32 d = g_Vars.diffframe60freal;
+	f32 d = g_Vars.diffframe240freal * 0.25f;
 
-	return d > 0.0f ? (d > 10.0f ? 10.0f : d) : 1.0f;
+	return d > 0.0f ? (d > 10.0f ? 10.0f : d) : 0.0f;
 }
 
 static void watchSetState(s32 state)
