@@ -4514,6 +4514,14 @@ bool aiTryEquipWeapon(void)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// A GoldenEye scientist who draws his hidden pistol (its global list
+	// 0x10, TRYGiveMeItem) has turned on Bond: no longer blue in the sight
+	if (prop && g_Vars.chrdata && gexPlusRomRowIsCivilian(g_Vars.chrdata->bodynum)) {
+		g_Vars.chrdata->hidden2 &= ~CHRH2FLAG_BLUESIGHT;
+	}
+#endif
+
 	if (prop) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[9]);
 	} else {

@@ -69,10 +69,13 @@ s32 gexPlusRomIsPoolRow(s32 num);
 s32 gexPlusRomChrForRow(s32 row);
 
 // Whether a body row is a friend of Bond's on one of GoldenEye's own missions -
-// Natalya, its character 16 - so Perfect Dark's sight shows her blue
-// (CHRH2FLAG_BLUESIGHT, set by bodyAllocateChr()). GoldenEye has no friend or
-// foe of its own: its guards are all one side and so is she.
+// Natalya, Trevelyan as 006 (Facility only), the scientists and Dr. Doak - so
+// Perfect Dark's sight shows them blue (CHRH2FLAG_BLUESIGHT, set by
+// bodyAllocateChr() and chrSpawnAtCoord()). GoldenEye has no friend or foe of
+// its own: everyone is on its guards' side. And whether it is a scientist, who
+// turns red again when he draws his hidden pistol (aiTryEquipWeapon()).
 s32 gexPlusRomRowIsAlly(s32 row);
+s32 gexPlusRomRowIsCivilian(s32 row);
 
 // Whether DK Mode leaves this body and head at their own proportions: the
 // Japanese cartridge's named characters, under GE Plus's Japan region rules

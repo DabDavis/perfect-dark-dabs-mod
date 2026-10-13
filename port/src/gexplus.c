@@ -1194,25 +1194,30 @@ s32 gexPlusRomChrForRow(s32 row)
 }
 
 /**
- * Natalya on one of GoldenEye's own missions (F3 20261012-220653, Archives:
- * the Farsight's target box red round her). Perfect Dark's sight shows a chr
- * blue by team or CHRH2FLAG_BLUESIGHT (sightIsPropFriendly()); a converted
+ * Bond's friends on GoldenEye's own missions (F3 20261012-220653, Archives:
+ * the Farsight's target box red round Natalya). Perfect Dark's sight shows a
+ * chr blue by team or CHRH2FLAG_BLUESIGHT (sightIsPropFriendly()); a converted
  * setup puts every chr on team 0 beside its guards, as GoldenEye has no sides,
- * so she read as an enemy. She is never one in GoldenEye. A ROM hack's
- * character 16 is its own (Goldfinger's list is another), so only GoldenEye's
- * own conversion's.
+ * so all of them read as enemies. The owner (2026-10-13): Natalya (character
+ * 16), Trevelyan while he is 006 - Facility's boiler suit (9), there only, as
+ * he is Janus everywhere after - and the scientists (35, whose body Dr. Doak
+ * wears too). A ROM hack's characters are its own (Goldfinger's list is
+ * another), so only GoldenEye's own conversion's.
  */
-#define GEROM_CHR_NATALYA 16
+#define GEROM_CHR_TREV006   9
+#define GEROM_CHR_NATALYA   16
+#define GEROM_CHR_SCIENTIST 35
+#define GEROM_MISSION_FACILITY 1
 
-s32 gexPlusRomRowIsAlly(s32 row)
+static s32 gexPlusRomOwnRowChr(s32 row)
 {
 	const char *dir;
 	const char *base;
 	s32 index;
 
 	if (g_Vars.normmplayerisrunning || !modloaderStageIsMission(g_Vars.stagenum)
-			|| row < 0 || row >= NUM_HEADSANDBODIES || gexPlusRomChrForRow(row) != GEROM_CHR_NATALYA) {
-		return 0;
+			|| row < 0 || row >= NUM_HEADSANDBODIES) {
+		return -1;
 	}
 
 	index = romdataFileGetModDir(g_HeadsAndBodies[row].filenum);
@@ -1225,7 +1230,24 @@ s32 gexPlusRomRowIsAlly(s32 row)
 		}
 	}
 
-	return base && strcasecmp(base, GEXPLUSROM_DIR) == 0;
+	if (!base || strcasecmp(base, GEXPLUSROM_DIR) != 0) {
+		return -1;
+	}
+
+	return gexPlusRomChrForRow(row);
+}
+
+s32 gexPlusRomRowIsAlly(s32 row)
+{
+	const s32 chr = gexPlusRomOwnRowChr(row);
+
+	return chr == GEROM_CHR_NATALYA || chr == GEROM_CHR_SCIENTIST
+		|| (chr == GEROM_CHR_TREV006 && modloaderStageMission(g_Vars.stagenum) == GEROM_MISSION_FACILITY);
+}
+
+s32 gexPlusRomRowIsCivilian(s32 row)
+{
+	return gexPlusRomOwnRowChr(row) == GEROM_CHR_SCIENTIST;
 }
 
 s32 gexPlusRomIsPoolRow(s32 num)
