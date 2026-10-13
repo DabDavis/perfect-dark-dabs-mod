@@ -2139,6 +2139,41 @@ static bool stanWalkTo(s32 *tile, f32 x0, f32 z0, f32 x1, f32 z1)
  * walk gets there, and where it does not, prop->pos stays where it started.
  * False with no tile at all.
  */
+/**
+ * The pad's own tile where the one found under it is a neighbour's: the
+ * conversion rounds GoldenEye's tile corners to whole units, which moves an
+ * edge up to about half a unit, and a pad GoldenEye stands on a tile of its own
+ * room just beside such an edge can come out over the tile across it. Jungle's
+ * palm on pad 52 is 0.39 inside room 22's tile, where GoldenEye names a tile
+ * of room 21 for its pad; its rooms came out 22 first, and the palm's leaves
+ * were drawn after the watchtower's translucent roof rather than before it,
+ * through it (F3 20261013-014221). Across an edge within a unit of the point
+ * into a tile of the pad's room, that tile is taken.
+ */
+static s32 stanPadTile(s32 tile, f32 x, f32 z, s32 padroom)
+{
+	const struct stantile *t;
+	const struct stanpoint *p;
+
+	if (tile < 0 || padroom < 0 || g_Stan.tiles[tile].room == padroom) {
+		return tile;
+	}
+
+	t = &g_Stan.tiles[tile];
+	p = &g_Stan.points[t->first];
+
+	for (s32 k = 0; k < t->npts; k++) {
+		const s32 across = p[k].across;
+
+		if (across >= 0 && across < g_Stan.numtiles && g_Stan.tiles[across].room == padroom
+				&& stanEdgeDistSq(&p[k], &p[(k + 1) % t->npts], x, z) <= 1.0f) {
+			return across;
+		}
+	}
+
+	return tile;
+}
+
 bool geStanObjectTile(struct coord *padpos, s32 padroom, struct coord *centre, struct coord *objpos,
 		s32 *tile, struct coord *seed)
 {
@@ -2153,7 +2188,8 @@ bool geStanObjectTile(struct coord *padpos, s32 padroom, struct coord *centre, s
 		return false;
 	}
 
-	t0 = stanTileUnderPrefer(padpos->x, padpos->z, padpos->y + 5.0f, GESTAN_RISE, padroom);
+	t0 = stanPadTile(stanTileUnderPrefer(padpos->x, padpos->z, padpos->y + 5.0f, GESTAN_RISE, padroom),
+			padpos->x, padpos->z, padroom);
 
 	if (t0 < 0) {
 		t0 = stanTileUnderPrefer(objpos->x, objpos->z, objpos->y + 5.0f, GESTAN_RISE, padroom);
