@@ -4582,17 +4582,18 @@ static const struct menubind modMenuBinds[] = {
 };
 
 /**
- * Akimbo Triggers' rows (param3 3 to 9) are only on the page while it is
- * on. They are not binds of its own: Fire Right, Aim Mode and the left
- * hand's menu are the Key Bindings page's Fire, Aim Mode and Radial Menu
- * under the names Akimbo Triggers gives them, so with it off they showed
- * the radial menu's Q as "Left Hand Menu", and a player who cleared it as
- * an akimbo bind they never set took Q off the radial menu itself (F3
- * 20261012-232939).
+ * Akimbo Triggers' rows under its checkbox (Fire Left/Right, Fire Mode
+ * Left/Right, Right and Left Hand Menu) are only on the page while it is
+ * on. They are not binds of its own: Fire Right and the left hand's menu
+ * are the Key Bindings page's Fire and Radial Menu under the names Akimbo
+ * Triggers gives them, so with it off they showed the radial menu's Q as
+ * "Left Hand Menu", and a player who cleared it as an akimbo bind they
+ * never set took Q off the radial menu itself (F3 20261012-232939). Aim
+ * Mode (7) is COD Style Aiming's row and stays.
  */
 static bool modBindRowIsAkimbo(s32 idx)
 {
-	return idx >= 3 && idx <= 9;
+	return (idx >= 3 && idx <= 6) || idx == 8 || idx == 9;
 }
 
 static const char *menutextModBind(struct menuitem *item)
