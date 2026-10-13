@@ -1232,7 +1232,8 @@ s32 netRulesRead(struct netbuf *b)
 
 	for (i = 0; i < MAX_TEAMS; i++) {
 		netBufReadString(b, s_NetRules.teamnames[i], sizeof(s_NetRules.teamnames[i]));
-		netTextPrintable(s_NetRules.teamnames[i], 0);
+		// "Red\n" like the host's own copy: its newline is kept, not drawn as '?'
+		netTextPrintable(s_NetRules.teamnames[i], 1);
 	}
 
 	for (i = 0; i < 80; i++) {

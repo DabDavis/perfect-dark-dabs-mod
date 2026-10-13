@@ -309,13 +309,11 @@ the match starts (a GoldenEye conversion is about 13 MB, a second or two on
 a LAN). They are held in memory for the session only: nothing is written
 to your disk, nothing is offered to anyone outside the room, and they are
 gone when the game exits. A joiner that has its own copy plays from that
-instead. A mod loaded over the game (GoldenEye X, the Mario characters,
-All in One) is different: a mod you have installed is switched to when you
-join and switched back when you leave, except one that replaces ROM
-segments (GoldenEye X and the Mario characters do), which the game can
-only load at a start, so the room tells you to choose it under Extended
-Options > Load Mods, Restart Now, and join again, and one you do not have
-is named. Your own `Mod.ModDir` and `Mod.MapMods` are never changed.
+instead. A Perfect Dark mod (GoldenEye X, the Mario characters) is the host's
+choice too: the host enters it from the Perfect Menu's **Perfect Dark
+Mods** before making the room, and a joining game switches to its own copy
+(or is sent the host's when it has none) and back to the stock game when
+it leaves, with no restart. Your own `Mod.MapMods` is never changed.
 Online Game is on Perfect Dark's main menu and in the Combat Simulator of
 GoldenEye and the ROM hacks; counter-operative is offline only for now.
 
@@ -489,13 +487,13 @@ mods are other people's work, and you get them from their authors.
 3. Start the game. Archives are unpacked and patches are converted on that
    first start - a few seconds for one mod, up to a minute for a big
    collection, with nothing on screen yet while it happens.
-4. Go to **Options > Extended Options > Load Mods** and pick the mod from
-   the list. One mod at a time.
-5. If the game offers **Restart Now**, take it: a mod that replaces ROM audio,
-   textures or its data tables can only be read at start-up. The choice is
-   remembered, so the next start comes up with the mod loaded.
+4. On the Perfect Menu, choose **Perfect Dark Mods** and pick the mod from
+   the list. One mod at a time. It goes in where you stand, with no restart,
+   and the Perfect Menu comes back with the mod's missions, arenas, guns and
+   text.
 
-To go back to the stock game, choose **None** on the same page.
+To go back to the stock game, choose **Back to Perfect Dark** on the Perfect
+Menu. Every start begins with the stock game.
 
 ### What ends up in `mods/`
 
@@ -510,7 +508,7 @@ says so - the Japanese-region patches need the Japanese ROM. A patch made on
 top of another mod's patch is tried on top of each patch found beside it, so
 a download that ships both works as it comes. A mod that changed only the
 game's code has nothing the port can carry over, and its folder says that
-too. Neither shows up on the Load Mods page.
+too. Neither shows up in the Perfect Dark Mods list.
 
 A console mod's download may include the hi-res texture pack made for it, as
 an emulator cache file (`..._HIRESTEXTURES.htc` or `.dat`). That is picked up too and
@@ -528,10 +526,9 @@ stock file stands in for it.
 **Options > Extended Options > Stage Loader** puts the maps of installed
 mods into the Combat Simulator's arena list, beside the game's own, named
 after the map and the mod. Tick a mod there, or "every installed mod", and
-its maps appear at once (or after a restart, when the mod you have loaded
-replaces ROM audio or textures). Nothing in the game's own maps is
-replaced: a mod chosen here is read for its maps alone, whatever mod is
-loaded on the Load Mods page. The game has room for 27 extra maps at a
+its maps appear at once. Nothing in the game's own maps is replaced: a mod
+chosen here is read for its maps alone, whatever mod you have entered from
+Perfect Dark Mods. The game has room for 27 extra maps at a
 time, so with a big collection choose the mods you want rather than all.
 ### From the command line
 
