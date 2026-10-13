@@ -5659,8 +5659,9 @@ static void playerDeathCamera(struct coord *campos, struct coord *camup, struct 
  * look, the horizon back rather than down into the run. The bob is a lift
  * of the eye with no direction to it and is left where it is.
  *
- * Dead, or on the hoverbike, the lot is retired: the death camera has its
- * own ideas about which way is up, and the bike has a roll of its own.
+ * Dead, on the hoverbike or in GoldenEye's tank, the lot is retired: the
+ * death camera has its own ideas about which way is up, the bike has a roll
+ * of its own, and the tank is no walker.
  */
 #define CAMTILT_ROLL_DEGREES  2.0f  // at a full sidestep, times the setting
 #define CAMTILT_PITCH_DEGREES 1.5f  // at full look speed, times the setting
@@ -5687,7 +5688,16 @@ static void playerTiltCamera(struct coord *campos, struct coord *camup, struct c
 	struct coord up;
 	struct coord look;
 
-	if (scale > 0 && !player->isdead && player->bondmovemode == MOVEMODE_WALK) {
+#ifndef PLATFORM_N64
+	// GoldenEye's tank is driven from the walk, but it is not a walker: no
+	// lean into its turns and no bob from its speed (F3 20261013-011655,
+	// "driving the tank is bouncy")
+	const bool intank = geTankPlayerDriving(player);
+#else
+	const bool intank = false;
+#endif
+
+	if (scale > 0 && !player->isdead && player->bondmovemode == MOVEMODE_WALK && !intank) {
 		f32 strafe = player->speedsideways;
 		// Full stick is 0.7, the limit bmoveGetSpeedVertaLimit() gives it;
 		// the mouse can push past that on a flick.

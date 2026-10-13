@@ -15303,3 +15303,28 @@ built-in had swapped for the release's headneil (curly hair, goatee, glasses) on
   GoldenEye arena sim as BODYFILE/HEADFILE. `RUNDIR=` picks a run dir (one with the CE zip, one without the ROM).
   `Video.DefaultWidth/Height` in the save's pd.ini sets the offscreen size; a relative `--savedir` resolves under
   the base dir (data/), so give it absolute.
+
+## Mission armour, the watch at 120 fps, the tank under Camera Tilt, Jungle's tower roof (39th F3 pass, 2026-10-13, fix/f3-1013-geplay)
+
+- **Body armour in a mission is not MODEL_BODYARMOUR.** The arenas' converted setup (geconvert.c `objects()`)
+  lays GoldenEye's armour in 0x182; a mission's (`writeSoloProps()`) keeps GoldenEye's own vest models
+  (0x200 + 0x73/0x74, 0x273/0x274 on Facility). e20e83002 keyed the pickup sound and words on 0x182, so
+  every mission's armour said "Picked up a shield." with Perfect Dark's sound (F3 20261013-012701,
+  -130450, -184351). `geObjIsBodyArmour()` (gesfx.c): on a converted stage any shield that is not
+  MODEL_CHRSHIELD (a Perfect Dark weapon set's) is armour.
+- **The watch's clock read whole sixtieths.** `watchDelta()` took `diffframe60freal`, which over 60 fps is
+  0 on some frames and 1 on others, and treated the 0 as one sixtieth: at 120 fps the inventory gun turned
+  300 degrees a second (cartridge: options.c adds D_80040B1C 2.5 degrees times speedgraphframes, 150 a
+  second), at 240 four times. It reads `diffframe240freal / 4` now (F3 20261013-014504). Any port clock on
+  "the real frame" should read the 240ths for the same reason.
+- **Camera Tilt's bob followed the tank.** `playerTiltCamera()` bobs the eye by ground speed and leans it
+  by look speed; the tank is driven through the walk, so Heavy tilt bounced the driver -4.8..+12 units (60
+  and 120 fps alike). Retired while `geTankPlayerDriving()` (F3 20261013-011655).
+- **A pad on a rounded tile edge.** Converted tiles have whole-unit corners, which moves an edge by up to
+  about half a unit. Jungle's palm on pad 52 stands 0.39 inside room 22's tile where GoldenEye names a
+  room 21 tile for the pad, so `geRoomObjRooms()` walked from room 22 and the palm's rooms came out
+  [22, 21] against the cartridge's [21, 22]; drawn with room 22 (after the watchtower's translucent roof,
+  which writes no depth), its leaves showed through the roof (F3 20261013-014221; ares spot capture at
+  Jungle 5795.6,762.8,-10395.5 heading 223 pitch 37). `stanPadTile()` (gestan.c) takes the pad-room tile
+  across an edge within one unit. Finding a "drawn through translucent X" fault: hide props by room in
+  gdb (`break propRender if ... return gdl`), then compare prop room order with an ares world dump.
