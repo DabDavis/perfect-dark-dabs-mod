@@ -31,6 +31,9 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 64 2026-10-13
+Online co-op and counter-op: on a mission that gives you a CamSpy (dataDyne Investigation and others) your player no longer rubberbands after a hit or a bump (thanks savantique)
+
 notes 63 2026-10-13
 Online: a Counter-Op Mission room whose host plays on the counter-ops' side no longer ends the moment it starts and crashes the host (thanks dab)
 Offices (Oofjay's mod): the CamSpy flies low enough to get through the vents, as it does on the cartridge (thanks savantique)
