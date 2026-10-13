@@ -15353,7 +15353,11 @@ built-in had swapped for the release's headneil (curly hair, goatee, glasses) on
   `CHRH2FLAG_BLUESIGHT` (`sightIsPropFriendly()`, the Farsight's target box and the crosshair); a converted setup
   puts every chr on team 0 beside the guards (GoldenEye has no sides). `gexPlusRomRowIsAlly()`: GoldenEye's own
   character 16 (Natalya) on its own missions, not a ROM hack's 16th, not a match - set at `bodyAllocateChr()` and
-  `chrSpawnAtCoord()`. Sight only; teams and AI untouched.
+  `chrSpawnAtCoord()`. Sight only; teams and AI untouched. Owner 2026-10-13, "yes make them blue too": also
+  Trevelyan while he is 006 (character 9, the boiler suit, Facility only - `modloaderStageMission() == 1`), the
+  scientists (35) and Dr. Doak (who wears the scientist's body). A scientist who draws his hidden pistol
+  (GoldenEye's global list 0x10's TRYGiveMeItem = `aiTryEquipWeapon()`) loses the flag: `gexPlusRomRowIsCivilian()`.
+  Doak's decoder comes by `chr_equip_object` (`aiGiveObjectToChr()`), so he stays blue. Probe `probe/allies.py`.
 - **Scientists' pistols (F3 20261013-002654)**: GoldenEye's global list 0x10 (`m_DrawPistolAndAttackBond`, ours
   0x810) plays `ANIM_fire_standing_draw_one_handed_weapon_fast` frames 0-20 at 0.5 and gives the TT33 only after it
   ends; ours does the same (traced: anim 1272 for 40 ticks, gun in hand the tick after). GoldenEye's own.
