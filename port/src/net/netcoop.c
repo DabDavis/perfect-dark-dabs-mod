@@ -1529,8 +1529,15 @@ s32 netCoopAgentsGone(void)
 	static s32 s_GoneFrame = -1;
 	s32 i;
 
-	if (g_NetMode != NETMODE_SERVER || !netCoopHostAnti() || g_MainIsEndscreen || g_Vars.lvframenum < TICKS(120)
-			|| g_Vars.tickmode != TICKMODE_NORMAL) {
+	// On the mission's own stage only. netCoopHostStart() sets the sides
+	// before the stage changes, and the stage the room launched from still
+	// ticks once more: the Institute, its one player the host's. With the
+	// host a counter-op there was no agent in it, so a room launched after
+	// two seconds in the Institute ended its match at tick 0 and put up the
+	// end screen of a solo player, whose menus are past g_Menus[] (a
+	// lobby host's crash, 2026-10-13).
+	if (g_NetMode != NETMODE_SERVER || !netCoopHostAnti() || !netSessionMatchActive() || g_MainIsEndscreen
+			|| g_Vars.lvframenum < TICKS(120) || g_Vars.tickmode != TICKMODE_NORMAL) {
 		return 0;
 	}
 

@@ -32,17 +32,28 @@
 #           (--net-lobby-side 1): the room's summary says "Counter-Op Agent",
 #           both take the sides from the room, the joiner plays in a guard,
 #           the host's end at a frame brings both back to the room.
+#   lobbyhost  a lobby host on the counter-ops' side, two agents, a room of
+#           twelve (a player's crash, 2026-10-13): netCoopHostStart() sets the
+#           sides before the stage changes and the Institute the room launched
+#           from ticks once more, its one player the host's - a counter-op, so
+#           no agent: the match ended at tick 0 and the end screen of the
+#           Institute's solo player (MPINDEX_SOLO, past g_Menus[]) crashed. The
+#           host runs under gdb: with the mission's stage asked for, the
+#           Institute five seconds walked (300 frames, as the player had) and
+#           netCoopAgentsGone() asked there - 0, else that stage's
+#           mainEndStage() follows as it did; then the mission plays: the host
+#           in a guard, GO, both agents see it, everyone back in the room.
 #
 #   netantitest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: BUILD (build/), OUT (build/netanti-out), PORT (27700; uses PORT .. PORT+8),
-# CASES (pair3 ga ge hostanti lobby), MODDIR (mod_allinone, the lobby case).
+# Env: BUILD (build/), OUT (build/netanti-out), PORT (27700; uses PORT .. PORT+11),
+# CASES (pair3 ga ge hostanti lobby lobbyhost), MODDIR (mod_allinone, the lobby cases).
 # Exit status: 0 all good, 1 a check failed.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netanti-out}; PORT=${PORT:-27700}
-CASES=${CASES:-pair3 ga ge hostanti lobby}
+CASES=${CASES:-pair3 ga ge hostanti lobby lobbyhost}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
@@ -423,6 +434,94 @@ case_lobby() {
 	[ "$r1" = 0 ] && [ "$r2" = 0 ] && pass "$name: exits 0 0" || fail "$name: exits host $r1 join $r2"
 }
 
+# ---------------------------------------------------------------- lobbyhost
+case_lobbyhost() {
+	local name=lobbyhost port=$((PORT + 9)) L=$OUT/lobbyhost-pdlobbyd.log H=$OUT/lobbyhost-host.log
+	local A=$OUT/lobbyhost-agent1.log B=$OUT/lobbyhost-agent2.log
+	echo "== $name"
+	python3 -u "$ROOT/tools/pdlobbyd/pdlobbyd.py" --host 127.0.0.1 --port 0 --udp-host 127.0.0.1 --udp-port 0 --auth open --relay-ports 0 \
+		> "$L" 2>&1 &
+	local lobby=$!
+	if ! waitfor "$L" "pdlobbyd listening on" 20; then
+		fail "$name: pdlobbyd did not start"; kill $lobby 2>/dev/null; return
+	fi
+	local lport; lport=$(sed -n 's/.*listening on 127.0.0.1:\([0-9]*\).*/\1/p' "$L" | head -1)
+	local ini="[Mod]\nGhostUser=%s\nGhostPin=1234\n[Net]\nLobbyServer=http://127.0.0.1:$lport\nPort=%s\n"
+	# the host as the player was: an agent file chosen (a copy of this
+	# machine's save, as netlobbytest.sh), the Online Game from the Perfect
+	# Menu, under gdb for the start's one frame on the Institute
+	local save=$OUT/save-lobbyhost-host f
+	rm -rf "$save"; mkdir -p "$save"
+	for f in eeprom.bin mpsetups.bin; do
+		[ -f "$HOME/.local/share/perfectdark/$f" ] && cp "$HOME/.local/share/perfectdark/$f" "$save/"
+	done
+	# shellcheck disable=SC2059
+	printf "$ini" antihost "$port" > "$save/pd.ini"
+	cat > "$OUT/lobbyhost.gdb" <<'G'
+set pagination off
+set confirm off
+handle SIGPIPE nostop noprint
+handle SIGUSR1 nostop noprint
+set $started = 0
+break netCoopHostStart
+commands
+silent
+set $started = 1
+continue
+end
+break menuStop if $started == 1 && g_MainChangeToStageNum >= 0
+commands
+silent
+set $started = 2
+set var g_Vars.lvframenum = 300
+set $gone = (int)netCoopAgentsGone()
+printf "STAGE oldstage: stage 0x%x with 0x%x asked for, 300 frames walked, its player 0 mpindex %d: netCoopAgentsGone() %d\n", g_StageNum, g_MainChangeToStageNum, g_Vars.playerstats[0].mpindex, $gone
+if $gone
+  call (void)mainEndStage()
+end
+continue
+end
+run
+G
+	( cd "$BUILD" && exec timeout -k 5 300 gdb -batch -x "$OUT/lobbyhost.gdb" --args "$BIN" --savedir "$save" --skip-intro --no-sound \
+		--moddir "$MODDIR" --profile 0 --net-lobby-menus --net-lobby-script host --net-lobby-room "Host Anti" --net-lobby-coop 0 \
+		--net-lobby-anti --net-lobby-side 1 --net-lobby-size 12 --net-lobby-wait 2 --net-lobby-end-frame 1500 --skip-cutscenes \
+		--rng-seed 7 > "$H" 2>&1 ) &
+	local p1=$!
+	sleep 3
+	# shellcheck disable=SC2059
+	game lobbyhost-agent1 290 "$(printf "$ini" agentone $((port + 1)))" --moddir "$MODDIR" --net-lobby-script join \
+		--net-lobby-room "Host Anti" --net-lobby-side 0 --net-lobby-leave-frame 0 --skip-cutscenes &
+	local p2=$!
+	# shellcheck disable=SC2059
+	game lobbyhost-agent2 290 "$(printf "$ini" agenttwo $((port + 2)))" --moddir "$MODDIR" --net-lobby-script join \
+		--net-lobby-room "Host Anti" --net-lobby-side 0 --net-lobby-leave-frame 0 --skip-cutscenes &
+	local p3=$!
+	wait $p1 $p2 $p3
+	kill $lobby 2>/dev/null; wait $lobby 2>/dev/null
+	local room; room=$(sed -n 's/.*lobby: made room \([0-9a-f]*\).*/\1/p' "$H" | head -1)
+	[ -n "$room" ] && pass "$name: the host made room $room" || { fail "$name: the host made no room"; return; }
+	grep -q "STAGE oldstage: stage 0x26 with 0x30 asked for.*netCoopAgentsGone() 0" "$H" \
+		&& pass "$name: on the Institute, the mission asked for: no agents judged gone" \
+		|| fail "$name: on the old stage: $(grep -o 'STAGE oldstage.*' "$H" | head -1)"
+	grep -q "no agent is left in the room: the mission is the counter-ops' (tick 0)" "$H" \
+		&& fail "$name: the match ended at tick 0 with no agent" || pass "$name: no end at tick 0"
+	grep -q "net: counter-op: 12 players, counter-ops 0x001: bond is player 1, anti 0, coop 2" "$H" \
+		&& pass "$name: twelve seats, the host the counter-op" || fail "$name: sides: $(grep -o 'counter-op: [0-9]* players.*' "$H" | head -1)"
+	grep -q "net: counter-op: player 0 takes setup chr" "$H" && grep -q "every machine has loaded; GO" "$H" \
+		&& pass "$name: the mission loaded: the host in a guard, GO" || fail "$name: the host never in a guard or no GO"
+	for c in "$A" "$B"; do
+		grep -q "counter-op client: player 0 in a guard's body" "$c" \
+			&& pass "$name: $(basename "$c" .log) sees the host in a guard" || fail "$name: $(basename "$c" .log) never saw the host in a guard"
+		grep -q "lobby: back in room $room's lobby" "$c" && pass "$name: $(basename "$c" .log) back in the room" \
+			|| fail "$name: $(basename "$c" .log) is not back in the room"
+	done
+	grep -q "lobby: back in room $room's lobby" "$H" && pass "$name: the host back in the room" || fail "$name: the host is not back in the room"
+	for c in "$H" "$A" "$B"; do
+		{ crashed "$c" || grep -q "received signal SIGSEGV" "$c"; } && fail "$name: $(basename "$c" .log) crashed"
+	done
+}
+
 for c in $CASES; do
 	[ -s "$OUT/stage.log" ] && cp "$OUT/stage.log" "$OUT/stage-$prev.log"
 	prev=$c
@@ -432,6 +531,7 @@ for c in $CASES; do
 		ge) case_ge ;;
 		hostanti) case_hostanti ;;
 		lobby) case_lobby ;;
+		lobbyhost) case_lobbyhost ;;
 		*) fail "unknown case $c" ;;
 	esac
 done

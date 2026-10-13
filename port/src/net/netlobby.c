@@ -4101,6 +4101,31 @@ static void lobbyScriptStep(s32 step, const char *what)
 	sysLogPrintf(LOG_NOTE, "lobby script: %s", what);
 }
 
+/**
+ * --net-lobby-side N: this member's room team (a counter-op room's side,
+ * 1 the counter-ops) before it readies or, the host, launches: asked every
+ * three seconds until the room says so. 1 while it waits.
+ */
+static s32 lobbyScriptAwaitSide(const char *who, u64 now)
+{
+	static u64 s_SideAskedAt = 0;
+	const s32 side = sysArgGetInt("--net-lobby-side", -1);
+	char body[48];
+
+	if (side < 0 || side > 7 || netLobbyMyTeam() == side) {
+		return 0;
+	}
+
+	if (s_SideAskedAt == 0 || now - s_SideAskedAt > 3000) {
+		snprintf(body, sizeof(body), "{\"team\":%d,\"spectator\":false}", side);
+		lobbyAction("team", body);
+		s_SideAskedAt = now;
+		sysLogPrintf(LOG_NOTE, "lobby script: %s: asking for team %d", who, side);
+	}
+
+	return 1;
+}
+
 static s32 lobbyScriptBackInRoom(void)
 {
 	return !netSessionMatchLoading() && g_StageNum == STAGE_CITRAINING && s_InRoom && s_Room.valid
@@ -4313,6 +4338,12 @@ static void lobbyScriptTick(void)
 					s_ScriptShotAt = now;
 				}
 
+				// --net-lobby-side N: the host's own side first (a counter-op
+				// room's host on the counter-ops' side, 1)
+				if (lobbyScriptAwaitSide("host", now)) {
+					break;
+				}
+
 				{
 					s32 nready = 0;
 
@@ -4522,24 +4553,9 @@ static void lobbyScriptTick(void)
 			// up), so the launch never waits on it
 			if (s_InRoom && s_Room.valid && !s_Room.launched
 					&& (netRdvLadder() == NETRDV_LADDER_DONE || netRdvLadder() == NETRDV_LADDER_FAILED || now - s_ScriptAt > 20000)) {
-				// --net-lobby-side N: this member's room team first (a
-				// counter-op room's side), asked once and waited for
-				{
-					static u64 s_SideAskedAt = 0;
-					const s32 side = sysArgGetInt("--net-lobby-side", -1);
-
-					if (side >= 0 && side <= 7 && netLobbyMyTeam() != side) {
-						if (s_SideAskedAt == 0 || now - s_SideAskedAt > 3000) {
-							char body[48];
-
-							snprintf(body, sizeof(body), "{\"team\":%d,\"spectator\":false}", side);
-							lobbyAction("team", body);
-							s_SideAskedAt = now;
-							sysLogPrintf(LOG_NOTE, "lobby script: join: asking for team %d", side);
-						}
-
-						break;
-					}
+				// --net-lobby-side N: this member's room team first
+				if (lobbyScriptAwaitSide("join", now)) {
+					break;
 				}
 
 				if (netRdvLadder() == NETRDV_LADDER_DONE) {

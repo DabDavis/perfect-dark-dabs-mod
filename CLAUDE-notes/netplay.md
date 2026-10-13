@@ -43,7 +43,8 @@
   `g_RngSeed` put back: the load's takeover had split the stage hash's rng),
   the clients follow by the mission block (body, radius, the setup chrs
   taken, by chrnum); which converted guard may be taken; Guards Alerted!'s
-  guards as bodies too; `netantitest.sh`.
+  guards as bodies too; `netantitest.sh`; a lobby host counter-op's launch
+  ended the match on the old stage's last frame and crashed (2026-10-13).
 - **A long link's walk (F3 pass 38, 2026-10-12, no wire change)** — the
   section "F3 pass 38": the host walks a client's player by its commands
   alone (a dry tick waits, a fold walks each folded command first:
@@ -3893,7 +3894,27 @@ Respawn rules and lives).
   machines, no guard after the counter-op, the respawn's second guard, the agents' win its "failed",
   prediction), ga (Guards Alerted!: the mod's guards taken, none after the counter-op), ge (Dam: a plain
   guard's body), hostanti (the host a counter-op, bond the client's seat), lobby (a room with a local
-  pdlobbyd).
+  pdlobbyd), lobbyhost (below).
+- **The launch's frame on the old stage (crash 2026-10-13, a lobby host on the counter-ops' side, two
+  agents, GoldenEye's Runway).** `netCoopHostStart()` sets the sides, the mask and the player numbers,
+  then asks for the stage - which changes at the end of the frame, and the room's start comes from the
+  Game Lobby page's tick, inside it: the Institute the room launched from ticks once more with the
+  match's sides set. Its one player is the host's, `MPINDEX_SOLO` (12, past `g_Menus[]`) and, the host
+  a counter-op, in the mask - so `netCoopAgentsGone()` (two seconds into the stage, and the player had
+  walked the Institute for five before opening the online pages) found no agent: "no agent is left ...
+  (tick 0)", MATCH_END to the loading clients, and `endscreenPushAnti()` for that player wrote
+  `g_Menus[12]` - `g_MissionConfig` and on - and the dialog's text crashed in `textRenderProjected()`.
+  Read off the live process: the CI (0x26) the stage, Runway (0x5e) still in `g_MainChangeToStageNum`,
+  `g_Vars.players[1..11]` NULL. Fixed: `netCoopAgentsGone()` judges only while
+  `netSessionMatchActive()` (the match's own stage loaded); the online end loop in pdmain.c skips a
+  player whose mpindex has no menus (warns). Not GoldenEye's: any lobby room with the host a
+  counter-op. The other gates never met it: hostanti's host starts at boot (under the two seconds) and
+  lobby's host is an agent; a lobby host's Institute is paused under its menus unless walked first.
+  `lobbyhost` in netantitest: the host under gdb, at `menuStop()` once the stage change is pending,
+  sets the Institute's frame count to 300 and asks `netCoopAgentsGone()` there (it was 1 unfixed, and
+  `mainEndStage()` follows as the old tick did); the lobby script's `--net-lobby-side` now works for
+  the host too (`lobbyScriptAwaitSide()`), and `--profile 0` with a copy of this machine's eeprom puts
+  the host past Choose Your Reality as a player is.
 - **Left as stock:** the radar shows the players to each other when the room's Radar is on (Perfect
   Dark's counter-op radar); the kill feed names a counter-op's kills; a counter-op waiting for a guard
   is visible as its own character.
