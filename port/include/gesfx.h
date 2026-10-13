@@ -152,9 +152,16 @@ s32 geSfxPickup(s32 pdsound, struct prop *prop);
 // Needs sfx.h (constants.h).
 #define GESFX_PICKUP_ARMOUR (SFX_PICKUP_SHIELD | 0x2000)
 
+// Whether a shield object is GoldenEye's body armour: the arenas' converted
+// setup lays it in MODEL_BODYARMOUR, a mission's (writeSoloProps()) in
+// GoldenEye's own vest models (0x273/0x274 on Facility), so on a converted
+// stage every shield that is not Perfect Dark's MODEL_CHRSHIELD (a Perfect
+// Dark weapon set's) is armour (F3 20261013-012701/130450/184351)
+struct defaultobj;
+s32 geObjIsBodyArmour(struct defaultobj *obj);
+
 // The pickup sound for a shield object: GESFX_PICKUP_ARMOUR for GoldenEye's
 // body armour, SFX_PICKUP_SHIELD for Perfect Dark's shield
-struct defaultobj;
 s32 geSfxShieldPickupSound(struct defaultobj *obj);
 
 // Whether a chr's shot of this gun is GoldenEye's rocket launch on a converted

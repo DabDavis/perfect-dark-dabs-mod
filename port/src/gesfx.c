@@ -617,9 +617,19 @@ s32 geSfxPickup(s32 pdsound, struct prop *prop)
 	return 1;
 }
 
+s32 geObjIsBodyArmour(struct defaultobj *obj)
+{
+	if (!obj) {
+		return 0;
+	}
+
+	return obj->modelnum == MODEL_BODYARMOUR
+		|| (obj->modelnum != MODEL_CHRSHIELD && modloaderStageIsRemake(g_Vars.stagenum));
+}
+
 s32 geSfxShieldPickupSound(struct defaultobj *obj)
 {
-	return obj && obj->modelnum == MODEL_BODYARMOUR ? GESFX_PICKUP_ARMOUR : SFX_PICKUP_SHIELD;
+	return geObjIsBodyArmour(obj) ? GESFX_PICKUP_ARMOUR : SFX_PICKUP_SHIELD;
 }
 
 /* ------------------------------------------------------------------------ */
