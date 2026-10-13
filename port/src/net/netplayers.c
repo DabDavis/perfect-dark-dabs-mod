@@ -1228,7 +1228,7 @@ static s32 netPlayersWalkSteady(const struct player *p)
 	return g_Vars.tickmode == TICKMODE_NORMAL
 		&& p->bondmovemode == MOVEMODE_WALK
 		&& p->visionmode != VISIONMODE_SLAYERROCKET
-		&& p->eyespy == NULL
+		&& !(p->eyespy && p->eyespy->active)
 		&& !p->walkinitmove
 		&& !p->isdead
 		&& geTankRidden(g_Vars.currentplayernum) == NULL;

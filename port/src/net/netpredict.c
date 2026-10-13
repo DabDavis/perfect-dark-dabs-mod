@@ -1039,7 +1039,10 @@ void netPredictMoveBegin(s32 allowc1x, s32 allowc1y, s32 allowc1buttons, s32 ign
 	e->replayable = g_Vars.tickmode == TICKMODE_NORMAL
 		&& p->bondmovemode == MOVEMODE_WALK
 		&& p->visionmode != VISIONMODE_SLAYERROCKET
-		&& p->eyespy == NULL
+		// a CamSpy flown, not one carried: eyespy is there from the load
+		// for anyone with a CamSpy, and a mission that gives one had no
+		// tick a correction could replay (F3 20261013-052532)
+		&& !(p->eyespy && p->eyespy->active)
 		&& !p->walkinitmove;
 	e->moved = e->replayable && !p->isdead;
 
