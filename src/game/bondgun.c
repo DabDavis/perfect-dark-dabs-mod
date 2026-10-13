@@ -4935,7 +4935,7 @@ void bgunTickGunLoad(void)
 		for (i = player->gunctrl.nexttexturetoload; i < modeldef->numtexconfigs; i++) {
 			osSyncPrintf("BriGun:  at texture %d\n", i);
 
-			if (modeldef->texconfigs[i].texturenum < NUM_TEXTURES) {
+			if (modeldef->texconfigs[i].texturenum < g_NumListTextures) {
 				osSyncPrintf("BriGun:  Uncompress %d of %d\n", i, modeldef->numtexconfigs);
 #ifndef PLATFORM_N64
 				// the gun's texture ids are its file's, not the map's
@@ -14289,7 +14289,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 	// Play default surface hit sound
 	handle = bgunAllocateAudioHandle();
 
-	if (handle != NULL && texturenum >= 0 && texturenum < NUM_TEXTURES) {
+	if (handle != NULL && texturenum >= 0 && texturenum < g_NumListTextures) {
 		s16 soundnum;
 		struct surfacetype *type = g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype];
 

@@ -244,7 +244,7 @@ void texSetRenderMode(Gfx **gdlptr, s32 arg1, s32 numcycles, s32 arg3)
 
 void texLoadFromConfig(struct textureconfig *config)
 {
-	if ((u32)config->texturenum < NUM_TEXTURES) {
+	if ((u32)config->texturenum < g_NumListTextures) {
 		texLoadFromConfigs(config, 1, NULL, 0);
 	}
 }
@@ -282,7 +282,7 @@ void texSelect(Gfx **gdlptr, struct textureconfig *tconfig, u32 arg2, s32 arg3, 
 
 		tex = NULL;
 
-		if ((u32)tconfig->texturenum < NUM_TEXTURES) {
+		if ((u32)tconfig->texturenum < g_NumListTextures) {
 			texLoadFromConfigs(tconfig, 1, pool, 0);
 		}
 

@@ -5927,7 +5927,7 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 				}
 
 				// Create decal depending on the weapon's surface type
-				if (hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= NUM_TEXTURES) {
+				if (hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= g_NumListTextures) {
 					surfacetype = SURFACETYPE_DEFAULT;
 				} else {
 					surfacetype = g_Textures[hit->hitthing.texturenum].surfacetype;
@@ -5967,7 +5967,7 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 				s32 index;
 
 				// Create decal depending on the hat's surface type
-				if (hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= NUM_TEXTURES) {
+				if (hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= g_NumListTextures) {
 					type = g_SurfaceTypes[0];
 				} else {
 					type = g_SurfaceTypes[g_Textures[hit->hitthing.texturenum].surfacetype];
@@ -5981,7 +5981,7 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 						&shotdata->gunpos3d,
 						0,
 						0,
-						geImpactTexnum(hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= NUM_TEXTURES
+						geImpactTexnum(hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= g_NumListTextures
 								? SURFACETYPE_DEFAULT : g_Textures[hit->hitthing.texturenum].surfacetype,
 								type->wallhittexes[index]),
 						1,

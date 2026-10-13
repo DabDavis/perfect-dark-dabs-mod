@@ -2468,7 +2468,11 @@ void texLoadFromConfigs(struct textureconfig *configs, s32 numconfigs, struct te
 	s32 i;
 
 	for (i = 0; i < numconfigs; i++) {
-		if ((uintptr_t)configs[i].texturenum < NUM_TEXTURES) {
+		// A number the texture list describes is a texture; anything else is
+		// an image in the model's own file. A mod's list can be longer than
+		// stock's: Offices' stall doors and sunshades use 3505 to 3515, and
+		// below stock's bound they were taken for pointers into the model.
+		if ((uintptr_t)configs[i].texturenum < g_NumListTextures) {
 			texLoad(&configs[i].texturenum, pool, true);
 			configs[i].unk0b = 1;
 		} else {

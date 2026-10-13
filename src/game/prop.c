@@ -1042,7 +1042,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 
 			texnum = lightsHandleHit(&shotdata.gunpos3d, &hitpos, room);
 
-			if (sp694.texturenum < 0 || sp694.texturenum >= NUM_TEXTURES) {
+			if (sp694.texturenum < 0 || sp694.texturenum >= g_NumListTextures) {
 				surfacetype = g_SurfaceTypes[SURFACETYPE_DEFAULT];
 			} else {
 				index = g_Textures[sp694.texturenum].surfacetype;
@@ -1073,7 +1073,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 #ifndef PLATFORM_N64
 					// GoldenEye's own on its levels (geimpact.c); none is 0 here
 					if (geImpactActive()) {
-						texnum = geImpactTexnum(sp694.texturenum >= 0 && sp694.texturenum < NUM_TEXTURES
+						texnum = geImpactTexnum(sp694.texturenum >= 0 && sp694.texturenum < g_NumListTextures
 								? g_Textures[sp694.texturenum].surfacetype : SURFACETYPE_DEFAULT, texnum);
 						texnum = texnum < 0 ? 0 : texnum;
 					}
@@ -1148,7 +1148,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 #ifndef PLATFORM_N64
 								// the same bound the surface type above is read with; the
 								// release's rooms reach here with a number past the table
-								texnum = sp694.texturenum >= 0 && sp694.texturenum < NUM_TEXTURES
+								texnum = sp694.texturenum >= 0 && sp694.texturenum < g_NumListTextures
 									? g_Textures[sp694.texturenum].surfacetype : SURFACETYPE_DEFAULT;
 #else
 								texnum = g_Textures[sp694.texturenum].surfacetype;

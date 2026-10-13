@@ -344,7 +344,7 @@ bool splat0f149274(f32 arg0, struct prop *chrprop, struct shotdata *shotdata, f3
 			struct hit *hit = &stackshotdata.hits[i];
 
 			if (hit->prop && (hit->hitthing.texturenum < 0
-						|| hit->hitthing.texturenum >= NUM_TEXTURES
+						|| hit->hitthing.texturenum >= g_NumListTextures
 						|| g_SurfaceTypes[g_Textures[hit->hitthing.texturenum].surfacetype]->numwallhittexes != 0)) {
 				sp50c = &hit->hitthing.pos;
 				hitpos = &hit->pos;

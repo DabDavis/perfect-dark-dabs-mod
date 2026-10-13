@@ -3788,7 +3788,7 @@ s32 func0f06cd00(struct defaultobj *obj, struct coord *pos, struct coord *arg2, 
 #ifndef PLATFORM_N64
 					// the release's rooms and GoldenEye's HD rooms hit with a
 					// number past the table (prop.c bounds its read the same way)
-					if (hitthing.texturenum >= 0 && hitthing.texturenum < NUM_TEXTURES
+					if (hitthing.texturenum >= 0 && hitthing.texturenum < g_NumListTextures
 							&& g_Textures[hitthing.texturenum].surfacetype == SURFACETYPE_DEEPWATER) {
 #else
 					if (g_Textures[hitthing.texturenum].surfacetype == SURFACETYPE_DEEPWATER) {
@@ -18156,7 +18156,7 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 			s8 spcb = false;
 			bool spc4;
 
-			if (hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= NUM_TEXTURES) {
+			if (hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= g_NumListTextures) {
 				surfacetype = g_SurfaceTypes[0];
 			} else if (g_Textures[hit->hitthing.texturenum].surfacetype < 15) {
 				surfacetype = g_SurfaceTypes[g_Textures[hit->hitthing.texturenum].surfacetype];
@@ -18188,7 +18188,7 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 
 #ifndef PLATFORM_N64
 				// GoldenEye's own on its levels (geimpact.c)
-				textureindex = geImpactTexnum(hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= NUM_TEXTURES
+				textureindex = geImpactTexnum(hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= g_NumListTextures
 						|| g_Textures[hit->hitthing.texturenum].surfacetype >= 15
 						? SURFACETYPE_DEFAULT : g_Textures[hit->hitthing.texturenum].surfacetype, textureindex);
 #endif
