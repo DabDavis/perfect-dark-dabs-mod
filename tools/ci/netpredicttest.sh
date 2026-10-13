@@ -17,6 +17,8 @@
 #   - corrections a minute (at most MAXCPM), and the mean and largest
 #     position error at N;
 #   - no snaps (corrections too large to ease) but respawns and teleports;
+#   - no correction in the opening swirl (the host's blocks there are its
+#     third person's body root, not comparable: F3 20261013-103159);
 #   - no block refused for a future command or a bad head animation;
 #   - at once: on the first tick of each walk in the script the client
 #     moves its player as far as the host moves it for the same command
@@ -342,6 +344,15 @@ if share < minmatch:
     print("FAIL %s: %.2f%% of blocks matched in all state, under %g%%" % (label, share, minmatch)); ok = False
 if cpm > maxcpm:
     print("FAIL %s: %.1f corrections a minute, over %g" % (label, cpm, maxcpm)); ok = False
+# the start-of-match swirl (no control, to about tick 114): the host's blocks
+# have the player at its body's root there (third person), not the eye, and
+# were "off" every one - 55 units eased, or snaps that flicked the circling
+# camera between two places (F3 20261013-103159). None in it now
+early = [r for r in corr if r[0] < 110]
+if early:
+    print("FAIL %s: %d corrections in the opening swirl (commands %s)" % (label, len(early), ", ".join(str(r[0]) for r in early[:8]))); ok = False
+else:
+    print("     %s: no correction in the opening swirl" % label)
 # after each respawn (an abs R line) the client's blocks agree at once: any
 # correction in the 60 commands after one is reported, more than one fails
 for r in R:

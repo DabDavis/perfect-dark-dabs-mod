@@ -250,6 +250,10 @@ static f32 s_ShiftMax = 0;
 static u32 s_Snaps = 0;       // corrections too large to ease (not respawns)
 static u32 s_AbsSnaps = 0;    // respawns and teleports
 static u32 s_CutsceneLeft = 0; // blocks left unapplied during a cutscene (online co-op: the host holds the player where the opening put it)
+#define NETPRED_SWIRLTAIL 30 // ticks after this machine's swirl ended whose blocks are still the host's swirl
+static s32 s_InSwirl = 0;      // this machine was in the swirl at the last block
+static u32 s_SwirlEnd = 0;     // the tick it saw the swirl over (0 not yet)
+static u32 s_SwirlLeft = 0;    // ... and in the start-of-match swirl (third person on the host: the body's root, not the eye)
 static u32 s_WatchLeft = 0;    // ... and while GoldenEye's watch is up here (gewatch.c: the view tilted to the wrist, the commands neutral)
 static s32 s_ForceSnap = 0;    // the next block is taken outright (a cutscene ended: the host's place from here)
 static u32 s_Missing = 0;     // no state in the ring for the block's command
@@ -359,6 +363,9 @@ void netPredictStageStart(void)
 	s_RideBlocks = 0;
 	s_CutsceneLeft = 0;
 	s_WatchLeft = 0;
+	s_SwirlLeft = 0;
+	s_InSwirl = 0;
+	s_SwirlEnd = 0;
 	s_ForceSnap = 0;
 	s_DiscreteOff = s_AngleOff = 0;
 	s_StartTick = 0;
@@ -398,11 +405,11 @@ void netPredictMatchStopped(void)
 
 void netPredictLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: prediction %s (tick %u): compared %u, matched %u (%.2f%%), corrections %u (position error at the command mean %.2f max %.2f; moved now mean %.2f max %.2f; angles only %u, discrete only %u), ticks replayed %u, snaps %u, respawn/teleport snaps %u, no state %u, too old %u, blocks refused %u, future commands %u, head data refused %u, death heads kept %u (%u awaiting a death or respawn), cutscene blocks left %u, watch blocks left %u, tank rider blocks %u, chrs stood where a replayed tick met them %u",
+	sysLogPrintf(LOG_NOTE, "net: prediction %s (tick %u): compared %u, matched %u (%.2f%%), corrections %u (position error at the command mean %.2f max %.2f; moved now mean %.2f max %.2f; angles only %u, discrete only %u), ticks replayed %u, snaps %u, respawn/teleport snaps %u, no state %u, too old %u, blocks refused %u, future commands %u, head data refused %u, death heads kept %u (%u awaiting a death or respawn), cutscene blocks left %u, watch blocks left %u, tank rider blocks %u, chrs stood where a replayed tick met them %u, swirl blocks left %u",
 			why, g_NetTick, s_Compared, s_Matched, s_Compared ? 100.0 * s_Matched / s_Compared : 0.0, s_Corrections,
 			s_Corrections ? (f32)(s_ErrSum / s_Corrections) : 0.f, s_ErrMax,
 			s_Corrections ? (f32)(s_ShiftSum / s_Corrections) : 0.f, s_ShiftMax, s_AngleOff, s_DiscreteOff,
-			s_Replayed, s_Snaps, s_AbsSnaps, s_Missing, s_Overrun, s_Refused, s_Future, s_AnimRefused, s_HeadDeath, s_HeadDeathWait, s_CutsceneLeft, s_WatchLeft, s_RideBlocks, s_ChrPosed);
+			s_Replayed, s_Snaps, s_AbsSnaps, s_Missing, s_Overrun, s_Refused, s_Future, s_AnimRefused, s_HeadDeath, s_HeadDeathWait, s_CutsceneLeft, s_WatchLeft, s_RideBlocks, s_ChrPosed, s_SwirlLeft);
 }
 
 // netcoop.c: a cutscene ended here; the host's place is taken outright at the next block
@@ -1763,6 +1770,30 @@ s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, 
 	// level under the watch. Compared again once it is down
 	if (geWatchHoldsPlayer(g_NetLocalSlot) && !abs) {
 		s_WatchLeft++;
+		s_HaveLast = 1;
+		s_LastCmd = cmd;
+		return 0;
+	}
+
+	// the start-of-match swirl (TICKMODE_MPSWIRL): no control for the player
+	// while the camera circles it, and the host's blocks are not comparable
+	// with this machine's: the swirl is third person there, its chrTick puts
+	// the player at its body's root, while the walk here has the eye. Every
+	// block was "off" - 55 units at best, eased; on F3 20261013-103159's host
+	// 1336, sixteen snaps in the swirl, and the circling camera jumped
+	// between two places and back. Compared again once the swirl is over
+	// The swirl here runs ahead of the host's (it moves on while this
+	// machine waits for the host's first ticks), so the host's blocks are
+	// the swirl's for a while after this one's ended: NETPRED_SWIRLTAIL more
+	if (g_Vars.tickmode == TICKMODE_MPSWIRL) {
+		s_InSwirl = 1;
+	} else if (s_InSwirl) {
+		s_InSwirl = 0;
+		s_SwirlEnd = g_NetTick;
+	}
+
+	if ((g_Vars.tickmode == TICKMODE_MPSWIRL || (s_SwirlEnd && cmd < s_SwirlEnd + NETPRED_SWIRLTAIL)) && !abs) {
+		s_SwirlLeft++;
 		s_HaveLast = 1;
 		s_LastCmd = cmd;
 		return 0;

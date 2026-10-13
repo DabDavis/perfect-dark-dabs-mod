@@ -4063,3 +4063,31 @@ sims?".
   Raising the default is the owner's call (a cutoff by design: past it a laggy shooter is no longer
   fully favoured over the victim). **The owner raised it to 300 (2026-10-12, fix/f3-1012-lagcomp300):
   the default and Mod.SettingsRevision 2 (main.c), which moves a pd.ini still at 200 to 300 once.**
+
+## F3 pass 39: explosions, the swirl, paint and sims (2026-10-13, no wire change)
+
+- **An explosion that bursts on a floor reached no client** (F3 20261013-101330/101544, Temple,
+  Devastator). `explosionCreateComplex` passes the floor's normal straight from
+  `cdFindFloorRoomYColourNormalPropAtPos`: the tile's unnormalised cross product, (0 1350000 0) on
+  Temple's floors. E3 wrote it as a position and the client's `netReadF` (anything past +-1048576 is
+  refused) failed the whole event: "malformed" in the client's events line, and every grenade or
+  rocket that made a scorch was missing (48 of the host's 48 in a Temple run now; 33 malformed of
+  ~50 before). `netEvExplosion` writes it as a unit vector (wallhitCreate normalises it anyway); the
+  layout is the same. neteventtest stages such a blast (`floorboom`, the normal given as Temple's,
+  since Skedar's smaller tiles stayed in range) and its malformed and counts checks fail on the old
+  build. Look at the events line's `malformed` first when a client misses something the host sent.
+- **The opening swirl's corrections** (F3 20261013-103159: "swirl flickers between chars"). The
+  swirl is third person on the host: its chrTick leaves the player's prop at the body's root, while
+  the client's walk has the eye, so every block of the swirl was off - 54.74 units eased in a loopback
+  run, 1336-unit snaps every eight ticks on the report's host, and the circling camera jumped between
+  two places. The client compares no block in `TICKMODE_MPSWIRL` nor for `NETPRED_SWIRLTAIL` (30)
+  ticks after (its swirl runs ahead of the host's); a respawn/teleport (abs) is still taken. A spawn
+  that differs between the two is taken in one snap after the swirl. netpredicttest fails any
+  correction before command 110 (the lag case had one on the old build). Not found: why that host's
+  root was 1336 from the client's eye (a spawn mismatch alone, simulated with gdb, corrects once).
+- **Paintball marks on walls do reach a client** (MARKS: the host's paint record, texnum 8, 9 of 9 in
+  a run with the host's player's OPTION_PAINTBALL set by gdb). Marks on props and chrs (a gun on the
+  floor, doors, crates) are still not replicated (see "Left" under the protocol 29 section).
+- **Sims' heads are the host's numbers on a client** (RULES' head rows; 8 profile sims with random
+  heads, the client in the HD look: every headnum/bodynum equal). A look difference is each machine's
+  own look.
