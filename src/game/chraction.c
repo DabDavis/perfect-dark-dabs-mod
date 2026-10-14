@@ -7489,13 +7489,6 @@ static bool chrGoPosDetour(struct chrdata *chr, struct waypoint *stuckwp)
 }
 
 /**
- * Watch a simulant's progress along its route, and when it has come no nearer
- * the pad it is running to for NAV_NOPROGRESS, send it on a detour.
- *
- * Nearer is in three dimensions, so a climb up a ladder is progress. A
- * simulant waiting for a lift, or waiting at a door, is not watched.
- */
-/**
  * A simulant whose route has it off a lift - running to the pad it waits at
  * on the far floor (PADFLAG_AIWAITLIFT) - while it is in no lift and the pad
  * is a storey above or below it. In a match stock's exit rule lets it leave
@@ -7520,6 +7513,13 @@ static bool chrGoPosStrandedByLift(struct chrdata *chr, struct waypoint *wp)
 	return (pad.flags & PADFLAG_AIWAITLIFT) && fabsf(pad.pos.y - chr->ground) > 400.0f;
 }
 
+/**
+ * Watch a simulant's progress along its route, and when it has come no nearer
+ * the pad it is running to for NAV_NOPROGRESS, send it on a detour.
+ *
+ * Nearer is in three dimensions, so a climb up a ladder is progress. A
+ * simulant waiting for a lift, or waiting at a door, is not watched.
+ */
 static bool chrGoPosWatchProgress(struct chrdata *chr)
 {
 	struct aibot *aibot = chr->aibot;

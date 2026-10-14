@@ -1781,7 +1781,7 @@ s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, 
 	// the player at its body's root, while the walk here has the eye. Every
 	// block was "off" - 55 units at best, eased; on F3 20261013-103159's host
 	// 1336, sixteen snaps in the swirl, and the circling camera jumped
-	// between two places and back. Compared again once the swirl is over
+	// between two places and back. Compared again once the swirl is over.
 	// The swirl here runs ahead of the host's (it moves on while this
 	// machine waits for the host's first ticks), so the host's blocks are
 	// the swirl's for a while after this one's ended: NETPRED_SWIRLTAIL more
