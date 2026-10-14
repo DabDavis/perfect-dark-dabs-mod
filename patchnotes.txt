@@ -31,6 +31,29 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 65 2026-10-14
+Online: running into simulants and other players no longer rubberbands you; the host now walks you among them where your own screen showed them (thanks dab)
+Online: with Quick Weapon Swap on, every second gun you switched to showed as an empty hand to everyone else; your character now always holds the gun you hold (thanks dab)
+Online: the host now hears the other players' guns, from where they stand (thanks dblaney1)
+Online: grenades and rockets that burst on a floor now explode on every player's screen, not only the host's (thanks dab)
+Online: the camera swirl at the start of a match no longer flickers between two places (thanks dab)
+Online: a kill by a thrown Laptop Gun's sentry is listed as the Laptop Gun, not the RC-P45 (thanks dab)
+Online: team names in the Team Ranking no longer end in a question mark (thanks dab)
+Online: a control option you change from the pause menu during a match, such as Reverse Pitch, is kept for your next match (thanks dark reyn)
+Simulants: sims run off catwalks and ledges onto the floor below again (G5 Building, Ravine's bridge) and no longer get stranded by Ravine's lift, while still keeping out of G5's shaft and off the map's edge (thanks dab)
+GoldenEye missions: body armour says "Picked up some body armor." and sounds like GoldenEye's armour, not Perfect Dark's shield (thanks Odeyseis and Mike D)
+GoldenEye: the watch's spinning guns and items, and the watch itself, move at the original speed at high frame rates (thanks ClassicAlfredo)
+GoldenEye: driving the tank no longer bounces or leans with the Camera Tilt options; they apply on foot only (thanks ClassicAlfredo)
+GoldenEye (original graphics): Jungle's watchtower roof no longer shows palm leaves through it (thanks ClassicAlfredo)
+GoldenEye (HD look): side caps sit down on the guards' hair instead of floating above it (thanks Odeyseis)
+GoldenEye: the Farsight and the crosshair show Bond's friends blue - Natalya, Trevelyan as 006 in Facility, Dr. Doak and the scientists; a scientist who pulls a pistol turns red (thanks Casey)
+Goldfinger 64, Knox: in the ending the soldier's shot now kills the guard, as on the cartridge (thanks Odeyseis)
+Goldfinger 64, Crab Key: the vent behind the grate by the Maintenance Shaft sign can be walked into once the grate is open (thanks Odeyseis)
+GoldenEye X: with COD Style Aiming on, a gun reloaded at the sights stays centred instead of sliding after its barrel (the RC-P90 and others)
+Mods: Player page: Akimbo Triggers' buttons only show while Akimbo Triggers is on, so the radial menu's key no longer looks like an akimbo bind; if you cleared it, bind Radial Menu again on Key Bindings (thanks ElmoBear)
+Ghost Trials: on narrower screens or with a long account name the menu uses smaller rows, so the Player and Trial Rules boxes no longer cover it (thanks Shockwave S08)
+Every stage after the first in a session starts from clean memory, so leftovers from the last stage can no longer cause rare, random differences in how guards, lights or the HUD behave
+
 notes 64 2026-10-13
 Online co-op and counter-op: on a mission that gives you a CamSpy (dataDyne Investigation and others) your player no longer rubberbands after a hit or a bump (thanks savantique)
 
