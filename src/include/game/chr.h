@@ -37,6 +37,7 @@ bool chrTickBeams(struct prop *prop);
 s32 chrTick(struct prop *prop);
 #ifndef PLATFORM_N64
 bool chrIsGeListBody(struct chrdata *chr);
+bool chrBotDropLanding(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 fromground, f32 *landy, RoomNum *landroom);
 #endif
 void chrDropConcealedItems(struct chrdata *chr);
 void chrSetHudpieceVisible(struct chrdata *chr, bool visible);

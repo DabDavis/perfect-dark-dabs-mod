@@ -7079,6 +7079,7 @@ static bool chrGoPosMayCutTo(struct chrdata *chr, struct coord *pos)
 	f32 floory;
 	f32 padabove;
 	s32 numsteps;
+	s32 drops = 0;
 	s32 i;
 
 	if (!chr->aibot) {
@@ -7138,7 +7139,39 @@ static bool chrGoPosMayCutTo(struct chrdata *chr, struct coord *pos)
 			y = cdFindFloorYColourTypeAtPos(&to, torooms, NULL, NULL);
 		}
 
-		if (y < -100000 || y > floory + CUT_MAXRISE || y < floory - CUT_MAXDROP) {
+		if (y > floory + CUT_MAXRISE && y > -100000) {
+			return false;
+		}
+
+		if (y < -100000 || y < floory - CUT_MAXDROP) {
+#ifndef PLATFORM_N64
+			// A drop on the way: off a catwalk or a ledge onto a floor below
+			// that a simulant may land on (chrBotDropLanding: within
+			// BOTDROP_MAX, or deeper onto a floor that does not kill; never
+			// G5's shafts or the void). The step's rooms are those round the
+			// height it was walking at, so the floor below is looked for down
+			// through the rooms under it. Stock cut across the air to any pad
+			// it could see and walked off catwalks that way; the floor walk
+			// had refused every drop, so simulants would not run off a
+			// catwalk to the floor under it (the owner, F3 20261013-111056).
+			// At most two drops on one cut.
+			RoomNum landroom = -1;
+			f32 landy;
+
+			if (!geRoomActive() && drops < 2
+					&& chrBotDropLanding(chr, &to, torooms, floory, &landy, &landroom)
+					&& landy < floory - CUT_MAXDROP
+					&& landroom > 0 && landroom < g_Vars.roomcount) {
+				drops++;
+				floory = landy;
+				to.y = floory + CUT_MAXRISE + 40.0f;
+				from = to;
+				fromrooms[0] = landroom;
+				fromrooms[1] = -1;
+				continue;
+			}
+#endif
+
 			return false;
 		}
 
@@ -7462,6 +7495,31 @@ static bool chrGoPosDetour(struct chrdata *chr, struct waypoint *stuckwp)
  * Nearer is in three dimensions, so a climb up a ladder is progress. A
  * simulant waiting for a lift, or waiting at a door, is not watched.
  */
+/**
+ * A simulant whose route has it off a lift - running to the pad it waits at
+ * on the far floor (PADFLAG_AIWAITLIFT) - while it is in no lift and the pad
+ * is a storey above or below it. In a match stock's exit rule lets it leave
+ * the car whenever the car is above the far floor (so it may drop off it),
+ * and on Ravine that sent a simulant from the lift's top stop along the
+ * bridge to stand over the bottom's pad 17, 1850 under the deck, for the rest
+ * of the match (F3 20261013-110407). Being "on the lift" kept the progress
+ * watch off it; stranded like that it gets its detour.
+ */
+static bool chrGoPosStrandedByLift(struct chrdata *chr, struct waypoint *wp)
+{
+	struct pad pad;
+
+	if (chr->inlift
+			|| chr->liftaction == LIFTACTION_WAITINGFORLIFT
+			|| chr->liftaction == LIFTACTION_WAITINGONLIFT) {
+		return false;
+	}
+
+	padUnpack(wp->padnum, PADFIELD_POS | PADFIELD_FLAGS, &pad);
+
+	return (pad.flags & PADFLAG_AIWAITLIFT) && fabsf(pad.pos.y - chr->ground) > 400.0f;
+}
+
 static bool chrGoPosWatchProgress(struct chrdata *chr)
 {
 	struct aibot *aibot = chr->aibot;
@@ -7472,7 +7530,7 @@ static bool chrGoPosWatchProgress(struct chrdata *chr)
 	f32 dz;
 	f32 dist;
 
-	if (!wp || chrGoPosIsTakingLift(chr) || chrGoPosIsWaiting(chr)) {
+	if (!wp || (chrGoPosIsTakingLift(chr) && !chrGoPosStrandedByLift(chr, wp)) || chrGoPosIsWaiting(chr)) {
 		aibot->navwp = NULL;
 		return false;
 	}
