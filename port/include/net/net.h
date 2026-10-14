@@ -413,6 +413,8 @@ void netLagCompShotEnd(struct shotdata *sd, s32 isshooting, s32 cheap);
 // everything on its screen is rewound for the two)
 void netLagCompPassBegin(void);
 void netLagCompRaiseOldDefault(void); // Mod.SettingsRevision 2: Net.LagCompMaxMs 200 -> 300
+void netLagCompWalkOffOnce(void);     // Mod.SettingsRevision 3: Net.LagCompWalk off
+s32 netLagCompWalkOn(void);           // Net.LagCompWalk: the host's walk and the client's replays among the chrs as seen
 void netLagCompPassEnd(void);
 const struct coord *netLagCompAimPos(struct prop *prop); // the autoaim's line of sight to a chr: its rewound place in a remote pass
 // bmoveTick, host: around a remote player's bwalkTick, the chrs near it where

@@ -188,8 +188,10 @@ static void cleanup(void)
  * Reflection Style is Level Metal, the title logo is Statue & Metal.
  * 2 (2026-10-12, the owner): Net.LagCompMaxMs 200 -> 300 where it was still
  * the old default (F3 20261012-123437: a 220 ms link had every shot capped).
+ * 3 (2026-10-14): Net.LagCompWalk off, which notes 65 had written on (players
+ * walked into each other and stuck there, F3 20261014-044547).
  */
-#define SETTINGS_REVISION 2
+#define SETTINGS_REVISION 3
 
 static s32 g_SettingsRevision = 0;
 
@@ -203,6 +205,10 @@ static void mainApplySettingsRevision(void)
 
 	if (g_SettingsRevision < 2) {
 		netLagCompRaiseOldDefault();
+	}
+
+	if (g_SettingsRevision < 3) {
+		netLagCompWalkOffOnce();
 	}
 
 	g_SettingsRevision = SETTINGS_REVISION;

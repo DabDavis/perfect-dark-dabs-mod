@@ -152,7 +152,12 @@ void chrHandleJointPositioned(s32 joint, Mtxf *mtx);
 s32 g_NetLagComp = 1;
 static s32 s_MaxMs = 300;
 static s32 s_LagCompBlasts = 1;  // Net.LagCompBlasts: a guest's blasts where it saw the chrs
-static s32 s_LagCompWalk = 1;    // Net.LagCompWalk: a guest's walk among the chrs where it saw them
+// Net.LagCompWalk: a guest's walk among the chrs where it saw them. Off by
+// default since notes 66: tested against the others where its client saw
+// them, two players' walks each walked into where the other stands now, and
+// put back they were inside each other and could not move ("we are all
+// stuck", F3 20261014-041452/044547 on a9879269d)
+static s32 s_LagCompWalk = 0;
 
 PD_CONSTRUCTOR static void netLagCompConfigInit(void)
 {
@@ -168,6 +173,18 @@ void netLagCompRaiseOldDefault(void)
 	if (s_MaxMs == 200) {
 		s_MaxMs = 300;
 	}
+}
+
+// Mod.SettingsRevision 3 (main.c): the walk among the chrs as seen off where
+// notes 65 wrote it on
+void netLagCompWalkOffOnce(void)
+{
+	s_LagCompWalk = 0;
+}
+
+s32 netLagCompWalkOn(void)
+{
+	return s_LagCompWalk;
 }
 
 static struct netlcpose *s_Hist = NULL; // [s_HistSlots][NETLC_RING]

@@ -31,6 +31,9 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 66 2026-10-14
+Online: players no longer get stuck inside each other; walking among the others where your own screen showed them, new in the last update, is switched off for now (thanks dab)
+
 notes 65 2026-10-14
 Online: running into simulants and other players no longer rubberbands you; the host now walks you among them where your own screen showed them (thanks dab)
 Online: with Quick Weapon Swap on, every second gun you switched to showed as an empty hand to everyone else; your character now always holds the gun you hold (thanks dab)

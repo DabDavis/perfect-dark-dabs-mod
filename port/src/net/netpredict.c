@@ -1068,6 +1068,12 @@ static void netPredRecordChrs(struct netpredtick *e, const struct player *p)
 
 	e->numchrs = 0;
 
+	// with Net.LagCompWalk off the replays walk among the puppets as the
+	// last pose step left them, as before notes 65
+	if (!netLagCompWalkOn()) {
+		return;
+	}
+
 	if (!g_ChrSlots) {
 		return;
 	}

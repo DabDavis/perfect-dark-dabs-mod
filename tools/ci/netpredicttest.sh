@@ -495,11 +495,14 @@ run_lp() {
 run_chase() {
 	local port=$1
 	echo "300 5400 8 0 0 0 0 0 0" > "$OUT/chase.script"
-	INI="[Mod]\nStartArmed=1\n" game chase-host 300 --moddir "$MODDIR" --host "$port" --net-test-host 1 --net-test-stage 0x42 \
+	# the walk among the chrs as seen is off by default since notes 66 (players
+	# walked into each other and stuck): turned on here, past the revision that
+	# turns it off
+	INI="[Mod]\nStartArmed=1\nSettingsRevision=3\n[Net]\nLagCompWalk=1\n" game chase-host 300 --moddir "$MODDIR" --host "$port" --net-test-host 1 --net-test-stage 0x42 \
 		--net-test-sims 8 --rng-seed 4 --mp-weapons 1,4,7,9,10,1 --endless --net-test-invincible-pad 1 --net-sim 0,34 --exit-frame 5800 &
 	local host=$!
 	waitfor "$OUT/chase-host.log" "net: hosting on UDP port" 60 || { echo "FAIL: chase host did not start"; kill -TERM $host; exit 2; }
-	INI="[Mod]\nStartArmed=1\n" game chase-client 290 --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join --net-sim 0,34 \
+	INI="[Mod]\nStartArmed=1\nSettingsRevision=3\n[Net]\nLagCompWalk=1\n" game chase-client 290 --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join --net-sim 0,34 \
 		--net-test-input "$OUT/chase.script" --net-test-aimat nearest,0,0.5 --net-predict-log "$OUT/chase-client.plog" --net-predict-diff \
 		--exit-frame 5400 &
 	local client=$!
