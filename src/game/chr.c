@@ -600,6 +600,7 @@ bool chr0f01f264(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 arg
 #define BOTMOVE_STEP     40.0f
 #define BOTMOVE_MAXSTEPS 16
 #define BOTDROP_MAX      1000.0f
+#define BOTDROP_DEEP     2500.0f // a deeper drop is taken onto a floor that does not kill (Ravine's bridge: 1850)
 
 /**
  * Whether the floor search's "nothing under the chr" at pos is a drop to a
@@ -613,23 +614,29 @@ bool chr0f01f264(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 arg
  * floorless step for the edge of the world and held the simulant there, so a
  * fast simulant (and any simulant off screen at a low frame rate) could not
  * take a drop its route was built through, and stood at the top for the rest
- * of the match. Here the rooms are gathered down to BOTDROP_MAX below as well:
- * a floor within that is a drop to take - G5's catwalks drop about 300,
- * Skedar's drop pads nearly 600. G5's shafts, nine thousand units deep, and
- * the void off a map's edge are not.
+ * of the match. Here the rooms are gathered down to BOTDROP_DEEP below as well:
+ * a floor within BOTDROP_MAX is a drop to take - G5's catwalks drop about 300,
+ * Skedar's drop pads nearly 600 - and one within BOTDROP_DEEP too if it does
+ * not kill (GEOFLAG_DIE): Ravine's bridge stands 1850 over the ravine's floor,
+ * and the 1000 limit held simulants on it (F3 20261013-110407). Nothing hurts
+ * a chr that lands; only a killing floor or falling under -30000 does. G5's
+ * shafts, nine thousand units deep, and the void off a map's edge are not
+ * drops. Also the floor walk's test for a cut over a drop (chrGoPosMayCutTo),
+ * which gives fromground and wants where it lands.
  */
-static bool chrHasFloorBelow(struct chrdata *chr, struct coord *pos, RoomNum *rooms)
+bool chrBotDropLanding(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 fromground, f32 *landy, RoomNum *landroom)
 {
 	struct coord lower;
 	struct coord upper;
 	RoomNum tallrooms[16];
 	u16 floorcol;
-	u16 floorflags;
+	u16 floorflags = 0;
 	u8 floortype;
-	RoomNum floorroom;
+	RoomNum floorroom = -1;
 	s32 inlift;
 	struct prop *lift;
 	f32 ground;
+	const f32 deep = BOTDROP_DEEP;
 	s32 i;
 
 	for (i = 0; rooms[i] != -1 && i < 8; i++) {
@@ -643,7 +650,7 @@ static bool chrHasFloorBelow(struct chrdata *chr, struct coord *pos, RoomNum *ro
 	}
 
 	lower.x = pos->x - 50.0f;
-	lower.y = chr->manground - BOTDROP_MAX;
+	lower.y = fromground - deep;
 	lower.z = pos->z - 50.0f;
 
 	upper.x = pos->x + 50.0f;
@@ -654,7 +661,25 @@ static bool chrHasFloorBelow(struct chrdata *chr, struct coord *pos, RoomNum *ro
 
 	ground = chrFindGround(pos, chr->radius, tallrooms, &floorcol, &floortype, &floorflags, &floorroom, &inlift, &lift);
 
-	return ground > -100000 && ground >= chr->manground - BOTDROP_MAX;
+	if (landy) {
+		*landy = ground;
+	}
+
+	if (landroom) {
+		*landroom = floorroom;
+	}
+
+	if (ground <= -100000 || ground < fromground - deep) {
+		return false;
+	}
+
+	// past BOTDROP_MAX only onto a floor that does not kill
+	return ground >= fromground - BOTDROP_MAX || (floorflags & GEOFLAG_DIE) == 0;
+}
+
+static bool chrHasFloorBelow(struct chrdata *chr, struct coord *pos, RoomNum *rooms)
+{
+	return chrBotDropLanding(chr, pos, rooms, chr->manground, NULL, NULL);
 }
 
 /**

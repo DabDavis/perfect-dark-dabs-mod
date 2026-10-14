@@ -628,3 +628,39 @@ animation never counts as stuck. Missions are left alone: the replay test's opts
 Alerted! on one. Ravine, 40000 fixed-step frames, seed 1, 3 sims, 4 guards: 31 spawns / 23 killed before,
 44 / 29 after, with 6 taken out (4 at the ravine floor, 2 jammed in room 12). `--chr-trace` logs each one
 ("alarm: guard N stuck at ...: taken out").
+
+## Simulants off catwalks and Ravine's bridge (F3 pass 39, 2026-10-14)
+
+The owner: sims could not run off G5's catwalks onto the ones below, and one
+stood on Ravine's bridge all match (F3 20261013-110407, 20261013-111056); the
+September rules (2b221d952's step walk, e09d10aea's floor walk and edge hold)
+were part of it. Three changes, all for chrs with an aibot, in both Simulant AI
+settings (none of these rules was ever behind Mod.SimBrain: stock's route
+follower runs whenever the mesh is not walking the simulant):
+
+- **The floor walk takes drops** (`chrGoPosMayCutTo`): a step whose floor is
+  more than 45 down, or not found in the rooms round its height, looks down
+  through the rooms under it (`chrBotDropLanding`); a floor there the edge rule
+  would let the simulant fall to is the walk's new floor, two drops at most a
+  cut. Stock cut through the air to any pad in sight and so ran off catwalks;
+  the walk had refused every drop, so a simulant ran the long way round or
+  stood at the edge over the pad below.
+- **Deeper drops onto a floor that does not kill** (`BOTDROP_DEEP` 2500, chr.c;
+  the navmesh's `maxdrop` with it): within 1000 any floor is a drop as before;
+  past it only one without GEOFLAG_DIE. G5's shafts (9000 deep) and the void
+  stay held. Nothing hurts a landing chr.
+- **Stranded by a lift** (`chrGoPosStrandedByLift`): in a match stock's lift
+  exit (chrGoPosUpdateLiftAction) lets a simulant leave the car whenever it is
+  above the far stop; on Ravine one left the lift's top stop for the bottom's
+  pad 17 (-1889 -691 1897) and stood over it on the bridge deck, 1850 above,
+  for 85 seconds of a seeded run - and being "on the lift" kept the progress
+  watch off it. In no lift, running to a far floor's wait pad more than 400
+  above or below its ground, it is watched and gets its detour.
+
+Measured with tools/simstall (probe.sh, 4 sims, seeds 1-3, G5 + Ravine +
+Complex, NormalSims and 500% DarkSims, one binary with the rules behind an
+environment switch, stock AI): stalled samples 269 -> 128 (Normal) and 752 ->
+331 (500%), falls 0 -> 1 and 13 -> 5, drops taken (a fall of more than 150 in
+half a second while going somewhere) 128 -> 142 and 436 -> 451; Ravine's
+bridge 161 stalled samples -> 0, G5 25 -> 14 and 177 -> 31, Complex 28 -> 42
+and 187 -> 146. Modern (G5 + Ravine, seeds 1-2): the same within a sample.

@@ -639,7 +639,7 @@ static void simnavGetLinkParams(struct simnavlinkparams *lp)
 		lp->jumpapex[i] = JUMP_APEX * (i + 1);
 	}
 
-	lp->maxdrop = 1000.0f;
+	lp->maxdrop = 2500.0f; // chr.c BOTDROP_DEEP: past 1000 a drop is taken only onto a floor that does not kill (a link never lands on one)
 	lp->boxfloor = 20.0f;
 	lp->groundlag = 30.0f;
 	lp->samplespacing = 40.0f;
