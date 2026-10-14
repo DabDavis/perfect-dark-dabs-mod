@@ -619,8 +619,9 @@ static s32 simnavExtract(const u8 *tiledata, struct simnavgeom *g)
  *   clears the same gap; the speed sliders are for M3 to weigh.
  * - no fall damage: nothing in chr0f01f378() hurts a landing chr; it dies
  *   only landing on a GEOFLAG_DIE floor or below -30000. The limit is the
- *   route follower's: chrHasFloorBelow() holds a simulant at any edge with no
- *   floor within BOTDROP_MAX (1000, chr.c) below, so a drop is at most that.
+ *   route follower's: chrBotDropLanding() holds a simulant at any edge with no
+ *   floor within BOTDROP_MAX (1000, chr.c) below, or none that does not kill
+ *   within BOTDROP_DEEP (2500), so a drop is at most that.
  * - 20 and 30: a walker's box starts 20 over its feet (chrGetBbox()), and its
  *   ground may lag the floor by 30 (chrTickFalling(), the bot step).
  */
