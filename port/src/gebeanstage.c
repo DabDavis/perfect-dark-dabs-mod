@@ -3064,6 +3064,16 @@ static s32 decalPick(struct stri *tris, const struct tgrid *g, const u8 *full, s
 				continue;
 			}
 
+			// Two cut-outs overlapping along a strip are two see-through
+			// sheets meeting, not a picture on its base: the Cradle's ramp
+			// railing runs 90 units into the platform's railing in its
+			// plane, and made the decal of it the whole ramp railing was
+			// drawn in a blended decal mode, a grey sheet where its bars
+			// were (F3 20261016-214844)
+			if (alphai && alphau) {
+				continue;
+			}
+
 			strip = 1;
 		}
 
@@ -5783,7 +5793,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 24
+#define HDCACHE_VERSION 25
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
