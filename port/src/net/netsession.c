@@ -722,6 +722,22 @@ static u32 s_TestPitchLogged = 0; // the match it was logged in
 
 void netTestOwnOptions(void)
 {
+	// --net-test-own-char HEAD,BODY (netjointest): this machine's own player
+	// 1 plays that character (list places), once, before its first SLOTCFG
+	{
+		static s32 done = 0;
+		const char *own = sysArgGetString("--net-test-own-char");
+		unsigned int head = 0;
+		unsigned int body = 0;
+
+		if (!done && own && sscanf(own, "%u,%u", &head, &body) == 2) {
+			done = 1;
+			g_PlayerConfigsArray[0].base.mpheadnum = head;
+			g_PlayerConfigsArray[0].base.mpbodynum = body;
+			sysLogPrintf(LOG_NOTE, "net: --net-test-own-char: this machine's own player 1 is head %u body %u", head, body);
+		}
+	}
+
 	if (s_TestPitch == -2) {
 		s_TestPitch = sysArgGetInt("--net-test-forward-pitch", -1);
 
@@ -955,6 +971,77 @@ static s32 netHostFreeSlot(s32 peer)
 
 static void netHostNotice(const char *fmt, ...);
 static void netClientShownName(const struct netclient *c, char *out, s32 size);
+
+/*
+ * A seat's character changed mid-match (a join in progress, F3
+ * 20261015-035744): its player's body is built again from the seat's config,
+ * on the host by its playerTick (playerTickChrBody) and on a client by the
+ * puppet's tick, once the player is alive, as Customize Character's change
+ * is taken
+ */
+static u16 s_CharStale = 0; // by mpindex
+
+void netSessionCharStale(s32 mpindex)
+{
+	if (mpindex >= 0 && mpindex < MAX_PLAYERS) {
+		s_CharStale |= 1u << mpindex;
+	}
+}
+
+s32 netPlayerBodyStaleIs(s32 playernum)
+{
+	const struct player *player = playernum >= 0 && playernum < PLAYERCOUNT() ? g_Vars.players[playernum] : NULL;
+	const s32 mpindex = player ? g_Vars.playerstats[playernum].mpindex : -1;
+
+	return s_CharStale && mpindex >= 0 && mpindex < MAX_PLAYERS && (s_CharStale & (1u << mpindex))
+		&& !player->isdead && player->prop;
+}
+
+s32 netPlayerBodyStaleTake(s32 playernum)
+{
+	const struct player *player = playernum >= 0 && playernum < PLAYERCOUNT() ? g_Vars.players[playernum] : NULL;
+	const s32 mpindex = player ? g_Vars.playerstats[playernum].mpindex : -1;
+
+	if (g_NetMode == NETMODE_NONE || !netPlayerBodyStaleIs(playernum)) {
+		return 0;
+	}
+
+	s_CharStale &= ~(1u << mpindex);
+	sysLogPrintf(LOG_NOTE, "net: player %d (seat %d): its body built again as head %d body %d (tick %u)", playernum, mpindex,
+			g_PlayerConfigsArray[mpindex].base.mpheadnum, g_PlayerConfigsArray[mpindex].base.mpbodynum, g_NetTick);
+
+	return 1;
+}
+
+/**
+ * A join in progress takes a seat the match loaded with another character
+ * (the open seat's) and options: the seat is the joiner's own before RULES go
+ * to it (its own player loads as itself, and plays by its own Control page),
+ * and the host's player for it is built again; the other clients hear of it
+ * in the ROSTER sent as it comes in. A match's start does this for every
+ * seat (netHostMatchStarting).
+ */
+static void netHostSeatOwnCfg(const struct netclient *c)
+{
+	struct mpplayerconfig *p;
+
+	if (c->spectator || c->slot < 0 || c->slot >= MAX_PLAYERS) {
+		return;
+	}
+
+	p = &g_PlayerConfigsArray[c->slot];
+	p->options = c->cfg.options;
+
+	if (p->base.mpheadnum != c->cfg.mpheadnum || p->base.mpbodynum != c->cfg.mpbodynum) {
+		sysLogPrintf(LOG_NOTE, "net: slot %d (\"%s\"): the joiner's own character, head %d body %d (the seat had head %d body %d)",
+				c->slot, c->name, c->cfg.mpheadnum, c->cfg.mpbodynum, p->base.mpheadnum, p->base.mpbodynum);
+		p->base.mpheadnum = c->cfg.mpheadnum;
+		p->base.mpbodynum = c->cfg.mpbodynum;
+		netSessionCharStale(c->slot);
+	}
+
+	memset(&p->fileguid, 0, sizeof(p->fileguid));
+}
 
 static void netHostOnConnect(s32 peer, struct netbuf *b)
 {
@@ -1253,6 +1340,7 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 		seat->ticketed = c->ticketed;
 		snprintf(seat->account, sizeof(seat->account), "%s", c->name);
 		netNameSet(g_PlayerConfigsArray[c->slot].base.name, sizeof(g_PlayerConfigsArray[c->slot].base.name), c->name);
+		netHostSeatOwnCfg(c);
 	}
 
 	if (oldseat >= 0) {
@@ -1971,6 +2059,12 @@ static void netHostSendRoster(void)
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		netBufWriteU8(&b, (u8)s_Seats[i].state);
 		netWriteStr(&b, netSessionWireName(i), 14);
+	}
+
+	// each seat's character (a join in progress plays its own: the others
+	// build its body again)
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		netWriteMpChar(&b, g_PlayerConfigsArray[i].base.mpheadnum, g_PlayerConfigsArray[i].base.mpbodynum);
 	}
 
 	for (i = 0; i < NET_MAXPEERS; i++) {
@@ -3325,6 +3419,8 @@ static void netClientOnRoster(struct netbuf *b)
 	char line[256];
 	char names[MAX_PLAYERS][15];
 	u8 st[MAX_PLAYERS];
+	u8 heads[MAX_PLAYERS];
+	u8 bodies[MAX_PLAYERS];
 	const u32 matchid = netBufReadU32(b);
 	const s32 n = netBufReadU8(b);
 	s32 len = 0;
@@ -3341,6 +3437,10 @@ static void netClientOnRoster(struct netbuf *b)
 		if (st[i] > NETSEAT_HELD) {
 			b->error = 1;
 		}
+	}
+
+	for (i = 0; i < MAX_PLAYERS && netBufOk(b); i++) {
+		netReadMpChar(b, &heads[i], &bodies[i]);
 	}
 
 	if (!netBufOk(b) || netBufRemaining(b) != 0 || matchid != s_MatchIdCur || !s_MatchActive) {
@@ -3361,6 +3461,18 @@ static void netClientOnRoster(struct netbuf *b)
 
 		if (st[i] != NETSEAT_NONE) {
 			netNameSet(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), names[i]);
+		}
+
+		// another seat's character changed (a join in progress): its puppet
+		// is built again; this machine's own seat came in RULES
+		if ((st[i] == NETSEAT_HOST || st[i] == NETSEAT_TAKEN || st[i] == NETSEAT_HELD)
+				&& !(!s_Spectating && i == s_ClientSlot)
+				&& (g_PlayerConfigsArray[i].base.mpheadnum != heads[i] || g_PlayerConfigsArray[i].base.mpbodynum != bodies[i])) {
+			sysLogPrintf(LOG_NOTE, "net: roster: seat %d plays head %d body %d (was head %d body %d)", i, heads[i], bodies[i],
+					g_PlayerConfigsArray[i].base.mpheadnum, g_PlayerConfigsArray[i].base.mpbodynum);
+			g_PlayerConfigsArray[i].base.mpheadnum = heads[i];
+			g_PlayerConfigsArray[i].base.mpbodynum = bodies[i];
+			netSessionCharStale(i);
 		}
 
 		if (len < (s32)sizeof(line)) {
@@ -3668,6 +3780,7 @@ static void netHostAwayJoins(s32 peer)
 		seat->ticketed = c->ticketed;
 		snprintf(seat->account, sizeof(seat->account), "%s", c->name);
 		netNameSet(g_PlayerConfigsArray[slot].base.name, sizeof(g_PlayerConfigsArray[slot].base.name), c->name);
+		netHostSeatOwnCfg(c);
 	}
 
 	sysLogPrintf(LOG_NOTE, "net: %s %d: \"%s\" joins the match in progress from the lobby",
@@ -4671,6 +4784,8 @@ void netClientLeave(void)
 void netStageStopped(void)
 {
 	s32 i;
+
+	s_CharStale = 0;
 
 	// the stage that stopped was the one before the match (the menus)
 	if (!s_MatchActive || !s_MatchLoaded) {

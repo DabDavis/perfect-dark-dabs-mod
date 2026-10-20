@@ -2836,6 +2836,14 @@ s32 netClientPuppetPlayerTick(s32 playernum)
 		return 0;
 	}
 
+	// a seat's character changed (a join in progress, the ROSTER): its
+	// body goes, and is built below the way a counter-op's guard's is
+	if (player->haschrbody && player->prop->chr && netPlayerBodyStaleTake(playernum)) {
+		player->haschrbody = false;
+		player->model00d4 = NULL;
+		chrRemove(player->prop, false);
+	}
+
 	if (!player->haschrbody) {
 		const s32 idx = netPupLocalIndex(player->prop);
 
