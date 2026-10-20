@@ -31,6 +31,40 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 67 2026-10-20
+Missions: above 60 FPS the closing cutscene no longer leaves you on a black screen at the end of a mission (Extraction, Defection and every other mission whose ending starts in play) (thanks ClassicAlfredo and GrimShaw245)
+Online: a new page before Name Entry offers Online Lobbies, LAN and Direct Connect; LAN and Direct Connect rooms are served by the host's own game, so they play even when the lobby server is down (Direct Connect needs the host's UDP port forwarded) (thanks dab)
+Online: joining a match in progress now uses your own character and control options, and everyone sees your character (thanks dab and Shockwave S08)
+Online co-op: a client no longer gets a countdown stuck on screen (thanks dblaney1)
+Online: spectating's free camera uses the same controls and speed as the single-player one (thanks Parabolee)
+Online: while you host a campaign room the Perfect Menu says so (Online Game: Hosting), and closing the online pages always takes you fully offline (thanks PCGENE789)
+Online: your remote mines now always go off when you press the detonator (thanks dab)
+Online: the Slayer's fly-by-wire rocket takes your camera along, and you steer it as offline (thanks dab)
+Online: matches on big mod maps no longer crash a few seconds in; the game now makes room for everything the map draws
+GoldenEye: guards keep moving and shooting while the watch comes up and goes down; the game only stops once the watch face fills the screen, as on the cartridge (thanks Odeyseis)
+GoldenEye: climbing into the tank, the view goes straight down into the seat without dipping and bouncing back (thanks Odeyseis)
+GoldenEye: getting out of the tank leaves you standing on top of it, as in GoldenEye (thanks Odeyseis)
+GoldenEye: Runway's destroyed autoguns stay where they were instead of falling through the level (thanks Odeyseis)
+GoldenEye: firing an empty gun switches to the next gun that has ammo, as in GoldenEye, instead of your fists (thanks Mike D)
+GoldenEye multiplayer: License to Kill kills in one shot again, even without Perfect Dark's One-Hit Kills unlocked, and body armour no longer soaks the first hit (thanks echoremastered)
+GoldenEye multiplayer: the crosshair follows your Always Show Target setting; with it off it only shows while aiming, as on the cartridge (thanks ClassicAlfredo)
+GoldenEye: the watch laser no longer shows a Moonraker Laser in your hand in third person (thanks ClassicAlfredo)
+GoldenEye: the Tank in the All Guns list fires its shells on foot when you have any (Infinite Ammo), as on the cartridge
+GoldenEye (HD look): on Surface 2 the daylit mountains no longer show through the red fog at the edges of the screen (thanks ClassicAlfredo)
+GoldenEye (HD look): the Cradle's ramp railings are drawn as railings again, not as a grey sheet (thanks ClassicAlfredo)
+Goldfinger 64: the guards' blue caps on Plane, and other hats outside the usual set, sit on their heads as on the cartridge (thanks Odeyseis)
+Goldfinger 64, Crab Key: in the ending Bond walks straight down to the grate and the scene ends on its own (thanks Odeyseis)
+Goldfinger 64, Ranch: you start with the Mini-Homer and the Watch Communicator; throwing the Mini-Homer onto Oddjob's car completes objective d (thanks Dyldan)
+Goldfinger 64, Vaults: going down the stairs no longer drops you outside into the street (thanks ClassicAlfredo)
+GoldenEye, Goldfinger 64 and TND64: props are now their exact size, so Crab Key's chair sits on the floor beside the table as on the cartridge (thanks Odeyseis)
+Above 60 FPS the Shotgun's pump and the CMP150's reload no longer jump around or poke through the gun (thanks ClassicAlfredo)
+Third person (HD look): with the camera close, Joanna's hair fades with the rest of her instead of showing the room through her fringe (thanks Parabolee)
+Texture packs made for emulators (named by checksum, like the big GoldenEye HD packs) no longer freeze the game while a level loads; their pictures load in the background (thanks Parabolee)
+Ghost Trials and Accounts: on Steam Deck and 4:3 screens the pages move out from under the Player box, which now fits longer names (thanks Shockwave S08)
+Customize Character: on smaller screens the model stands between the arrows above the options instead of behind them (thanks Shockwave S08)
+The "Checking Controller Pak" flash at start-up is gone (thanks Shockwave S08)
+Combat Simulator: the "Press START!" corner text no longer crashes the game in French on Linux
+
 notes 66 2026-10-14
 Online: players no longer get stuck inside each other; walking among the others where your own screen showed them, new in the last update, is switched off for now (thanks dab)
 
