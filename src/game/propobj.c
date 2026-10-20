@@ -16884,9 +16884,24 @@ void objFall(struct defaultobj *obj, s32 playernum)
 	NET_OBJ_OWNER(obj, playernum);
 #endif
 
+#ifndef PLATFORM_N64
+	// GoldenEye drops a destroyed object only when it is flagged to fall
+	// (propobj.c's objFall(): PROPFLAG_RENDERPOSTBG, "Fall to Ground"); one
+	// set "In Air" stays where it was. Perfect Dark drops those as well, and
+	// Runway's wall-mounted autoguns went down through the floor when shot
+	// out (F3 20261014-225347). On a converted stage GoldenEye's rule
+	u32 fallflags = OBJFLAG_FALL | OBJFLAG_00000008;
+
+	if (modloaderDirIndexIsConversion(modloaderGetStageModDirIndex(g_Vars.stagenum))) {
+		fallflags = OBJFLAG_FALL;
+	}
+#else
+	const u32 fallflags = OBJFLAG_FALL | OBJFLAG_00000008;
+#endif
+
 	if ((obj->flags2 & OBJFLAG2_NOFALL) == 0
 			&& (obj->flags3 & OBJFLAG3_10000000) == 0
-			&& (obj->flags & (OBJFLAG_FALL | OBJFLAG_00000008))
+			&& (obj->flags & fallflags)
 			&& (obj->hidden & (OBJHFLAG_EMBEDDED | OBJHFLAG_PROJECTILE)) == 0) {
 		struct coord rot = {0, 0, 0};
 		struct projectile *projectile = NULL;

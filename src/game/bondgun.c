@@ -7728,32 +7728,36 @@ void bgunAutoSwitchWeapon(void)
 	// bgun0f0a1a10() is to the letter (WEAPONFLAG_00000400 is GoldenEye's
 	// WEAPONSTATBITFLAG_HAS_AMMO), and no mine has it: it is a gun. Perfect
 	// Dark's own lists below have none of GoldenEye's guns.
-	switch (curweaponnum) {
-	case WEAPON_GE_REMOTEMINE:
-		if (invHasSingleWeaponIncAllGuns(WEAPON_GE_DETONATOR)) {
-			bgunEquipHands(WEAPON_GE_DETONATOR, WEAPON_NONE);
-			return;
-		}
-		// fall through
-	case WEAPON_GE_TIMEDMINE:
-	case WEAPON_GE_PROXIMITYMINE: {
+	if (curweaponnum == WEAPON_GE_REMOTEMINE && invHasSingleWeaponIncAllGuns(WEAPON_GE_DETONATOR)) {
+		bgunEquipHands(WEAPON_GE_DETONATOR, WEAPON_NONE);
+		return;
+	}
+
+	// and on a converted GoldenEye stage every gun goes the same way, which
+	// is GoldenEye's only rule: the next thing up the cycle with ammunition,
+	// and failing that the nearest one down it - never Perfect Dark's
+	// preference list, which has none of GoldenEye's guns and so dropped a
+	// player whose gun ran dry to his fists (F3 20261017-143409)
+	if (curweaponnum == WEAPON_GE_REMOTEMINE || curweaponnum == WEAPON_GE_TIMEDMINE
+			|| curweaponnum == WEAPON_GE_PROXIMITYMINE
+			|| modloaderDirIndexIsConversion(modloaderGetStageModDirIndex(g_Vars.stagenum))) {
+		const s32 curleft = curweaponnum == WEAPON_GE_REMOTEMINE || curweaponnum == WEAPON_GE_TIMEDMINE
+			|| curweaponnum == WEAPON_GE_PROXIMITYMINE ? WEAPON_NONE : bgunGetWeaponNum(HAND_LEFT);
 		s32 right = curweaponnum;
-		s32 left = WEAPON_NONE;
+		s32 left = curleft;
 
 		invChooseCycleForwardWeapon(&right, &left, true);
 
-		if (right <= WEAPON_NONE || right == curweaponnum) {
+		if (right <= WEAPON_NONE || (right == curweaponnum && left == curleft)) {
 			right = curweaponnum;
-			left = WEAPON_NONE;
+			left = curleft;
 			invChooseCycleBackWeapon(&right, &left, true);
 		}
 
-		if (right > WEAPON_NONE && right != curweaponnum) {
+		if (right > WEAPON_NONE && (right != curweaponnum || left != curleft)) {
 			bgunEquipHands(right, left);
 			return;
 		}
-		break;
-	}
 	}
 #endif
 

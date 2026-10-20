@@ -34,9 +34,12 @@
  * - the pages' options set Perfect Dark's own settings, which is what the
  *   game underneath actually reads.
  *
- * While the watch is up the player is `PAUSEMODE_PAUSED` with no menu open,
- * and the level is frozen from the moment the arm starts up to the moment it
- * comes down (GoldenEye's `pausing_flag`). The watch's own clock is the real
+ * While the watch is up the player is `PAUSEMODE_PAUSED` with no menu open
+ * and stands still (GoldenEye reads no stick or trigger then), but the level
+ * is frozen only while the face is up and for the three frames it is put away
+ * (GoldenEye's controls lock, its states 5 and 0xc): guards go on walking and
+ * shooting while the arm comes up and the view zooms in, and again as it zooms
+ * out and the arm goes down (watchSetState()). The watch's own clock is the real
  * frame delta (`g_Vars.diffframe60freal`), as GoldenEye's is, so it keeps
  * moving while the level does not.
  *
@@ -448,6 +451,7 @@ struct gewatch {
 
 	// what the level was doing before the watch took it over
 	s32 paused;
+	s32 frozen; // the level stopped under the face (lvSetPaused)
 	s32 music; // the watch theme is playing over the level's
 	s32 weapons[2];
 	s32 hadweapons;
@@ -1199,6 +1203,7 @@ static void watchUnload(void)
 	g_Watch.langlen = 0;
 	g_Watch.loaded = 0;
 	g_Watch.state = WS_CLOSED;
+	g_Watch.frozen = 0; // the next stage starts unpaused (lv.c)
 }
 
 /**
@@ -1261,6 +1266,7 @@ void geWatchStageStart(s32 stagenum)
 
 	g_Watch.loaded = 1;
 	g_Watch.state = WS_CLOSED;
+	g_Watch.frozen = 0;
 	g_Watch.owner = 0;
 	g_Watch.page = PAGE_MISSION;
 	g_Watch.selected = 0;
@@ -1331,6 +1337,22 @@ static f32 watchDelta(void)
 
 static void watchSetState(s32 state)
 {
+	// GoldenEye stops the level's clock (lvlSetControlsLockedFlag(), which
+	// zeroes g_ClockTimer) only in WATCH_ANIMATION_0x5 - the face up - and
+	// 0xc, the three frames as it is put away (bondview2.c's
+	// bondviewWatchAnimationTick()). The arm coming up, the zoom to the face
+	// and back and the arm going down all run with the level running: guards
+	// walk, shoot and hurt the player standing there, whose stick and trigger
+	// are not read while the watch is anywhere but down
+	// (geWatchMpHoldsInput()). Online the level is everyone's and never
+	// stops (a client's commands go neutral instead: netplayers.c)
+	const s32 frozen = g_NetMode == NETMODE_NONE && (state == WS_OPEN || state == WS_CLOSING);
+
+	if (frozen != g_Watch.frozen) {
+		g_Watch.frozen = frozen;
+		lvSetPaused(frozen);
+	}
+
 	g_Watch.state = state;
 	g_Watch.statetime = 0;
 	g_Watch.timer = 0.0f;
@@ -1783,13 +1805,8 @@ static void watchSetPaused(s32 paused)
 
 	g_Watch.paused = paused;
 
-	// online the level is everyone's - the host's world, or a client's copy
-	// of it - and the watch never stops it: the player whose watch it is
-	// stands still under it instead (geWatchMpHoldsInput(), and a client's
-	// commands go neutral: netplayers.c)
-	if (g_NetMode == NETMODE_NONE) {
-		lvSetPaused(paused);
-	}
+	// the level itself is frozen by watchSetState(), only while the face is
+	// up (GoldenEye's controls lock): the raise and the zoom run with it
 
 	// GoldenEye's watch theme over the level's, which comes back as the arm
 	// goes down (its mission state 3, mp_music.c)
@@ -6105,10 +6122,12 @@ s32 geWatchMpHoldsInput(void)
 		return 0;
 	}
 
-	// online the solo watch leaves the level running: its player stands still
-	// under it (offline the frozen level holds them)
+	// the solo watch leaves the level running while it comes up and goes
+	// down, and online all the time: its player stands still under it, as
+	// GoldenEye reads no stick or trigger while the watch is not down
+	// (offline the frozen level holds them under the face)
 	if (!watchIsMp()) {
-		return g_NetMode != NETMODE_NONE && geWatchHoldsPlayer(num);
+		return geWatchHoldsPlayer(num) && (g_NetMode != NETMODE_NONE || !g_Watch.frozen);
 	}
 
 	return g_MpWatch[num].on || g_MpWatch[num].closed;
