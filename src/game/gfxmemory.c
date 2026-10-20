@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "game/gfxmemory.h"
@@ -78,6 +80,102 @@ u8 *g_GfxMemPos;
 u8 g_GfxActiveBufferIndex;
 u32 g_GfxRequestedDisplayList;
 static bool g_GfxVtxOverflowReported = false;
+
+#ifndef PLATFORM_N64
+/**
+ * The vtx pool on the PC: sized, guarded and grown (crash reports
+ * 20261014-022841, -023303, -024154, -024211: an online match on a mod's map
+ * drew more room colours than the pool held, the overrun wrote over whatever
+ * MEMPOOL_STAGE handed out next, and the game fell over a second later in four
+ * different places - the HUD's messages, the text renderer, collision).
+ *
+ * Each of the two buffers is the stage's figure (g_VtxNominal) followed by a
+ * guard (g_VtxGuard) that nothing is meant to use. An allocation that crosses
+ * the figure is still handed out contiguously from the guard, so the callers'
+ * pointers and the address order camera.c relies on hold; one that would not
+ * fit in the guard either is handed a scratch block off the heap (g_VtxSink)
+ * - that frame draws whatever the scratch holds, which is a glitch for a frame
+ * rather than corruption. Either way the pool is grown at the next buffer swap
+ * to what the frame asked for and half again, into a heap block of its own;
+ * the blocks it leaves behind are kept (the frame being drawn, and pointers a
+ * frame keeps to the last one's matrices, are in them) and all freed at the
+ * next stage load.
+ */
+static u32 g_VtxNominal;     // usable bytes per buffer
+static u32 g_VtxGuard;       // guard bytes after each buffer
+static u8 *g_VtxEnd;         // the active buffer's usable end
+static u32 g_VtxSinkDemand;  // bytes this frame wanted that did not fit
+static bool g_VtxGrowPending;
+static u8 *g_VtxSink;
+static u32 g_VtxSinkSize;
+static void **g_VtxHeapBlocks;
+static s32 g_VtxNumHeapBlocks;
+static s32 g_VtxMaxHeapBlocks;
+static u8 *g_VtxPrevStart;   // the generation before the last growth
+static u8 *g_VtxPrevEnd;
+
+#define VTX_GUARD_MIN (256 * 1024)
+#define VTX_GROW_STEP (64 * 1024)
+#define VTX_GROW_MAX (256u * 1024 * 1024)
+
+static u32 gfxVtxGuardFor(u32 nominal)
+{
+	u32 guard = nominal / 4;
+
+	return ALIGN16(guard < VTX_GUARD_MIN ? VTX_GUARD_MIN : guard);
+}
+
+static void *gfxVtxHeapAlloc(u32 size)
+{
+	u8 *raw;
+
+	if (g_VtxNumHeapBlocks == g_VtxMaxHeapBlocks) {
+		s32 max = g_VtxMaxHeapBlocks ? g_VtxMaxHeapBlocks * 2 : 16;
+		void **blocks = realloc(g_VtxHeapBlocks, max * sizeof(*blocks));
+
+		if (!blocks) {
+			return NULL;
+		}
+
+		g_VtxHeapBlocks = blocks;
+		g_VtxMaxHeapBlocks = max;
+	}
+
+	raw = calloc(1, (size_t)size + 16);
+
+	if (!raw) {
+		return NULL;
+	}
+
+	g_VtxHeapBlocks[g_VtxNumHeapBlocks++] = raw;
+
+	return (void *)ALIGN16((uintptr_t)raw);
+}
+
+static void gfxVtxHeapFreeAll(void)
+{
+	s32 i;
+
+	for (i = 0; i < g_VtxNumHeapBlocks; i++) {
+		free(g_VtxHeapBlocks[i]);
+	}
+
+	g_VtxNumHeapBlocks = 0;
+	g_VtxSink = NULL;
+	g_VtxSinkSize = 0;
+	g_VtxPrevStart = NULL;
+	g_VtxPrevEnd = NULL;
+}
+
+static void gfxVtxSetBuffers(u8 *base, u32 nominal, u32 guard)
+{
+	g_VtxNominal = nominal;
+	g_VtxGuard = guard;
+	g_VtxBuffers[0] = base;
+	g_VtxBuffers[1] = g_VtxBuffers[0] + nominal + guard;
+	g_VtxBuffers[2] = g_VtxBuffers[1] + nominal + guard;
+}
+#endif
 
 #ifndef PLATFORM_N64
 // How much of each pool the last frame used, for the F3 trace dump: the
@@ -182,15 +280,31 @@ void gfxReset(void)
 		g_GfxBuffers[2] = g_GfxBuffers[1] + gfxsize;
 
 		// Allocating %d bytes for mtxvtx space\n
+#ifdef PLATFORM_N64
 		g_VtxBuffers[0] = mempAlloc(vtxsize * NUM_GFXTASKS, MEMPOOL_STAGE);
 		g_VtxBuffers[1] = g_VtxBuffers[0] + vtxsize;
 		g_VtxBuffers[2] = g_VtxBuffers[1] + vtxsize;
+#else
+		// the last stage's grown pools and scratch are not drawn from again
+		gfxVtxHeapFreeAll();
+		g_VtxSinkDemand = 0;
+		g_VtxGrowPending = false;
+
+		{
+			u32 guard = gfxVtxGuardFor(vtxsize);
+
+			gfxVtxSetBuffers(mempAlloc((vtxsize + guard) * NUM_GFXTASKS, MEMPOOL_STAGE), vtxsize, guard);
+		}
+#endif
 	}
 
 	g_GfxActiveBufferIndex = 0;
 	g_GfxRequestedDisplayList = false;
 	g_GfxMemPos = g_VtxBuffers[0];
 	g_GfxVtxOverflowReported = false;
+#ifndef PLATFORM_N64
+	g_VtxEnd = g_VtxBuffers[0] + g_VtxNominal;
+#endif
 }
 
 /**
@@ -214,6 +328,17 @@ bool gfxIsFrameMemory(const void *ptr)
 	if (g_VtxBuffers[0] && p >= g_VtxBuffers[0] && p < g_VtxBuffers[NUM_GFXTASKS]) {
 		return true;
 	}
+
+#ifndef PLATFORM_N64
+	// the frames drawn just before the pool last grew
+	if (g_VtxPrevStart && p >= g_VtxPrevStart && p < g_VtxPrevEnd) {
+		return true;
+	}
+
+	if (g_VtxSink && p >= g_VtxSink && p < g_VtxSink + g_VtxSinkSize) {
+		return true;
+	}
+#endif
 
 	return false;
 }
@@ -281,17 +406,17 @@ Gfx *gfxGetMasterDisplayList(void)
 }
 
 /**
- * None of the allocators below bounds check - they just bump g_GfxMemPos.
- *
- * On N64 that was safe by construction: every stage had a -mvtx figure tuned
- * until the stage fitted, so the pool could not be overrun. A stage the
- * allocation table does not know about falls through to the table's default
- * entry instead, and anything past the end lands in whatever MEMPOOL_STAGE
- * handed out next - silent corruption surfacing a long way from here.
- *
- * Report the first overflow of each stage rather than fixing it up: the
- * allocation is what is wrong, and callers hold the returned pointers.
+ * On N64 none of the allocators below bounds checked - they just bumped
+ * g_GfxMemPos. That was safe by construction: every stage had a -mvtx figure
+ * tuned until the stage fitted. A stage the allocation table does not know
+ * about falls through to the table's default entry instead, and the port draws
+ * a great deal the N64 did not (twelve players online, eighty simulants, a
+ * mod's rooms), and anything past the end used to land in whatever
+ * MEMPOOL_STAGE handed out next - silent corruption surfacing a long way from
+ * here. On the PC gfxVtxTake() serves every allocation from the pool, its
+ * guard or the scratch block, and the pool grows to fit (see g_VtxNominal).
  */
+#ifdef PLATFORM_N64
 static void gfxCheckVtxPool(const char *what)
 {
 	const u8 *end = g_VtxBuffers[g_GfxActiveBufferIndex + 1];
@@ -303,6 +428,98 @@ static void gfxCheckVtxPool(const char *what)
 				(s32)(g_VtxBuffers[1] - g_VtxBuffers[0]));
 	}
 }
+#else
+static void gfxVtxReportOverflow(const char *what, u32 past)
+{
+	g_VtxGrowPending = true;
+
+	if (!g_GfxVtxOverflowReported) {
+		g_GfxVtxOverflowReported = true;
+		sysLogPrintf(LOG_WARNING, "gfx: stage 0x%02x overran the vtx pool in %s: %u bytes past a %u byte buffer (given out from its guard, not over other memory; growing it)",
+				mainGetStageNum(), what, past, g_VtxNominal);
+	}
+}
+
+/**
+ * Hand out size bytes of this frame's vtx memory: from the pool, from the
+ * guard past it, or from the scratch block. Never a pointer past the end of
+ * what was allocated.
+ */
+static void *gfxVtxTake(u32 size, const char *what)
+{
+	u8 *ptr = g_GfxMemPos;
+
+	if ((uintptr_t)(g_VtxBuffers[g_GfxActiveBufferIndex + 1] - ptr) >= size) {
+		g_GfxMemPos += size;
+
+		if (g_GfxMemPos > g_VtxEnd) {
+			gfxVtxReportOverflow(what, (u32)(g_GfxMemPos - g_VtxEnd));
+		}
+
+		return ptr;
+	}
+
+	// past the guard too: a scratch block every such allocation shares, so
+	// the frame draws garbage where it ran out, and nothing else is written
+	g_VtxSinkDemand += size;
+	gfxVtxReportOverflow(what, (u32)(g_GfxMemPos - g_VtxEnd) + size);
+
+	if (size > g_VtxSinkSize) {
+		u32 sinksize = ALIGN16(size > g_VtxSinkSize * 2 ? size : g_VtxSinkSize * 2);
+		u8 *sink = gfxVtxHeapAlloc(sinksize);
+
+		if (!sink) {
+			sysFatalError("gfx: out of memory for %u bytes of vertex scratch", sinksize);
+		}
+
+		g_VtxSink = sink;
+		g_VtxSinkSize = sinksize;
+	}
+
+	return g_VtxSink;
+}
+
+/**
+ * At the buffer swap: when the frame just built ran past the pool, or went
+ * without for want of it, the pool grows to what it wanted and half again.
+ * The frame just built is drawn after this from the old block, which is kept.
+ */
+static void gfxVtxGrow(void)
+{
+	u32 demand = (u32)(g_GfxMemPos - g_VtxBuffers[g_GfxActiveBufferIndex]) + g_VtxSinkDemand;
+	u32 nominal = demand + demand / 2;
+	u32 guard;
+	u8 *base;
+
+	g_VtxGrowPending = false;
+	g_VtxSinkDemand = 0;
+
+	if (nominal < g_VtxNominal + g_VtxNominal / 2) {
+		nominal = g_VtxNominal + g_VtxNominal / 2;
+	}
+
+	nominal = (nominal + VTX_GROW_STEP - 1) / VTX_GROW_STEP * VTX_GROW_STEP;
+
+	if (nominal > VTX_GROW_MAX || nominal <= g_VtxNominal) {
+		return;
+	}
+
+	guard = gfxVtxGuardFor(nominal);
+	base = gfxVtxHeapAlloc((nominal + guard) * NUM_GFXTASKS);
+
+	if (!base) {
+		sysLogPrintf(LOG_WARNING, "gfx: could not grow the vtx pool to %u bytes", nominal);
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "gfx: stage 0x%02x: vtx pool grown from %u to %u bytes a buffer (the frame wanted %u)",
+			mainGetStageNum(), g_VtxNominal, nominal, demand);
+
+	g_VtxPrevStart = g_VtxBuffers[0];
+	g_VtxPrevEnd = g_VtxBuffers[NUM_GFXTASKS];
+	gfxVtxSetBuffers(base, nominal, guard);
+}
+#endif
 
 void gfxCheckGfxPool(const Gfx *gdl)
 {
@@ -324,21 +541,32 @@ void gfxCheckGfxPool(const Gfx *gdl)
 
 Vtx *gfxAllocateVertices(u32 count)
 {
+#ifdef PLATFORM_N64
 	void *ptr = g_GfxMemPos;
 	g_GfxMemPos += count * sizeof(Vtx);
 	g_GfxMemPos = (u8 *)ALIGN16((uintptr_t)g_GfxMemPos);
 	gfxCheckVtxPool("vertices");
 
 	return ptr;
+#else
+	// the same bump as the N64's: the size, then the position to 16
+	uintptr_t pos = (uintptr_t)g_GfxMemPos;
+
+	return gfxVtxTake((u32)(ALIGN16(pos + (uintptr_t)count * sizeof(Vtx)) - pos), "vertices");
+#endif
 }
 
 void *gfxAllocateMatrix(void)
 {
+#ifdef PLATFORM_N64
 	void *ptr = g_GfxMemPos;
 	g_GfxMemPos += sizeof(Mtx);
 	gfxCheckVtxPool("a matrix");
 
 	return ptr;
+#else
+	return gfxVtxTake(sizeof(Mtx), "a matrix");
+#endif
 }
 
 #ifndef PLATFORM_N64
@@ -355,7 +583,16 @@ bool gfxHasVtxSpace(u32 size)
 	// Compared as pointers rather than as an unsigned difference: the callers
 	// that do not check can already have pushed g_GfxMemPos past the end of
 	// the pool, and a negative difference cast to u32 is a very large one.
-	return g_GfxMemPos + size <= g_VtxBuffers[g_GfxActiveBufferIndex + 1];
+	// The usable end, not the guard's: the guard is for callers that cannot
+	// go without. A caller told no makes the pool grow for the next frame.
+	if (g_GfxMemPos + size <= g_VtxEnd) {
+		return true;
+	}
+
+	g_VtxGrowPending = true;
+	g_VtxSinkDemand += size;
+
+	return false;
 }
 #endif
 
@@ -366,47 +603,63 @@ bool gfxHasVtxSpace(u32 size)
  */
 LookAt *gfxAllocateLookAt(s32 count)
 {
+#ifdef PLATFORM_N64
 	void *ptr = g_GfxMemPos;
-#ifdef PLATFORM_64BIT
-	g_GfxMemPos += count * (sizeof(LookAt) * 2);
-#else
 	g_GfxMemPos += count * (sizeof(LookAt) / 2);
-#endif
 	gfxCheckVtxPool("a lookat");
 
 	return ptr;
+#elif defined(PLATFORM_64BIT)
+	return gfxVtxTake(count * (sizeof(LookAt) * 2), "a lookat");
+#else
+	return gfxVtxTake(count * (sizeof(LookAt) / 2), "a lookat");
+#endif
 }
 
 Col *gfxAllocateColours(s32 count)
 {
+#ifdef PLATFORM_N64
 	void *ptr = g_GfxMemPos;
 	count = ALIGN16(count * sizeof(Col));
 	g_GfxMemPos += count;
 	gfxCheckVtxPool("colours");
 
 	return ptr;
+#else
+	return gfxVtxTake(ALIGN16(count * sizeof(Col)), "colours");
+#endif
 }
 
 void *gfxAllocate(u32 size)
 {
+#ifdef PLATFORM_N64
 	void *ptr = g_GfxMemPos;
 	size = ALIGN16(size);
 	g_GfxMemPos += size;
 	gfxCheckVtxPool("a general allocation");
 
 	return ptr;
+#else
+	return gfxVtxTake(ALIGN16(size), "a general allocation");
+#endif
 }
 
 void gfxSwapBuffers(void)
 {
 #ifndef PLATFORM_N64
 	g_GfxTraceVtxUsed = (u32)(g_GfxMemPos - g_VtxBuffers[g_GfxActiveBufferIndex]);
-	g_GfxTraceVtxSize = (u32)(g_VtxBuffers[1] - g_VtxBuffers[0]);
+	g_GfxTraceVtxSize = g_VtxNominal;
+
+	if (g_VtxGrowPending) {
+		gfxVtxGrow();
+	}
 #endif
 	g_GfxActiveBufferIndex ^= 1;
 	g_GfxRequestedDisplayList = false;
 	g_GfxMemPos = g_VtxBuffers[g_GfxActiveBufferIndex];
 #ifndef PLATFORM_N64
+	g_VtxEnd = g_GfxMemPos + g_VtxNominal;
+	g_VtxSinkDemand = 0;
 	xblaMeshFrameReset();
 #endif
 	g_GfxNumSwapsPerBuffer[g_GfxActiveBufferIndex] = g_GfxNumSwaps;
@@ -424,5 +677,8 @@ s32 gfxGetFreeGfx(Gfx *gdl)
 
 u32 gfxGetFreeVtx(void)
 {
+#ifndef PLATFORM_N64
+	return g_GfxMemPos < g_VtxEnd ? (u32)(g_VtxEnd - g_GfxMemPos) : 0;
+#endif
 	return g_VtxBuffers[g_GfxActiveBufferIndex + 1] - g_GfxMemPos;
 }

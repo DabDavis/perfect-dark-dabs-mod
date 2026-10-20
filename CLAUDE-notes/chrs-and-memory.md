@@ -664,3 +664,32 @@ environment switch, stock AI): stalled samples 269 -> 128 (Normal) and 752 ->
 half a second while going somewhere) 128 -> 142 and 436 -> 451; Ravine's
 bridge 161 stalled samples -> 0, G5 25 -> 14 and 177 -> 31, Complex 28 -> 42
 and 187 -> 146. Modern (G5 + Ravine, seeds 1-2): the same within a sample.
+
+## The frame's vtx pool is guarded and grows (crash reports 20261014-0228..0242, F3 pass 40)
+
+Four crashes in four places (`textMeasure` from the online HUD, collision in
+`chrCalculatePushPos`, `setCurrentPlayerNum` from `hudmsgsTick`, the FPS text)
+all followed one log line: `gfx: stage 0x51 overran the vtx pool in colours`.
+An online match on a mod's map (GES Facility; a mod stage takes Skedar's
+`-mvtx200`, x8 = 1.6 MB) drew more room colours than that - `dlights.c`'s
+room colour copy is `gfxAllocateColours(gfxdata->numcolours)` for every room
+drawn, every frame, and a mod's big open rooms carry thousands - and the bump
+allocator wrote the rest over the next MEMPOOL_STAGE allocations.
+
+`gfxmemory.c` now (PC only): each of the two buffers is the stage's figure
+plus a guard (a quarter of it, at least 256 KB); every allocator goes through
+`gfxVtxTake()`, which serves from the pool, then from the guard (contiguous,
+so camera.c's address-order tests hold), and past that from a heap scratch
+block all such allocations share (a garbled frame, never a write outside what
+was allocated). Any use of the guard or scratch, or a `gfxHasVtxSpace()`
+refusal, grows the pool at the next `gfxSwapBuffers()` to the frame's demand
+and half again, into a heap block; old blocks (the frame being drawn from,
+matrices a frame keeps of the last) stay until the next `gfxReset()`.
+`gfxIsFrameMemory()` also covers the generation before the last growth and
+the scratch. Logs: `overran the vtx pool ... (given out from its guard, not over other
+memory; growing it)` once a stage, then `vtx pool grown from A to B bytes`. Prove it from gdb
+(`-mvtx` is the stage table's, not a command-line flag): break at
+`gfxReset()`'s `gfxVtxHeapFreeAll()` line and `set var vtxsize = 32768` on a
+busy `--boot-stage 0x32 --mpsims 40` match - it grows once to 128 KB and plays
+to the end. Stock stages never reach the
+guard, so 60 fps replays are unchanged.
