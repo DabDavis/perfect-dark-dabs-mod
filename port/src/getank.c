@@ -1800,7 +1800,7 @@ static void tankFire(struct tankobj *tank)
 
 /**
  * GoldenEye's shells on foot: gunFireTankShell() with no running tank starts
- * the shell at Bond (playerprop->pos) along the sight's line, at the tank's
+ * the shell at Bond along the sight's line, at the tank's
  * own speed. Only an ammunition cheat leaves any shells outside the seat
  * (Infinite Ammo's set_max_ammo_for_cur_player() fills AMMO_TANK as every
  * other type), and with them the All Guns list's "Tank" fires on foot as it
@@ -1808,7 +1808,6 @@ static void tankFire(struct tankobj *tank)
  */
 static void tankFireOnFoot(void)
 {
-	struct prop *playerprop = g_Vars.currentplayer->prop;
 	struct coord gunpos;
 	struct coord dir;
 	struct coord pos;
@@ -1817,7 +1816,11 @@ static void tankFireOnFoot(void)
 	mtx4RotateVecInPlace(camGetProjectionMtxF(), &dir);
 	guNormalize(&dir.x, &dir.y, &dir.z);
 
-	pos = playerprop->pos;
+	// at the eye and a little along the line: the player's prop is at
+	// his waist here, and a shell started inside him went off on him
+	pos.x = g_Vars.currentplayer->cam_pos.x + dir.x * 30.0f;
+	pos.y = g_Vars.currentplayer->cam_pos.y + dir.y * 30.0f;
+	pos.z = g_Vars.currentplayer->cam_pos.z + dir.z * 30.0f;
 
 	tankLaunchShell(&pos, &dir, atan2f(dir.x, dir.z), asinf(dir.y));
 

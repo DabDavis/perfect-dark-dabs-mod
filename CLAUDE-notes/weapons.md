@@ -534,5 +534,6 @@ Probe recipe: gdb on `bgunTickHand` giving the gun (`invGiveSingleWeapon`, `bgun
 - **"Tank" on foot** (All Guns): GoldenEye's gunFireTankShell() with no
   running tank fires the shell from Bond along the sight. The only shells on
   foot come from an ammunition cheat (Infinite Ammo fills AMMO_TANK). With
-  them the port now fires too (getank.c `tankFireOnFoot()`). Without the cheat
+  them the port now fires too (getank.c `tankFireOnFoot()`). The shell starts at the
+  eye, 30 units along the line: started at the player's prop it went off on him. Without the cheat
   there are none, as on the cartridge.
