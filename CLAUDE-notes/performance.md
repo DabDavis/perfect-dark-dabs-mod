@@ -561,6 +561,21 @@ too, animframeincfreal is `speed * PALUPF(animframeinc * 0.25f)` (bgunAnimFrameI
 PALUPF(1.0f) instead of PALUPF(4.0f) for modelTickAnimQuarterSpeed(), and WAITFORZRELEASED's clamp converts to
 quarter ticks; the keyframe tests already read animframeincfreal. Compile-checked only (no PAL or JPN ROM here).
 
+**A gun drawn between two animation frames** (F3 pass 40: the Shotgun's pump, the CMP150's magazine
+through the gun at 85-144 FPS). Ticked in quarter frames, the gun's `anim->frac` is non-zero on most
+frames above 60, which NTSC never had for the guns: the stock drawing tweens part rotations only (a
+non-root part keeps the earlier frame's translation; the CMP150's magazine moves 45-65 units a frame by
+translation), and the fast path `modelasmIterateThings2()` also misreads every rotation after a
+translated part (its translation skip spends no bits when shorter than the bits left from the last read
+- a console bug too, modelasm.s; left as it is, since chrs at 60 read that path). Rare's PAL answer
+(guns at fractional frames there): `var8005efd8_2` tweens translations and `var8005efb0_2` sends the
+model down the C path (`modelUpdateMatrices()`, which decodes right). On the PC every gun takes both
+while `bgunGunTweensAll()`: `hand->animquarter` (8 frames after an off-60 tick, so 85 FPS's 4-240th
+frames count) and frac != 0 - never at 60 or 30. Measured with gdb on the model matrices at
+`bondgun.c` `g_ModelJointPositionedFunc = 0;` (`~/wt/f3-1020-pdguns-run/probe/shotgun.py`, cmp.py,
+smooth2.py): worst in-between deviation 55-70 units -> 3-5 (60 FPS's own pump is 10); 60 FPS matrices
+byte-identical.
+
 ## Above 60 FPS: weather, credits and menu text (2026-10-10, high-framerate pass)
 
 Three shapes, each exact at 60 FPS (one 60th a frame) and checked there with the

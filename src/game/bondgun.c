@@ -750,6 +750,34 @@ static f32 bgunAnimFrameIncReal(struct hand *hand)
 }
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * A gun ticked in quarter frames above 60 FPS is drawn between two of its
+ * animation's frames on most frames, and the stock drawing of such a pose is
+ * only right at the frames themselves: it tweens each part's rotation but
+ * keeps every translation but the root's at the earlier frame. The fast
+ * path (modelasm00018680()) does the same, and worse: skipping the later
+ * frame's translations it spends none of the bits when the skip is shorter
+ * than what is left of the last read (modelasmIterateThings2(), as the
+ * console's modelasm.s does), so every rotation after a translated part
+ * comes from the wrong bits. The Shotgun's pump (matrices 36 to 38) flew 35
+ * to 85 units off on every frame between at 85-144 FPS (F3 20261016-204451,
+ * 20261017-072410), and the CMP150's magazine, carried 45 to 65 units a
+ * frame by its translation as it goes in, stood at the frame before with the
+ * rotation of the next, through the gun on every other frame at 120 FPS (F3
+ * 20261016-204203). Rare met it in the PAL version, whose guns
+ * play at fractional frames: there every gun tweens its translations too
+ * (var8005efd8_2) and eleven animations, the CMP150's reload and the
+ * Shotgun's shot among them, go by the C path (var8005efb0_2). Here every
+ * gun does, only while it is ticked in quarter frames and drawn between two
+ * frames - never at 60 or 30 FPS, where the stock path is drawn.
+ */
+static bool bgunGunTweensAll(struct hand *hand)
+{
+	return hand->animquarter > 0 && hand->gunmodel.anim && hand->gunmodel.anim->frac != 0.0f;
+}
+#endif
+
 void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 {
 #if VERSION >= VERSION_PAL_BETA
@@ -981,6 +1009,16 @@ void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 		} else
 #endif
 		modelTickAnim(&hand->gunmodel, hand->animframeinc, true);
+#endif
+
+#ifndef PLATFORM_N64
+		// held over the frames of whole 60ths between (85 FPS: steps of 2,
+		// 3 and 4 240ths), which leave the quarter frames where they were
+		if (BGUN_OFF60()) {
+			hand->animquarter = 8;
+		} else if (hand->animquarter > 0) {
+			hand->animquarter--;
+		}
 #endif
 
 		s2 = bgun0f09815c(hand);
@@ -10041,6 +10079,13 @@ void bgun0f0a5550(s32 handnum)
 				a3 = 1;
 				break;
 			}
+
+#ifndef PLATFORM_N64
+			// and any gun drawn between two frames off the native rate
+			if (bgunGunTweensAll(hand)) {
+				a3 = 1;
+			}
+#endif
 #endif
 
 #ifndef PLATFORM_N64
@@ -10082,7 +10127,16 @@ void bgun0f0a5550(s32 handnum)
 						var8005efb0_2 = false;
 					}
 #else
+#ifndef PLATFORM_N64
+					// between two frames above 60 FPS: drawn whole (bgunGunTweensAll())
+					var8005efd8_2 = var8005efb0_2 = bgunGunTweensAll(hand);
+#endif
+
 					bgunSetGunMatrices(&renderdata, hand);
+
+#ifndef PLATFORM_N64
+					var8005efd8_2 = var8005efb0_2 = false;
+#endif
 #endif
 
 #ifndef PLATFORM_N64
@@ -10122,7 +10176,16 @@ void bgun0f0a5550(s32 handnum)
 					var8005efb0_2 = false;
 				}
 #else
+#ifndef PLATFORM_N64
+				// between two frames above 60 FPS: drawn whole (bgunGunTweensAll())
+				var8005efd8_2 = var8005efb0_2 = bgunGunTweensAll(hand);
+#endif
+
 				bgunSetGunMatrices(&renderdata, hand);
+
+#ifndef PLATFORM_N64
+				var8005efd8_2 = var8005efb0_2 = false;
+#endif
 #endif
 			}
 
