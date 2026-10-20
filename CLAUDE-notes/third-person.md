@@ -307,6 +307,16 @@ clearance, or `playerClearCamera()` finding no clear spot, returned early too.
   meshes need nothing of their own; fast3d transforms on the CPU, so both passes
   have identical depths, and GL and Vulkan agree (checked).
 
+- **Soft spans in the two passes** (F3 20261017-031402, HD Joanna close to the camera: the room through
+  every gap of her fringe). The release's hair and lenses are soft spans (xblamesh.c): a core cut at
+  three quarters alpha in the opaque draw and the whole span blended over it. In the depth pass the
+  blended draw (alpha threshold 8/256 only) wrote the whole of every strand card, hiding the forehead
+  and the hair under it from the front pass. `chrRender()` now tells xblamesh which pass it is in
+  (`xblaMeshSetDepthPass()`): the depth pass cuts the core with the environment alpha (the fade,
+  unk30 8) set to 255 and draws no blended span (soft, xlulist or fadelist); the front pass leaves the
+  core out (cut solid it stayed unfaded down to 0.75 and then went) and the soft draw blends the whole
+  span at the fade. Probe: face the camera by adding pi to `yrot` at modelasm_c.c's `f1 = sinf(yrot)`
+  for the player's model (`~/wt/f3-1020-pdguns-run/probe/face.py`).
 - **Only the local player's own body, only in play** (merge smoke test,
   2026-09-27: a body partly faded behind Customize Character with Camera
   Distance 80): `playerGetOwnBodyAlphaFrac()` answers 1 unless the prop is the

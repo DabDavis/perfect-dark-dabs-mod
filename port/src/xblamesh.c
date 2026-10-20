@@ -11019,6 +11019,14 @@ s32 xblaMeshTakeFineModel(struct model *model)
 // While set, every node draws the game's own geometry: see xblaMeshSetBypass().
 static s32 bypass = 0;
 
+// Which of a faded body's two passes is being drawn: see xblaMeshSetDepthPass()
+static s32 depthPass = XBLAMESH_DEPTHPASS_NONE;
+
+void xblaMeshSetDepthPass(s32 pass)
+{
+	depthPass = pass;
+}
+
 void xblaMeshSetBypass(s32 on)
 {
 	bypass = on != 0;
@@ -12595,7 +12603,18 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// the room behind her not yet drawn - and hid what came after it:
 		// the hair went see-through wherever it was half clear (F3
 		// 20260930-044656) and a lens showed the sky (F3 20260930-023254).
-		if (xlupart >= 0 && !xlulist) {
+		//
+		// A faded body (chrRender(): a depth pass, then the surface it left
+		// blended once) cuts its soft core in the depth pass alone, and
+		// unfaded: the fade is the environment alpha (unk30 8), which the
+		// core's three quarters are read against, so faded to 0.75 and less
+		// the core laid no depth at all. In the front pass the core is not
+		// drawn - cut solid, it stood unfaded through a fade down to 0.75
+		// and then went at once - and the soft draw below (all of the span)
+		// blends it at the fade with the rest of the body.
+		const s32 softfaded = softspan && depthPass != XBLAMESH_DEPTHPASS_NONE;
+
+		if (xlupart >= 0 && !xlulist && !(softfaded && depthPass == XBLAMESH_DEPTHPASS_FRONT)) {
 			xblaMeshSetSpanMode(renderdata, node,
 					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2,
 					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE);
@@ -12608,7 +12627,15 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, 0);
 			}
 
+			if (softfaded && renderdata->unk30 == 8) {
+				gDPSetEnvColorViaWord(renderdata->gdl++, renderdata->envcolour | 0xff);
+			}
+
 			gSPDisplayList(renderdata->gdl++, &m->gdl[xlupart]);
+
+			if (softfaded && renderdata->unk30 == 8) {
+				gDPSetEnvColorViaWord(renderdata->gdl++, renderdata->envcolour);
+			}
 
 			if (renderdata->unk30 == 9) {
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
@@ -12851,7 +12878,9 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		renderdata->envcolour = scorchedenv;
 	}
 
-	if (xlu && xlulist) {
+	// Nor do the blended spans write their depth in a faded body's depth
+	// pass (they write none drawn solid either): see the soft span below.
+	if (xlu && xlulist && depthPass != XBLAMESH_DEPTHPASS_DEPTH) {
 		if (xblaMeshVerbose && !m->xlulogged) {
 			m->xlulogged = 1;
 			sysLogPrintf(LOG_NOTE, "xblamesh: slot %d part %d draws its alpha span "
@@ -12874,7 +12903,15 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// translucent pass is all there. Depth tested (less than, so the core is
 	// not laid over itself) and not written, and lit like the body it is on.
 	// Only the clear texels are thrown away.
-	if (xlu && softspan) {
+	//
+	// In a faded body's depth pass it is left out: every texel it keeps
+	// wrote its depth there, the half-clear strands' whole cards with them,
+	// and hid the hair and the head under them from the blended pass that
+	// follows: with the third person camera close (Camera Body Fade) the
+	// room showed through every gap between Joanna's fringe strands, where
+	// her forehead should be (F3 20261017-031402). Only the core, cut above,
+	// is laid in the depth.
+	if (xlu && softspan && depthPass != XBLAMESH_DEPTHPASS_DEPTH) {
 		xblaMeshApplyNodeMode(renderdata, node, 1);
 		xblaMeshSetSpanMode(renderdata, node, G_RM_AA_ZB_XLU_SURF2, G_RM_AA_ZB_XLU_SURF);
 		gDPSetAlphaCompare(renderdata->gdl++, G_AC_THRESHOLD);
@@ -12893,7 +12930,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		frameDraws++;
 	}
 
-	if (xlu && fadelist) {
+	if (xlu && fadelist && depthPass != XBLAMESH_DEPTHPASS_DEPTH) {
 		if (xblaMeshVerbose && !m->fadelogged) {
 			m->fadelogged = 1;
 			sysLogPrintf(LOG_NOTE, "xblamesh: slot %d part %d draws a fading span "

@@ -220,6 +220,17 @@ s32 xblaMeshModelDrawsBean(struct model *model);
 void xblaMeshSetBypass(s32 on);
 
 /**
+ * Which of a faded body's two passes (chrRender(): G_DEPTH_PREPASS_EXT, then
+ * G_DEPTH_FRONT_EXT) the models drawn now are in: XBLAMESH_DEPTHPASS_*. The
+ * soft spans (hair, lenses) draw differently in each - see
+ * xblaMeshRenderNode(). Set round the passes and cleared after.
+ */
+#define XBLAMESH_DEPTHPASS_NONE  0
+#define XBLAMESH_DEPTHPASS_DEPTH 1
+#define XBLAMESH_DEPTHPASS_FRONT 2
+void xblaMeshSetDepthPass(s32 pass);
+
+/**
  * While cycle2 is non-zero, every mesh list drawn in the opaque pass takes this
  * render mode instead of the one its node wrote - the second cycle, with the
  * node's first cycle kept (onecycle for a one-cycle node). For the title's 4J
