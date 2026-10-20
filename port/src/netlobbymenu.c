@@ -1699,6 +1699,7 @@ static MenuDialogHandlerResult dialogMode(s32 operation, struct menudialogdef *d
 	if (operation == MENUOP_CLOSE) {
 		netProfileLeave();
 		netLobbyFinderIdle();
+		netLobbyEnsureOffline();
 	}
 
 	if (operation == MENUOP_TICK) {
@@ -1848,6 +1849,22 @@ void netLobbyMenuPushRoom(void);
  * ROM hack's Combat Simulator keep their own Online Game row for rooms in
  * their mode.
  */
+/**
+ * The Perfect Menu's row: while this machine is in a room (a campaign's host
+ * between missions has the Perfect Menu as its campaign's menus, and every
+ * mission it starts from them is the room's: F3 20261014-014524 took one for
+ * single player) it says so, and leads to the Game Lobby, whose Leave Lobby
+ * is the way to play alone
+ */
+char *netLobbyMenuTextOnlineMain(struct menuitem *item)
+{
+	if (netLobbyInRoom()) {
+		return netCoopCampaignOn() && netLobbyIsHost() ? "Online Game: Hosting\n" : "Online Game: In a Room\n";
+	}
+
+	return "Online Game\n";
+}
+
 MenuItemHandlerResult netLobbyMenuHandlerOnlineMain(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_CHECKDISABLED) {

@@ -3950,6 +3950,46 @@ void netLobbyRoomRulesCancel(void)
 	}
 }
 
+
+/**
+ * The online pages closed (their root, the mode page, Back to the Perfect
+ * Menu or the Combat Simulator) with no room held: nothing of online play
+ * may stay behind, in a lobby room's session or a LAN or Direct Connect
+ * one - the session, its host or client role (g_NetMode), the seats, a
+ * campaign, the room's rules (F3 20261014-014524: a solo mission started
+ * after online play loaded as the session's next match, 12 seats, the
+ * room's rules). A leave's own close waits for a match's stage to stop
+ * (s_StopPending); off a stage it is done here at once.
+ */
+void netLobbyEnsureOffline(void)
+{
+	if (s_InRoom || s_CreatePending) {
+		return;
+	}
+
+	if (netSessionMatchLoading() || g_MainChangeToStageNum >= 0) {
+		return;
+	}
+
+	if (s_StopPending || netSessionLobbyRole() != 0) {
+		sysLogPrintf(LOG_NOTE, "lobby: the online pages closed with no room: the room's session closes now (role %d, pending %d)",
+				netSessionLobbyRole(), s_StopPending);
+		s_StopPending = 0;
+		lobbyStopSession();
+	}
+
+	if (netCoopCampaignOn()) {
+		netCoopCampaignEnd();
+	}
+
+	if (s_AdoptEndDue) {
+		s_AdoptEndDue = 0;
+		netMigrateAdoptEnd();
+	}
+
+	netLobbyRoomRulesCancel();
+}
+
 // The room's session closes (left, gone): a room taken over gives its setup back with it
 static void lobbyStopSession(void)
 {
