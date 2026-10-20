@@ -162,6 +162,7 @@ static u32 s_LpAmmoSets = 0;
 static u32 s_LpDevLast = 0;     // (protocol 31) this machine's cloaks on, as the last block left them
 static u32 s_LpDevSwitched = 0; // ... the tick one was switched here since (the host's word waits for its command)
 static u32 s_LpDevSets = 0;     // ... the host's put over this machine's
+static u32 s_LpRockets = 0;     // (protocol 33) Slayer rockets the camera rode
 static u32 s_LpTicks = 0;      // ticks this machine's player was in the match
 static u32 s_LpGeGunTicks = 0; // ... with a GoldenEye gun in its hand
 // You Only Live Twice (GoldenEye's scenario): twice dead is out for good,
@@ -586,7 +587,7 @@ void netEntsStageStart(void)
 	s_LpStableSince = 0;
 	s_LpHardAbs = s_LpDeaths = s_LpRespawnsDone = 0;
 	s_LpInvChanges = s_LpAmmoSets = s_LpEquips = 0;
-	s_LpDevLast = s_LpDevSwitched = s_LpDevSets = 0;
+	s_LpDevLast = s_LpDevSwitched = s_LpDevSets = s_LpRockets = 0;
 	s_LpTicks = s_LpGeGunTicks = 0;
 	s_YoltOutTicks = s_YoltOutAlive = s_YoltLocalOut = 0;
 	memset(s_YoltOutSince, 0, sizeof(s_YoltOutSince));
@@ -1163,6 +1164,19 @@ static void netLpCapture(s32 slot, s32 pn, u8 *out)
 	s.devices = ((p->devicesactive & DEVICE_CLOAKRCP120) ? NETLPDEV_CLOAKRCP120 : 0)
 		| ((p->devicesactive & DEVICE_CLOAKDEVICE) ? NETLPDEV_CLOAKDEVICE : 0);
 
+	// (protocol 33) the Slayer rocket the player flies: the client's camera
+	// rides it (playerTick's VISIONMODE_SLAYERROCKET branch), steered here
+	// by its commands
+	if (p->visionmode == VISIONMODE_SLAYERROCKET && p->slayerrocket && p->slayerrocket->base.prop) {
+		const s32 ridx = netPropIndex(p->slayerrocket->base.prop);
+
+		if (ridx >= 0 && ridx < s_MaxIds) {
+			s.rocket = 1;
+			s.rocketid = (u16)ridx;
+			s.rocketgen = netPropGen(ridx);
+		}
+	}
+
 	netPredictCaptureMove(p, &s.mv);
 	netPredictCaptureTank(pn, &s.tank);
 
@@ -1235,6 +1249,10 @@ static void netHostSendSnap(s32 slot)
 	// host's path by (F3 20261012-022730)
 	struct prop *selfeyespy = pn >= 0 && g_Vars.players[pn]->eyespy ? g_Vars.players[pn]->eyespy->prop : NULL;
 	u32 *seen = pn >= 0 && pn < MAX_PLAYERS ? s_Seen[pn] : NULL;
+	// (protocol 33) the Slayer rocket its player flies, wherever it goes
+	// (the camera rides it on the client)
+	struct prop *selfrocket = pn >= 0 && g_Vars.players[pn]->visionmode == VISIONMODE_SLAYERROCKET && g_Vars.players[pn]->slayerrocket
+		? g_Vars.players[pn]->slayerrocket->base.prop : NULL;
 	u8 lp[NETLP_SIZE];
 	s32 n = 0;
 	s32 len;
@@ -1266,6 +1284,8 @@ static void netHostSendSnap(s32 slot)
 		// names it)
 		if (c->desc.kind == NETDESC_SCENOBJ) {
 			weight = 4;
+		} else if (selfrocket && &g_Vars.props[i] == selfrocket) {
+			weight = 8;
 		} else if (c->delisted) {
 			weight = 1;
 		} else switch (c->desc.rec) {
@@ -2040,6 +2060,26 @@ void netEntsClientApplyLocal(void)
 		s_LpDevLast = p->devicesactive & mask;
 	}
 
+	// (protocol 33) a Slayer rocket the player flies: the host fired it and
+	// steers it by this machine's commands; the camera rides this machine's
+	// copy of it (playerTick's VISIONMODE_SLAYERROCKET branch). Over when the
+	// host says so: the static, as the host's own player sees it
+	// (F3 20261014-031918, "the camera does not change to the missile")
+	{
+		struct prop *rocket = lp->rocket && !p->isdead ? netPuppetsLocalProp(lp->rocketid, lp->rocketgen) : NULL;
+
+		if (rocket && rocket->obj && rocket->obj->type == OBJTYPE_WEAPON) {
+			if (p->visionmode != VISIONMODE_SLAYERROCKET || p->slayerrocket != rocket->weapon) {
+				playerLaunchSlayerRocket(rocket->weapon);
+				s_LpRockets++;
+			}
+		} else if (p->visionmode == VISIONMODE_SLAYERROCKET) {
+			// over, or this machine's copy gone with it
+			p->slayerrocket = NULL;
+			p->visionmode = VISIONMODE_SLAYERROCKETSTATIC;
+		}
+	}
+
 	// movement: the host's state after the command it played, squared with
 	// this machine's own run of the commands since (a respawn or teleport
 	// taken whatever this machine had)
@@ -2235,8 +2275,8 @@ static void netClientLog(const char *why)
 			why, g_NetTick, c->received, c->decoded, c->old, c->otherMatch, c->nobase, c->malformed, c->keyframes, c->entkeys,
 			c->received ? c->bytes / c->received : 0, s_Mapped, s_Unresolved, s_PresentUnmapped, s_StaleSeen, s_NacksSent, s_NoneNacked, s_KeptOverGap, s_Misfits, c->resyncs,
 			s_RespawnsSeen, s_TeleportsSeen, s_HostileFed, s_HostileRejected, s_HostileAccepted, s_HostileDropped);
-	sysLogPrintf(LOG_NOTE, "net: local block %s (tick %u): respawns or teleports taken %u; deaths %u, respawns %u, inventory changes %u, ammo sets %u, equips %u, revives %u, bad floats %u, cloaks set %u",
-			why, g_NetTick, s_LpHardAbs, s_LpDeaths, s_LpRespawnsDone, s_LpInvChanges, s_LpAmmoSets, s_LpEquips, s_LpRevives, s_LpBadFloats, s_LpDevSets);
+	sysLogPrintf(LOG_NOTE, "net: local block %s (tick %u): respawns or teleports taken %u; deaths %u, respawns %u, inventory changes %u, ammo sets %u, equips %u, revives %u, bad floats %u, cloaks set %u, Slayer rockets ridden %u",
+			why, g_NetTick, s_LpHardAbs, s_LpDeaths, s_LpRespawnsDone, s_LpInvChanges, s_LpAmmoSets, s_LpEquips, s_LpRevives, s_LpBadFloats, s_LpDevSets, s_LpRockets);
 	netPuppetsLog(why);
 	netSessionContentLog(why, s_LpTicks, s_LpGeGunTicks);
 

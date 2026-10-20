@@ -159,6 +159,33 @@ u32 g_CountdownTimerOff = COUNTDOWNTIMERREASON_AI;
 bool g_CountdownTimerRunning = false;
 f32 g_CountdownTimerValue60 = 0;
 u32 g_PlayersDetonatingMines = 0x00000000;
+
+#ifndef PLATFORM_N64
+/**
+ * Online: the players who pressed their detonator since the last sim tick's
+ * first view, put back for every view of the next one.
+ *
+ * A thrown mine is ticked in full only in its owner's view
+ * (objTickPlayer's fulltick), early in that view's propsTickPlayer, and the
+ * detonator's HANDATTACKTYPE_DETONATE sets the owner's bit later in the same
+ * view (handsTickAttack). The bit has to live until the owner's next view;
+ * alarmTick clears it in the frame's last view. Offline that view is the
+ * owner's own (one player), so the mine went off a frame later. On a host
+ * every player has a view in the frame, in a shuffled order, and a frame
+ * between two ticks (a present-only pass) has them all too: a client's
+ * detonator worked only on a frame its view came last with no present pass
+ * after it (F3 20261014-031758, "remote mine not working always online").
+ */
+static u32 s_NetMinesDetonatingPending = 0;
+
+void propsNetDetonatorsFrameStart(void)
+{
+	if (g_NetMode != NETMODE_NONE && !g_NetClockTest && g_Vars.lvupdate240 > 0) {
+		g_PlayersDetonatingMines |= s_NetMinesDetonatingPending;
+		s_NetMinesDetonatingPending = 0;
+	}
+}
+#endif
 s32 g_NextWeaponSlot = 0;
 s32 g_NextHatSlot = 0;
 struct linkliftdoorobj *g_LiftDoors = NULL;
@@ -20829,6 +20856,9 @@ void playerActivateRemoteMineDetonator(s32 playernum)
 {
 	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	g_PlayersDetonatingMines |= 1 << playernum;
+#ifndef PLATFORM_N64
+	if (g_NetMode != NETMODE_NONE && !g_NetClockTest) s_NetMinesDetonatingPending |= 1 << playernum; // netplay: for the owner's next view
+#endif
 
 #ifndef PLATFORM_N64
 	// on a converted GoldenEye level, the watch's own beep

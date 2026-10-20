@@ -352,6 +352,9 @@ struct netlpstate {
 	u8 invdual[32];         // a bit per weapon number held twice
 	u16 blurdrug;           // (protocol 20) the player chr's blurdrugamount: a tranquilizer's drugged screen
 	u8 devices;             // (protocol 31) the cloaks switched on: NETLPDEV_*
+	u8 rocket;              // (protocol 33) flying a Slayer rocket (VISIONMODE_SLAYERROCKET) ...
+	u16 rocketid;           // ... that entity (its prop index on the host) ...
+	u16 rocketgen;          // ... of that generation
 	struct netmove mv;
 	struct netlptank tank;  // (protocol 23)
 };

@@ -4240,3 +4240,41 @@ joined across builds (the session's own check, as any room).
   the pause menu (a uinput X360 pad: the D-pad moves, A selects; B does
   nothing there by design), and Ready after Player Setup by pad, mouse
   (Xvfb + xdotool) and keyboard.
+
+## F3 pass 40: remote mines, the Slayer's rocket, the N-bomb (2026-10-20, protocol 33)
+
+- **A client's remote mines (F3 20261014-031758).** A thrown mine is a
+  projectile its owner ticks: `objTickPlayer`'s fulltick happens only in the
+  owner's view, early in that view's `propsTickPlayer`, and the detonator's
+  `HANDATTACKTYPE_DETONATE` sets `g_PlayersDetonatingMines` later in the same
+  view (`handsTickAttack`). `alarmTick` clears the mask in the frame's last
+  view. Offline the owner's view is the last one, so the mine goes off a
+  frame later; on a host every player has a view, `playermgrShuffle` deals
+  them in a random order, and present-only frames between two ticks clear the
+  mask as well. So a client's detonator worked only when its view came last,
+  with no present pass after it. Online (never under `g_NetClockTest`), a
+  press also goes in a pending mask that `propsNetDetonatorsFrameStart()`
+  (the first view of the next tick frame) puts back. netpuppettest's `mines`
+  case tests it: five presses, two clients. The base build missed several.
+- **The Slayer's fly-by-wire on a client (F3 20261014-031918).** The host
+  made the rocket, set the client's player to `VISIONMODE_SLAYERROCKET` and
+  steered it by the client's commands (stick and `netMouseDelta`). That part
+  already worked. The client was never told, so its camera stayed on its own
+  player and the mouse turned that player too. The local-player block's bytes
+  203-207 now carry `u8 rocket, u8 0, u16 rocketid, u16 rocketgen`.
+  `netEntsClientApplyLocal` calls `playerLaunchSlayerRocket` on this
+  machine's copy (`netPuppetsLocalProp`). When the flag drops or the copy is
+  gone, it switches to the static the host's player sees. `playerTick`'s
+  rocket branch accepts a rocket that is not a projectile on a client: it
+  rides the camera and leaves the steering alone. The host keeps a flown
+  rocket in its pilot's snapshot scope at weight 8. Test: netpuppettest
+  `slayer`.
+- **The N-bomb (F3 20261014-030427, "affecting whole room"): no online
+  difference found.** The host deals the damage: `nbombInflictDamage`
+  checks each chr against the dome's radius, about 500 units at most.
+  `chrDamage` returns on a client (C9). A staged storm 600 units from a
+  client's player on Felicity did not hurt it. The client starts the storm
+  from the world block, about render-delay ticks late, and darkens every
+  on-screen room that the dome's box reaches (`roomFlashLighting`). That is
+  PD's own effect offline too, and so is the ship hum, which is not
+  positional. Left as needinfo: which of these the owner meant.
