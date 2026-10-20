@@ -2077,6 +2077,14 @@ static void frontApplyAim(void)
 		if (autoaim) {
 			g_PlayerConfigsArray[i].options |= OPTION_AUTOAIM;
 		}
+
+		// GoldenEye's sight with the gun lowered is Perfect Dark's Always
+		// Show Target (sight.c), which the Options menu sets in the game
+		// file's players. A match's players are the Combat Simulator's,
+		// started on that option's default (on) by mpPlayerSetDefaults()
+		// and never saved here, so the Options menu's choice is theirs too
+		// (F3 20261017-012200)
+		optionsSetAlwaysShowTarget(i, optionsGetAlwaysShowTarget(MPINDEX_SOLO + (i == 1 ? 1 : 0)));
 	}
 }
 
