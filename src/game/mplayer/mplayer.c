@@ -448,7 +448,13 @@ void mpStartMatch(void)
 	gexPlusThemeSimulants();
 #endif
 
-	if (!challengeIsFeatureUnlocked(MPFEATURE_ONEHITKILLS)) {
+	if (!challengeIsFeatureUnlocked(MPFEATURE_ONEHITKILLS)
+#ifndef PLATFORM_N64
+			// GoldenEye's License to Kill is a scenario of its own, never
+			// behind Perfect Dark's One-Hit Kills unlock (F3 20261018-212152)
+			&& !(g_GexPlusMode && gexPlusGetScenario() == GEXPLUS_LICENCETOKILL)
+#endif
+			) {
 		g_MpSetup.options &= ~MPOPTION_ONEHITKILLS;
 	}
 

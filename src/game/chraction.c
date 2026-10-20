@@ -5294,6 +5294,12 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			}
 
 			if (g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_ONEHITKILLS)) {
+#ifndef PLATFORM_N64
+				// GoldenEye's License to Kill deals the health and the armour
+				// both (bondview2.c's record_damage_kills()): the armour
+				// is no second life
+				if (!geRoomActive())
+#endif
 				damage = 0;
 				chrSetShield(chr, 0);
 			} else if (shield >= damage / armourscale) {
