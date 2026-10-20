@@ -603,7 +603,7 @@ struct lobbydraw {
 
 typedef Gfx *(*lobbycontent)(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2);
 
-#define LOBBY_MAXSETTINGS 8
+#define LOBBY_MAXSETTINGS 10
 
 // a line of a window's settings: "Arena: Skedar"
 struct lobbysetting {
@@ -1272,6 +1272,36 @@ extern struct menudialogdef g_GhostAccountMenuDialog;
 
 static s32 s_NameNext = 0; // Next was pressed before the sign-in finished: on to the rooms when it has
 
+/**
+ * LAN and Direct Connect's name (the owner, 2026-10-14: "let there also be a
+ * name screen for LAN and Direct Connect"): no account and no PIN, only the
+ * name played as (Net.LanName), the Ghost Trials account's until one is
+ * typed. A room that has the name already numbers the newcomer's.
+ */
+static MenuItemHandlerResult handlerLocalName(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETTEXT:
+		snprintf(data->keyboard.string, NETLOBBY_MAXUSER + 1, "%s", netLobbyLocalName());
+		break;
+	case MENUOP_SETTEXT:
+		netLobbySetLocalName(data->keyboard.string);
+		break;
+	}
+
+	return 0;
+}
+
+static struct menuitem s_LocalNameItems[] = {
+	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)"The name you play as. Up to 15 characters.\n", 0, NULL },
+	{ MENUITEMTYPE_KEYBOARD, NETLOBBY_MAXUSER, 0, 0, 1, handlerLocalName },
+	{ MENUITEMTYPE_END },
+};
+
+static struct menudialogdef s_LocalNameDialog = {
+	MENUDIALOGTYPE_DEFAULT, (uintptr_t)"Your Name", s_LocalNameItems, NULL, MENUDIALOGFLAG_LITERAL_TEXT, NULL,
+};
+
 static MenuItemHandlerResult handlerNameBox(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	struct menuitemrenderdata *rd;
@@ -1301,7 +1331,7 @@ static MenuItemHandlerResult handlerNameBox(s32 operation, struct menuitem *item
 	case MENUOP_SET:
 		netLobbyClearMessage();
 		s_NameNext = 0;
-		menuPushDialog(&g_GhostAccountMenuDialog);
+		menuPushDialog(netLobbyLocal() ? &s_LocalNameDialog : &g_GhostAccountMenuDialog);
 		break;
 	case MENUOP_RENDER:
 		gdl = data->type19.gdl;
@@ -1314,7 +1344,7 @@ static MenuItemHandlerResult handlerNameBox(s32 operation, struct menuitem *item
 			const s32 x2 = rd->x + rd->width - 10;
 			const s32 y1 = rd->y + 13;
 			const s32 y2 = rd->y + NAMEBOX_H - 3;
-			const char *name = netLobbyAccount();
+			const char *name = netLobbyPlayName();
 			const char *prompt = "Please enter your name.";
 			const u32 edge = focused ? lobbyAlpha(0xff303000, alpha) : lobbyAlpha(0x2060a000, alpha);
 			s32 w;
@@ -1362,6 +1392,12 @@ static MenuItemHandlerResult handlerNameNext(s32 operation, struct menuitem *ite
 	if (operation == MENUOP_SET) {
 		netLobbyClearMessage();
 
+		// LAN and Direct Connect: no account, only a name
+		if (netLobbyLocal()) {
+			menuPushDialog(netLobbyPlayName()[0] ? &g_NetBriefingMenuDialog : &s_LocalNameDialog);
+			return 0;
+		}
+
 		if (netLobbySignedIn()) {
 			menuPushDialog(&g_NetBriefingMenuDialog);
 		} else if (netLobbyAvailable()) {
@@ -1380,22 +1416,17 @@ static MenuDialogHandlerResult dialogOnline(s32 operation, struct menudialogdef 
 {
 	if (operation == MENUOP_OPEN) {
 		netLobbyClearMessage();
-		netLobbyWarm();
-		netLobbySignInAgain();
 		s_NameNext = 0;
 
-		// player 1 plays the online profile while the online pages are up
-		// (netprofile.c), its name the account's
-		netProfileEnter();
+		if (!netLobbyLocal()) {
+			netLobbyWarm();
+			netLobbySignInAgain();
+		}
 	}
 
-	// Back from the online pages: the offline player 1 again
-	if (operation == MENUOP_CLOSE) {
-		netProfileLeave();
-	}
-
-	if (operation == MENUOP_TICK) {
-		netProfileTick();
+	if (operation == MENUOP_TICK && isCurrent(dialogdef) && netLobbyLocal()) {
+		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
+		return 0;
 	}
 
 	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
@@ -1475,7 +1506,12 @@ static Gfx *lobbyNamePanels(Gfx *gdl, const struct lobbydraw *d, const struct lo
 		return gdl;
 	}
 
-	if (netLobbyBusy()) {
+	if (netLobbyLocal()) {
+		text = netLobbyMessage()[0] ? netLobbyMessage()
+			: !netLobbyPlayName()[0] ? "Select the box to type the name you play as. No account is needed."
+			: netLobbyMode() == NETLOBBY_MODE_LAN ? "Next goes to the rooms on your network."
+			: "Next goes to Direct Connect: host a room, or join one at its address.";
+	} else if (netLobbyBusy()) {
 		text = "Signing in...";
 	} else if (netLobbyMessage()[0]) {
 		text = netLobbyMessage();
@@ -1488,9 +1524,259 @@ static Gfx *lobbyNamePanels(Gfx *gdl, const struct lobbydraw *d, const struct lo
 	gdl = lobbyAlignRestore(gdl);
 	gdl = text0f153628(gdl);
 	snprintf(in, sizeof(in), "%s\n", text);
-	textWrapN(NAMEBOX_W + 40, in, out, sizeof(out), g_CharsHandelGothicXs, g_FontHandelGothicXs);
+	textWrapN(dialog->width - 12, in, out, sizeof(out), g_CharsHandelGothicXs, g_FontHandelGothicXs);
 
 	while (*p && n < 4) {
+		char *end = strchr(p, '\n');
+		s32 w;
+
+		if (end) {
+			*end = '\0';
+		}
+
+		w = lobbyTextWidth(p, LOBBYFONT_XS);
+		gdl = lobbyText(gdl, (SCREEN_WIDTH_LO - w) / 2, y, p, LOBBYFONT_XS, lobbyAlpha(0xffffff00, alpha), 0);
+		y += LOBBY_XSROW;
+		n++;
+
+		if (!end) {
+			break;
+		}
+
+		p = end + 1;
+	}
+
+	gdl = text0f153780(gdl);
+
+	return gdl;
+}
+
+/*
+ * Online: the online pages' first page (the owner, 2026-10-14: "when
+ * entering online add an extra menu before name screen. LAN, Direct
+ * Connect, Online Lobbies. So even if Lobbies browser goes offline players
+ * can still play LAN and Direct Connect"). Where the rooms come from: the
+ * lobby server's (Online Lobbies), the LAN's, or an address's, the last two
+ * served by their hosts' own games (netlan.c). Each goes on to Name Entry
+ * and the Briefing Room, the same pages for all three. Player 1 plays the
+ * online profile from here (netprofile.c), Back from here gives the offline
+ * player back.
+ */
+
+#define MODECARD_W 220
+#define MODECARD_H 32
+
+static void lobbyRect(Gfx **gdlp, s32 x1, s32 y1, s32 x2, s32 y2, u32 fill, u32 edge);
+static void listClamp(struct menudialog *dialog, struct menuitem *item, s32 rowh);
+
+static const struct {
+	s32 mode;
+	const char *title;
+	const char *line;
+	const char *about;
+} s_Modes[] = {
+	{ NETLOBBY_MODE_ONLINE, "Online Lobbies", "Rooms on the lobby server",
+		"Rooms anyone can find and join from anywhere, on the lobby server. You play as your account: a name and a PIN (a new name makes one)." },
+	{ NETLOBBY_MODE_LAN, "LAN", "Rooms on your own network",
+		"Rooms hosted on your own network - at home, at a LAN party - found by themselves. No account and no server: it plays when the lobby server is down." },
+	{ NETLOBBY_MODE_DIRECT, "Direct Connect", "Host, or join an address",
+		"Host a room, or join one at its host's address (an IP and a port). No account and no server. From outside the host's network, its UDP port must be forwarded on its router." },
+};
+
+// The row of a list item under its dialog's cursor: its index, or -1
+static s32 lobbyListFocus(struct menudialog *dialog, struct menuitem *item)
+{
+	struct menu *menu = &g_Menus[g_MpPlayerNum];
+	s32 col;
+	s32 j;
+
+	if (dialog == NULL || dialog->focuseditem != item) {
+		return -1;
+	}
+
+	for (col = dialog->colstart; col < dialog->colstart + dialog->numcols; col++) {
+		for (j = 0; j < menu->cols[col].numrows; j++) {
+			const s32 row = menu->cols[col].rowstart + j;
+
+			if (&dialog->definition->items[menu->rows[row].itemindex] == item && menu->rows[row].blockindex != -1) {
+				return ((union menuitemdata *)&menu->blocks[menu->rows[row].blockindex])->list.index;
+			}
+		}
+	}
+
+	return -1;
+}
+
+static MenuItemHandlerResult handlerModeList(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	struct menuitemrenderdata *rd;
+	struct menudialog *dialog = g_Menus[g_MpPlayerNum].curdialog;
+	Gfx *gdl;
+	s32 index;
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->list.value = ARRAYCOUNT(s_Modes);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)"";
+	case MENUOP_GETOPTIONHEIGHT:
+		data->list.value = MODECARD_H;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->list.value = 0xfffff;
+		break;
+	case MENUOP_GETOPTGROUPCOUNT:
+		data->list.value = 0;
+		break;
+	case MENUOP_GETOPTGROUPTEXT:
+		return 0;
+	case MENUOP_GETGROUPSTARTINDEX:
+		data->list.groupstartindex = 0;
+		break;
+	case MENUOP_LISTITEMFOCUS:
+		netLobbyClearMessage();
+		break;
+	case MENUOP_SET:
+		index = (s32)data->list.value;
+
+		if (index < 0 || index >= (s32)ARRAYCOUNT(s_Modes)) {
+			break;
+		}
+
+		if (s_Modes[index].mode == NETLOBBY_MODE_ONLINE && !netLobbyBuilt()) {
+			netLobbySetMessage("This build has no lobby: LAN and Direct Connect play without one.");
+			menuPlaySound(MENUSOUND_ERROR);
+			break;
+		}
+
+		netLobbySetMode(s_Modes[index].mode);
+		netLobbyClearMessage();
+		menuPushDialog(&g_NetOnlineMenuDialog);
+		break;
+	case MENUOP_RENDER:
+		gdl = data->type19.gdl;
+		rd = data->type19.renderdata2;
+		index = (s32)data->type19.unk04;
+
+		if (index >= 0 && index < (s32)ARRAYCOUNT(s_Modes)) {
+			const u32 alpha = rd->colour & 0xff;
+			const s32 focused = rd->unk10 && dialog && dialog->focuseditem == item;
+			const s32 x1 = rd->x + 4;
+			const s32 x2 = rd->x + rd->width - 4;
+			const s32 y1 = rd->y + 1;
+			const s32 y2 = rd->y + MODECARD_H - 2;
+			const u32 edge = focused ? lobbyAlpha(0xff303000, alpha) : lobbyAlpha(0x2060a000, alpha);
+			s32 w;
+
+			lobbyRect(&gdl, x1, y1, x2, y2, lobbyAlpha(0x00000000, alpha / 2), edge);
+			gdl = text0f153628(gdl);
+			w = lobbyTextWidth(s_Modes[index].title, LOBBYFONT_MD);
+			gdl = lobbyText(gdl, (x1 + x2 - w) / 2, y1 + 3, s_Modes[index].title, LOBBYFONT_MD, lobbyAlpha(0xffffff00, alpha), 0);
+			w = lobbyTextWidth(s_Modes[index].line, LOBBYFONT_XS);
+			gdl = lobbyText(gdl, (x1 + x2 - w) / 2, y1 + 4 + LOBBY_MDROW, s_Modes[index].line, LOBBYFONT_XS, dimColour(alpha), 0);
+			gdl = text0f153780(gdl);
+		}
+
+		return (uintptr_t)gdl;
+	}
+
+	return 0;
+}
+
+static MenuDialogHandlerResult dialogMode(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	if (operation == MENUOP_OPEN) {
+		netLobbyClearMessage();
+
+		// player 1 plays the online profile while the online pages are up
+		// (netprofile.c), its name the account's online, Name Entry's in
+		// LAN and Direct Connect
+		netProfileEnter();
+	}
+
+	// Back from the online pages: the offline player 1 again
+	if (operation == MENUOP_CLOSE) {
+		netProfileLeave();
+		netLobbyFinderIdle();
+	}
+
+	if (operation == MENUOP_TICK) {
+		netProfileTick();
+	}
+
+	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
+		// Back from it goes to the Perfect Menu (dialogOnline's reason)
+		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
+
+		// the three cards whole, the first at the top (a plain list scrolls
+		// its focused row to its middle)
+		listClamp(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[0], MODECARD_H);
+
+		// nothing of a mode's left running behind this page
+		if (!netLobbyInRoom()) {
+			netLobbyFinderIdle();
+		}
+	}
+
+	return 0;
+}
+
+static struct menuitem s_ModeItems[] = {
+	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER | MENUITEMFLAG_LIST_LEAVEATENDS, MODECARD_W, MODECARD_H * ARRAYCOUNT(s_Modes), handlerModeList },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_OPENSDIALOG, (uintptr_t)"Player Setup...\n", 0, (void *)&g_NetPlayerSetupMenuDialog },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_NetModeMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Online Game",
+	s_ModeItems,
+	dialogMode,
+	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_DISABLETITLEBAR,
+	NULL,
+};
+
+static void lobbyModePlace(struct menudialog *dialog, const struct lobbylayout *l)
+{
+	const s32 w = MODECARD_W + 16;
+	const s32 h = dialog->contentheight;
+
+	dialog->dstx = (SCREEN_WIDTH_LO - w) / 2;
+	dialog->dsty = (l->top + l->bottom - h) / 2 - 12;
+	dialog->dstwidth = w;
+	dialog->dstheight = h;
+}
+
+// Under the cards: what the one under the cursor is, or why one would not open
+static Gfx *lobbyModePanels(Gfx *gdl, const struct lobbydraw *d, const struct lobbylayout *l)
+{
+	struct menudialog *dialog = d->dialog;
+	const u32 alpha = (MIXCOLOUR(dialog, item_unfocused)) & 0xff;
+	const s32 index = lobbyListFocus(dialog, &s_ModeItems[0]);
+	const char *text;
+	char in[400];
+	char out[480];
+	char *p = out;
+	s32 y = dialog->y + dialog->height + 6;
+	s32 n = 0;
+
+	if (!d->withtext) {
+		return gdl;
+	}
+
+	text = netLobbyMessage()[0] ? netLobbyMessage()
+		: index >= 0 && index < (s32)ARRAYCOUNT(s_Modes) ? s_Modes[index].about
+		: "Where to play: rooms on the lobby server, on your own network, or at an address.";
+
+	gdl = lobbyAlignRestore(gdl);
+	gdl = text0f153628(gdl);
+	snprintf(in, sizeof(in), "%s\n", text);
+	// inside the dialog's width: the words under it are drawn full size
+	textWrapN(dialog->width - 12, in, out, sizeof(out), g_CharsHandelGothicXs, g_FontHandelGothicXs);
+
+	while (*p && n < 5) {
 		char *end = strchr(p, '\n');
 		s32 w;
 
@@ -1544,7 +1830,7 @@ MenuItemHandlerResult netLobbyMenuHandlerOnline(s32 operation, struct menuitem *
 	}
 
 	if (operation == MENUOP_SET) {
-		menuPushDialog(&g_NetOnlineMenuDialog);
+		menuPushDialog(&g_NetModeMenuDialog);
 	}
 
 	return 0;
@@ -1583,7 +1869,7 @@ MenuItemHandlerResult netLobbyMenuHandlerOnlineMain(s32 operation, struct menuit
 		g_Vars.antiplayernum = -1;
 		challengeDetermineUnlockedFeatures();
 		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
-		func0f0f820c(&g_NetOnlineMenuDialog, MENUROOT_MPSETUP);
+		func0f0f820c(&g_NetModeMenuDialog, MENUROOT_MPSETUP);
 		func0f0f8300();
 	}
 
@@ -1639,6 +1925,69 @@ static void lobbyRect(Gfx **gdlp, s32 x1, s32 y1, s32 x2, s32 y2, u32 fill, u32 
 	*gdlp = gdl;
 }
 
+/**
+ * The cards after the rooms: Create Room and Refresh List, and between them
+ * in Direct Connect, Connect to Address (a room at an address typed, which
+ * the list then keeps: netlan.c's Net.DirectRecent)
+ */
+#define CARD_CREATE  0
+#define CARD_ADDRESS 1
+#define CARD_REFRESH 2
+
+static s32 briefingNumCards(void)
+{
+	return netLobbyMode() == NETLOBBY_MODE_DIRECT ? 3 : 2;
+}
+
+// The card at a list index past the rooms, or -1
+static s32 briefingCardAt(s32 index)
+{
+	const s32 k = index - netLobbyNumRooms();
+
+	if (k < 0 || k >= briefingNumCards()) {
+		return -1;
+	}
+
+	if (netLobbyMode() == NETLOBBY_MODE_DIRECT) {
+		return k;
+	}
+
+	return k == 0 ? CARD_CREATE : CARD_REFRESH;
+}
+
+static s32 s_AddressWaiting = 0; // Connect to Address: the address asked, its room not heard yet
+static char s_AddressText[MENU_KEYBOARD_MAXLEN + 1] = "";
+
+static MenuItemHandlerResult handlerAddress(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETTEXT:
+		snprintf(data->keyboard.string, MENU_KEYBOARD_MAXLEN + 1, "%s", s_AddressText);
+		break;
+	case MENUOP_SETTEXT:
+		snprintf(s_AddressText, sizeof(s_AddressText), "%s", data->keyboard.string);
+		netLobbyClearMessage();
+		s_BriefingNote[0] = '\0';
+		s_AddressWaiting = netLobbyConnectAddress(s_AddressText) == 0;
+		break;
+	}
+
+	return 0;
+}
+
+static struct menuitem s_AddressItems[] = {
+	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)"The host's IP (or name), and its port\nif not 27100: 1.2.3.4:27105, or 1.2.3.4 27105.\n", 0, NULL },
+	{ MENUITEMTYPE_KEYBOARD, 47, 0, KEYBOARDFLAG_ADDRESS, 1, handlerAddress },
+	{ MENUITEMTYPE_END },
+};
+
+static struct menudialogdef s_AddressDialog = {
+	MENUDIALOGTYPE_DEFAULT, (uintptr_t)"Connect to Address", s_AddressItems, NULL, MENUDIALOGFLAG_LITERAL_TEXT, NULL,
+};
+
+static void briefingJoin(const struct netlobbyroomsum *r);
+
 static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	struct menuitemrenderdata *rd;
@@ -1650,7 +1999,7 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->list.value = n + 2;
+		data->list.value = n + briefingNumCards();
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		return (intptr_t)"";
@@ -1677,13 +2026,20 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 	case MENUOP_SET:
 		index = (s32)data->list.value;
 
-		if (index == n) {
+		if (briefingCardAt(index) == CARD_CREATE) {
 			netLobbyClearMessage();
 			menuPushDialog(&g_NetCreateMenuDialog);
 			break;
 		}
 
-		if (index > n) {
+		if (briefingCardAt(index) == CARD_ADDRESS) {
+			netLobbyClearMessage();
+			s_BriefingNote[0] = '\0';
+			menuPushDialog(&s_AddressDialog);
+			break;
+		}
+
+		if (briefingCardAt(index) == CARD_REFRESH) {
 			s_BriefingNote[0] = '\0';
 			netLobbyClearMessage();
 			netLobbyRefresh();
@@ -1695,17 +2051,8 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 
 		if (r == NULL) {
 			netLobbyRefresh();
-		} else if (r->compat != NETLOBBY_COMPAT_OK) {
-			// the reason, on the status window
-			snprintf(s_BriefingNote, sizeof(s_BriefingNote), "%s", netLobbyCompatText(r->compat));
-			menuPlaySound(MENUSOUND_ERROR);
-		} else if (r->locked) {
-			snprintf(s_JoinId, sizeof(s_JoinId), "%s", r->id);
-			menuPushDialog(&g_NetJoinPasswordMenuDialog);
 		} else {
-			snprintf(s_JoinId, sizeof(s_JoinId), "%s", r->id);
-			s_WaitingForRoom = 1;
-			netLobbyJoin(r->id, "");
+			briefingJoin(r);
 		}
 		break;
 	case MENUOP_RENDER:
@@ -1732,8 +2079,9 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 
 			if (index >= n) {
 				// Create Room, Refresh: the reference's Create Game card
-				const char *label = index == n ? "Create Room" : "Refresh List";
-				const s32 font = index == n ? LOBBYFONT_MD : LOBBYFONT_SM;
+				const s32 card = briefingCardAt(index);
+				const char *label = card == CARD_CREATE ? "Create Room" : card == CARD_ADDRESS ? "Connect to Address" : "Refresh List";
+				const s32 font = card == CARD_REFRESH ? LOBBYFONT_SM : LOBBYFONT_MD;
 
 				w = lobbyTextWidth(label, font);
 				gdl = lobbyText(gdl, (x1 + x2 - w) / 2, (y1 + y2 - (font == LOBBYFONT_MD ? LOBBY_MDROW : LOBBY_SMROW)) / 2 + 1,
@@ -1778,6 +2126,23 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 	}
 
 	return 0;
+}
+
+// A room picked: why not, its password, or the join
+static void briefingJoin(const struct netlobbyroomsum *r)
+{
+	if (r->compat != NETLOBBY_COMPAT_OK) {
+		// the reason, on the status window
+		snprintf(s_BriefingNote, sizeof(s_BriefingNote), "%s", netLobbyCompatText(r->compat));
+		menuPlaySound(MENUSOUND_ERROR);
+	} else if (r->locked) {
+		snprintf(s_JoinId, sizeof(s_JoinId), "%s", r->id);
+		menuPushDialog(&g_NetJoinPasswordMenuDialog);
+	} else {
+		snprintf(s_JoinId, sizeof(s_JoinId), "%s", r->id);
+		s_WaitingForRoom = 1;
+		netLobbyJoin(r->id, "");
+	}
 }
 
 /**
@@ -1884,6 +2249,7 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 {
 	if (operation == MENUOP_OPEN) {
 		s_BriefingNote[0] = '\0';
+		s_AddressWaiting = 0;
 		netLobbyClearMessage();
 		netLobbyRefresh();
 		s_BriefingListAt = sysGetMicroseconds();
@@ -1906,8 +2272,27 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 		netHudMainChatFrame();
 		lobbyChatScrollTick(LOBBYCHAT_MAIN);
 
-		// Players Online: Select, L2 or the players key
-		briefingOnlineKey();
+		// Players Online: Select, L2 or the players key (the lobby's: none
+		// in LAN or Direct Connect)
+		if (!netLobbyLocal()) {
+			briefingOnlineKey();
+		}
+
+		// Connect to Address: its room joined once it answers
+		if (s_AddressWaiting && isCurrent(dialogdef)) {
+			const s32 found = netLobbyConnectWait();
+
+			if (found >= 0 && netLobbyRoomAt(found)) {
+				s_AddressWaiting = 0;
+				briefingJoin(netLobbyRoomAt(found));
+			} else if (found != -1) {
+				s_AddressWaiting = 0;
+
+				if (found == -2) {
+					menuPlaySound(MENUSOUND_ERROR);
+				}
+			}
+		}
 
 		if (s_WaitingForRoom && netLobbyInRoom()) {
 			s_WaitingForRoom = 0;
@@ -2011,10 +2396,47 @@ static const char *briefingCardText(struct menudialog *dialog, const char **titl
 {
 	const s32 n = netLobbyNumRooms();
 	const s32 index = briefingFocusIndex(dialog);
+	const s32 card = briefingCardAt(index);
 
 	*title = NULL;
 
-	if (index == n) {
+	if (card == CARD_CREATE && netLobbyMode() == NETLOBBY_MODE_LAN) {
+		*title = "Create Room";
+
+		return "Host a room on this computer: everyone on your network sees it in their LAN list. A Combat Simulator match, a co-op or counter-op mission, or a campaign.";
+	}
+
+	if (card == CARD_CREATE && netLobbyMode() == NETLOBBY_MODE_DIRECT) {
+		static char text[320];
+
+		*title = "Create Room";
+		snprintf(text, sizeof(text), "Host a room on this computer, on UDP port %d (Port on the next page). Friends join at your address: on your network your LAN IP; from outside it your public IP, with that port forwarded on your router to this computer.",
+				netLobbyPort());
+
+		return text;
+	}
+
+	if (card == CARD_ADDRESS) {
+		*title = "Connect to Address";
+
+		return s_AddressWaiting ? "Asking that address for its room..."
+			: "Join a room at its host's address: its IP (or a name), and its port if it is not 27100. An address you used is kept in this list and asked again.";
+	}
+
+	if (card == CARD_REFRESH && netLobbyLocal()) {
+		*title = "Refresh List";
+
+		return netLobbyMode() == NETLOBBY_MODE_LAN ? "Ask the network for its rooms again. The list also asks every few seconds by itself."
+			: "Ask the addresses you used for their rooms again. The list also asks every few seconds by itself.";
+	}
+
+	if (card < 0 && netLobbyLocal()) {
+		return n == 0 && netLobbyMode() == NETLOBBY_MODE_LAN ? "No rooms on your network yet. Create Room hosts one."
+			: n == 0 ? "No rooms at your addresses. Connect to Address asks one; Create Room hosts one."
+			: "Highlight a room to see it here.";
+	}
+
+	if (card == CARD_CREATE) {
 		*title = "Create Room";
 
 		// the GoldenEye mode's rooms are matches on its arenas (gameOptions())
@@ -2028,7 +2450,7 @@ static const char *briefingCardText(struct menudialog *dialog, const char **titl
 			: "Make a room of your own: a Combat Simulator match, a co-op or counter-op mission, or a campaign. Everyone sees it in this list.";
 	}
 
-	if (index == n + 1) {
+	if (card == CARD_REFRESH) {
 		*title = "Refresh List";
 
 		return "Ask the lobby for the rooms again. The list also refreshes itself every 10 seconds.";
@@ -2168,6 +2590,32 @@ static Gfx *lobbyBriefingChatWindow(Gfx *gdl, struct menudialog *dialog, s32 x1,
 	return lobbyChatLines(gdl, dialog, x1, y1, x2, y2, chat, n, NULL, NULL, LOBBYCHAT_MAIN);
 }
 
+/**
+ * LAN and Direct Connect have no main menu chat (no server to carry it):
+ * how they work, in its place
+ */
+static Gfx *lobbyBriefingLocalWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
+{
+	const u32 normal = MIXCOLOUR(dialog, item_unfocused);
+	const s32 inner = x2 - x1 - 2 * LOBBY_INSET;
+	const s32 tx = x1 + LOBBY_INSET;
+	s32 y = y1 + LINEHEIGHT + 3;
+	char text[480];
+
+	if (netLobbyMode() == NETLOBBY_MODE_LAN) {
+		snprintf(text, sizeof(text), "%s",
+				"Rooms on your network show here by themselves: no account or server needed. "
+				"One that does not: its host's firewall must let the game have UDP 27100-27103.");
+	} else {
+		snprintf(text, sizeof(text),
+				"Connect to Address joins a host's room. To host for friends outside your network, forward UDP port %d "
+				"on your router and give them your public IP.",
+				netLobbyPort());
+	}
+
+	return lobbyParagraph(gdl, text, tx, &y, inner, normal, (y2 - 2 - y) / LOBBY_XSROW);
+}
+
 // The list and its buttons: the whole of the left column
 static void lobbyBriefingPlace(struct menudialog *dialog, const struct lobbylayout *l)
 {
@@ -2194,7 +2642,11 @@ static Gfx *lobbyBriefingPanels(Gfx *gdl, const struct lobbydraw *d, const struc
 	// "Room Info": what the window shows (the owner, F3 20261012-120256)
 	gdl = lobbyAlign(gdl, G_ASPECT_RIGHT_EXT);
 	gdl = lobbyPanel(gdl, d, l->rx1, l->top, l->rx2, chaty1 - LOBBY_VGAP, "Room Info", lobbyBriefingRoomWindow);
-	gdl = lobbyPanel(gdl, d, l->rx1, chaty1, l->rx2, l->bottom, "Main Menu Chat", lobbyBriefingChatWindow);
+	if (netLobbyLocal()) {
+		gdl = lobbyPanel(gdl, d, l->rx1, chaty1, l->rx2, l->bottom, netLobbyMode() == NETLOBBY_MODE_LAN ? "LAN" : "Direct Connect", lobbyBriefingLocalWindow);
+	} else {
+		gdl = lobbyPanel(gdl, d, l->rx1, chaty1, l->rx2, l->bottom, "Main Menu Chat", lobbyBriefingChatWindow);
+	}
 
 	return gdl;
 }
@@ -2347,6 +2799,68 @@ static MenuItemHandlerResult handlerMaxPlayers(s32 operation, struct menuitem *i
 	return 0;
 }
 
+/**
+ * Direct Connect's port (the owner, 2026-10-14: "should we add custom port
+ * option so anyone should be able to connect to each other"): Net.Port, the
+ * UDP port the room is hosted on and its friends type after the address.
+ * Forwarding it on the host's router is still what lets them in from
+ * outside; another port helps where 27100 is taken or blocked.
+ */
+static MenuItemHandlerResult handlerPort(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	s32 port;
+
+	switch (operation) {
+	case MENUOP_GETTEXT:
+		snprintf(data->keyboard.string, 6, "%d", netLobbyPort());
+		break;
+	case MENUOP_SETTEXT:
+		port = atoi(data->keyboard.string);
+
+		if (port >= 1024 && port <= 65535) {
+			netLobbySetPort(port);
+		} else {
+			netLobbySetMessage("A port is a number from 1024 to 65535.");
+		}
+		break;
+	}
+
+	return 0;
+}
+
+static struct menuitem s_PortItems[] = {
+	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)"The UDP port to host on (27100 unless\nset). Friends type it after your address.\n", 0, NULL },
+	{ MENUITEMTYPE_KEYBOARD, 5, 0, KEYBOARDFLAG_DIGITS, 0, handlerPort },
+	{ MENUITEMTYPE_END },
+};
+
+static struct menudialogdef s_PortDialog = {
+	MENUDIALOGTYPE_DEFAULT, (uintptr_t)"Port", s_PortItems, NULL, MENUDIALOGFLAG_LITERAL_TEXT, NULL,
+};
+
+static char *textCreatePort(struct menuitem *item)
+{
+	static char text[24];
+
+	snprintf(text, sizeof(text), "Port: %d\n", netLobbyPort());
+
+	return text;
+}
+
+static MenuItemHandlerResult handlerCreatePort(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return netLobbyMode() != NETLOBBY_MODE_DIRECT;
+	}
+
+	if (operation == MENUOP_SET) {
+		menuPushDialog(&s_PortDialog);
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult handlerCreateGo(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_CHECKDISABLED) {
@@ -2384,7 +2898,7 @@ static MenuDialogHandlerResult dialogCreate(s32 operation, struct menudialogdef 
 		netLobbyRoomRulesBegin();
 
 		if (!s_Create.name[0]) {
-			snprintf(s_Create.name, sizeof(s_Create.name), "%.12s's Room", netLobbyAccount());
+			snprintf(s_Create.name, sizeof(s_Create.name), "%.12s's Room", netLobbyPlayName()[0] ? netLobbyPlayName() : "Player");
 		}
 
 		// the room's host plays: player 1 of the setup
@@ -2821,7 +3335,7 @@ static char *textHandicapName(struct menuitem *item)
 	const struct netlobbymember *m = handicapMember(item->param);
 
 	if (item->param == 0) {
-		return netLobbyInRoom() && netLobbyAccount()[0] ? (char *)netLobbyAccount() : g_PlayerConfigsArray[0].base.name;
+		return netLobbyInRoom() && netLobbyPlayName()[0] ? (char *)netLobbyPlayName() : g_PlayerConfigsArray[0].base.name;
 	}
 
 	snprintf(name, sizeof(name), "%s", m ? m->user : "");
@@ -2928,6 +3442,7 @@ static struct menuitem s_CreateItems[] = {
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textCreateName, 0, handlerCreateName },
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textCreatePassword, 0, handlerCreatePassword },
 	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Max Players", 0, handlerMaxPlayers },
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textCreatePort, 0, handlerCreatePort },
 	{ MENUITEMTYPE_SEPARATOR, 0, 0, 0, 0, NULL },
 	NETLOBBY_SETUP_ITEMS,
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CENTRE, (uintptr_t)"Create\n", 0, handlerCreateGo },
@@ -3300,6 +3815,17 @@ static s32 lobbySettingsOf(const struct netlobbyroom *room, struct lobbysetting 
 	s32 n = 0;
 
 #define SETTING(lbl, ...) do { out[n].label = lbl; snprintf(out[n].value, sizeof(out[n].value), __VA_ARGS__); n++; } while (0)
+
+	// a Direct Connect room's host: where its friends join it
+	if (room == netLobbyGetRoom() && netLobbyMode() == NETLOBBY_MODE_DIRECT && netLobbyIsHost()) {
+		char addr[64];
+
+		netLobbyHostAddress(addr, sizeof(addr));
+
+		if (addr[0]) {
+			SETTING("Join At", "%s", addr);
+		}
+	}
 
 	if (key && (strncmp(key, "mission:", 8) == 0 || strncmp(key, "campaign:", 9) == 0)) {
 		// a co-op room (netcoop.c): its mission, difficulty and options,
@@ -3782,6 +4308,11 @@ static void lobbyStatusText(char *out, s32 size)
 	default:
 		if (netLobbyMessage()[0]) {
 			snprintf(out, size, "%s", netLobbyMessage());
+		} else if (netLobbyIsHost() && netLobbyMode() == NETLOBBY_MODE_DIRECT && room->nmembers <= 1) {
+			char addr[64];
+
+			netLobbyHostAddress(addr, sizeof(addr));
+			snprintf(out, size, "Friends join at %s (from outside your network: your public IP, the port forwarded).", addr);
 		} else if (netLobbyIsHost()) {
 			snprintf(out, size, "%s", "Launch when everyone is ready (a ticked box).");
 		} else {
@@ -3980,7 +4511,10 @@ static u32 lobbyChatNameColour(const char *user, u32 alpha)
 	};
 	u32 h = 2166136261u;
 
-	if (netLobbyAccount()[0] && strcasecmp(user, netLobbyAccount()) == 0) {
+	// this player's own lines: as the room has it (a LAN or Direct Connect
+	// room numbers a name it has already)
+	if ((netLobbyGetRoom()->valid && netLobbyGetRoom()->you[0] && strcasecmp(user, netLobbyGetRoom()->you) == 0)
+			|| (netLobbyPlayName()[0] && strcasecmp(user, netLobbyPlayName()) == 0)) {
 		return 0xffffff00 | (alpha & 0xff);
 	}
 
@@ -4794,7 +5328,7 @@ static Gfx *lobbyPreviewWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 
 	s32 nrows;
 
 	netLobbyPreviewRoom(&preview);
-	snprintf(preview.sum.host, sizeof(preview.sum.host), "%s", netLobbyAccount());
+	snprintf(preview.sum.host, sizeof(preview.sum.host), "%s", netLobbyPlayName());
 
 	if (settings && room->valid) {
 		snprintf(tail, sizeof(tail), " (%d/%d)", room->sum.humans, room->sum.maxhumans);
@@ -4829,13 +5363,25 @@ static Gfx *lobbyPreviewWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 
  */
 static const char *previewStatusText(void)
 {
-	return netLobbyBusy() ? "Asking the lobby..." : netLobbyMessage();
+	// LAN and Direct Connect: no lobby to ask (the room opens at once)
+	return netLobbyBusy() && !netLobbyLocal() ? "Asking the lobby..." : netLobbyMessage();
 }
 
 static const char *previewHint(struct menudialog *dialog)
 {
-	return dialog->definition == &g_NetRoomSettingsMenuDialog ? "New settings un-ready everyone."
-		: "Create opens the room: it shows in everyone's Briefing Room.";
+	if (dialog->definition == &g_NetRoomSettingsMenuDialog) {
+		return "New settings un-ready everyone.";
+	}
+
+	if (netLobbyMode() == NETLOBBY_MODE_LAN) {
+		return "Create opens the room on this computer: it shows in the LAN list of everyone on your network.";
+	}
+
+	if (netLobbyMode() == NETLOBBY_MODE_DIRECT) {
+		return "Create opens the room on this computer, on the port above: friends join at your address.";
+	}
+
+	return "Create opens the room: it shows in everyone's Briefing Room.";
 }
 
 static Gfx *lobbyPreviewStatusWindow(Gfx *gdl, struct menudialog *dialog, s32 x1, s32 y1, s32 x2, s32 y2)
@@ -4872,7 +5418,7 @@ static Gfx *lobbyPreviewPanels(Gfx *gdl, const struct lobbydraw *d, const struct
 	gdl = lobbyAlign(gdl, G_ASPECT_RIGHT_EXT);
 	gdl = lobbyPanel(gdl, d, l->rx1, l->top, l->rx2, statusy1 - LOBBY_VGAP,
 			d->dialog->definition == &g_NetRoomSettingsMenuDialog ? "Room" : "Room Preview", lobbyPreviewWindow);
-	gdl = lobbyPanel(gdl, d, l->rx1, statusy1, l->rx2, l->bottom, "Lobby", lobbyPreviewStatusWindow);
+	gdl = lobbyPanel(gdl, d, l->rx1, statusy1, l->rx2, l->bottom, netLobbyLocal() ? "Room" : "Lobby", lobbyPreviewStatusWindow);
 
 	return gdl;
 }
@@ -5251,6 +5797,94 @@ static Gfx *lobbyOnlinePanels(Gfx *gdl, const struct lobbydraw *d, const struct 
  * join with a room name no room has, which keeps the lobby ticking
  * (netPump) and lists the rooms.
  */
+/**
+ * --net-test-mode-pages: the online pages in LAN and Direct Connect, each
+ * screenshotted (the pages' check, and the owner's look at them): Online,
+ * Name Entry, the Briefing Room in LAN (a LAN host elsewhere fills it), then
+ * in Direct Connect with --net-test-mode-address asked, Create Room, and the
+ * Game Lobby of a room made there. Then it quits.
+ */
+static void modePagesTestTick(void)
+{
+	static s32 step = -1;
+	static u64 due = 0;
+	const u64 now = sysGetMicroseconds() / 1000;
+	union handlerdata data;
+	struct netlobbycreate c;
+
+	if (step < 0) {
+		step = sysArgCheck("--net-test-mode-pages") ? 0 : 99;
+		due = now + 4000;
+	}
+
+	if (step == 99 || now < due) {
+		return;
+	}
+
+	due = now + 2500;
+	memset(&data, 0, sizeof(data));
+
+	switch (step) {
+	case 0:
+		if (g_MenuData.root == 0 || !g_Menus[g_MpPlayerNum].curdialog) {
+			return;
+		}
+
+		netLobbyMenuHandlerOnlineMain(MENUOP_SET, NULL, &data);
+		break;
+	case 1:
+	case 3:
+	case 5:
+	case 8:
+	case 10:
+	case 12:
+		screenshotRequest();
+		sysLogPrintf(LOG_NOTE, "lobby test: shot %d: %s", step, g_Menus[g_MpPlayerNum].curdialog ? "a page up" : "nothing up");
+		break;
+	case 2:
+		netLobbySetMode(NETLOBBY_MODE_LAN);
+		menuPushDialog(&g_NetOnlineMenuDialog);
+		break;
+	case 4:
+		menuPushDialog(&g_NetBriefingMenuDialog);
+		due = now + 4500; // the finder's answers in, the page grown open
+		break;
+	case 6:
+		// back to the first page, then Direct Connect
+		while (g_Menus[g_MpPlayerNum].curdialog && !isCurrent(&g_NetModeMenuDialog)) {
+			menuPopDialog();
+		}
+
+		netLobbySetMode(NETLOBBY_MODE_DIRECT);
+		menuPushDialog(&g_NetOnlineMenuDialog);
+		menuPushDialog(&g_NetBriefingMenuDialog);
+		break;
+	case 7:
+		if (sysArgGetString("--net-test-mode-address")) {
+			netLobbyConnectAddress(sysArgGetString("--net-test-mode-address"));
+		}
+
+		due = now + 4500;
+		break;
+	case 9:
+		menuPushDialog(&g_NetCreateMenuDialog);
+		break;
+	case 11:
+		memset(&c, 0, sizeof(c));
+		snprintf(c.name, sizeof(c.name), "%s", "Direct Room");
+		c.maxhumans = 4;
+		netLobbyCreate(&c);
+		netLobbyMenuPushRoom();
+		break;
+	default:
+		sysLogPrintf(LOG_NOTE, "lobby test: the mode pages are done");
+		fflush(stdout);
+		exit(0);
+	}
+
+	step++;
+}
+
 static void onlineTestTick(void)
 {
 	static s32 step = -1;
@@ -5395,13 +6029,15 @@ void netLobbyMenuPushRoomAfterMatch(void)
 
 	if (g_MenuData.root == MENUROOT_MPSETUP && menu->depth == 1 && top == &g_CombatSimulatorMenuDialog) {
 		if (g_GexPlusMode) {
-			menuPushDialog(&g_NetOnlineMenuDialog);
+			menuPushDialog(&g_NetModeMenuDialog);
 		} else {
-			func0f0f3704(&g_NetOnlineMenuDialog);
+			func0f0f3704(&g_NetModeMenuDialog);
 		}
 
-		// the Briefing Room between them: Leave lands on the rooms, as it
-		// does for a room joined from them (Online Game is Name Entry now)
+		// Name Entry and the Briefing Room between them: Leave lands on the
+		// rooms, as it does for a room joined from them (Online Game is the
+		// mode's page, then Name Entry, now)
+		menuPushDialog(&g_NetOnlineMenuDialog);
 		menuPushDialog(&g_NetBriefingMenuDialog);
 		netLobbyMenuPushRoom();
 		return;
@@ -5410,7 +6046,7 @@ void netLobbyMenuPushRoomAfterMatch(void)
 	if (g_MenuData.root == MENUROOT_MAINMENU && menu->depth == 1 && top == &g_CiMenuViaPcMenuDialog) {
 		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 		s_RoomOverOnline = 1;
-		func0f0f820c(g_GexPlusMode ? &g_CombatSimulatorMenuDialog : &g_NetOnlineMenuDialog, MENUROOT_MPSETUP);
+		func0f0f820c(g_GexPlusMode ? &g_CombatSimulatorMenuDialog : &g_NetModeMenuDialog, MENUROOT_MPSETUP);
 		func0f0f8300();
 		return;
 	}
@@ -5418,7 +6054,8 @@ void netLobbyMenuPushRoomAfterMatch(void)
 	netLobbyMenuPushRoom();
 }
 
-// Name Entry is in this machine's menus, under whatever is up over it
+// The online pages (their first page, Name Entry) are in this machine's
+// menus, under whatever is up over them
 static s32 lobbyNameEntryUp(void)
 {
 	const struct menu *menu = &g_Menus[0];
@@ -5427,7 +6064,8 @@ static s32 lobbyNameEntryUp(void)
 
 	for (i = 0; i < menu->depth && i < ARRAYCOUNT(menu->layers); i++) {
 		for (j = 0; j < menu->layers[i].numsiblings && j < ARRAYCOUNT(menu->layers[i].siblings); j++) {
-			if (menu->layers[i].siblings[j] && menu->layers[i].siblings[j]->definition == &g_NetOnlineMenuDialog) {
+			if (menu->layers[i].siblings[j] && (menu->layers[i].siblings[j]->definition == &g_NetOnlineMenuDialog
+						|| menu->layers[i].siblings[j]->definition == &g_NetModeMenuDialog)) {
 				return 1;
 			}
 		}
@@ -5442,6 +6080,7 @@ void netLobbyMenuFrame(void)
 	struct menudialogdef *top;
 
 	onlineTestTick();
+	modePagesTestTick();
 
 	// The online profile (netprofile.c) is left as Name Entry closes; a
 	// campaign room's host plays its menus with Name Entry gone from them,
@@ -5468,13 +6107,16 @@ void netLobbyMenuFrame(void)
 	top = g_Menus[g_MpPlayerNum].curdialog->definition;
 
 	if (top == &g_CombatSimulatorMenuDialog && g_GexPlusMode) {
-		menuPushDialog(&g_NetOnlineMenuDialog);
+		menuPushDialog(&g_NetModeMenuDialog);
 		return;
 	}
 
 	s_RoomOverOnline = 0;
 
-	if (top == &g_NetOnlineMenuDialog) {
+	if (top == &g_NetModeMenuDialog) {
+		menuPushDialog(&g_NetOnlineMenuDialog);
+		menuPushDialog(&g_NetBriefingMenuDialog);
+	} else if (top == &g_NetOnlineMenuDialog) {
 		menuPushDialog(&g_NetBriefingMenuDialog);
 	}
 
@@ -5531,13 +6173,37 @@ struct lobbypage {
 	void (*info)(char *out, s32 size);      // what the header's right says (NULL nothing)
 	const char *hints;                      // the footer's
 	const char *(*foot)(void);              // a message for the footer in the hints' place (NULL none)
+	const char *localhints;                 // the footer's in LAN and Direct Connect (NULL the same)
+	const char *(*localtitle)(void);        // the header's name in LAN and Direct Connect (NULL the same)
 };
+
+static const char *lobbyModeName(void)
+{
+	return netLobbyMode() == NETLOBBY_MODE_LAN ? "LAN" : netLobbyMode() == NETLOBBY_MODE_DIRECT ? "Direct Connect" : "Online Lobbies";
+}
 
 // The header's right: who this machine plays as (the Briefing Room's count of
 // rooms is its list's title: briefingTitle())
 static void lobbyInfoAccount(char *out, s32 size)
 {
+	if (netLobbyLocal()) {
+		snprintf(out, size, "%s", netLobbyPlayName());
+		return;
+	}
+
 	snprintf(out, size, "%s", netLobbySignedIn() ? netLobbyAccount() : "");
+}
+
+// The Briefing Room's name in LAN and Direct Connect: which rooms these are
+static const char *briefingLocalTitle(void)
+{
+	return netLobbyMode() == NETLOBBY_MODE_LAN ? "LAN ROOMS" : "DIRECT CONNECT";
+}
+
+// Name Entry's: which kind of room it is for
+static void lobbyInfoMode(char *out, s32 size)
+{
+	snprintf(out, size, "%s", lobbyModeName());
 }
 
 // the room's name and how full it is
@@ -5555,9 +6221,11 @@ static void lobbyInfoRoom(char *out, s32 size)
 #define LOBBY_HINTS_SELECT "A / Enter: Select     B / Esc: Back"
 
 static const struct lobbypage s_LobbyPages[] = {
-	{ &g_NetOnlineMenuDialog, 0, lobbyNamePlace, lobbyNamePanels, "NAME ENTRY", NULL, LOBBY_HINTS_SELECT },
+	{ &g_NetModeMenuDialog, 0, lobbyModePlace, lobbyModePanels, "ONLINE", NULL, LOBBY_HINTS_SELECT },
+	{ &g_NetOnlineMenuDialog, 0, lobbyNamePlace, lobbyNamePanels, "NAME ENTRY", lobbyInfoMode, LOBBY_HINTS_SELECT },
 	{ &g_NetBriefingMenuDialog, G_ASPECT_LEFT_EXT, lobbyBriefingPlace, lobbyBriefingPanels, "BRIEFING ROOM", lobbyInfoAccount,
-		"A / Enter: Join     Select / P: Players     Space or T: Chat     B / Esc: Back", briefingFootMessage },
+		"A / Enter: Join     Select / P: Players     Space or T: Chat     B / Esc: Back", briefingFootMessage,
+		"A / Enter: Select     B / Esc: Back", briefingLocalTitle },
 	{ &g_NetPlayersOnlineMenuDialog, 0, lobbyOnlinePlace, lobbyOnlinePanels, "PLAYERS ONLINE", lobbyInfoOnline,
 		"Select / P: Close     B / Esc: Back" },
 	{ &g_NetCreateMenuDialog, G_ASPECT_LEFT_EXT, lobbyPreviewPlace, lobbyPreviewPanels, "CREATE ROOM", lobbyInfoAccount, LOBBY_HINTS_SELECT },
@@ -5648,7 +6316,9 @@ void *netLobbyMenuRenderPanels(void *gdlptr, struct menudialog *dialog)
 			page->info(info, sizeof(info));
 		}
 
-		gdl = lobbyChrome(gdl, &d, &l, page->title, info, page->hints, page->foot ? page->foot() : NULL);
+		gdl = lobbyChrome(gdl, &d, &l, netLobbyLocal() && page->localtitle ? page->localtitle() : page->title, info,
+				netLobbyLocal() && page->localhints ? page->localhints : page->hints,
+				page->foot ? page->foot() : NULL);
 	}
 
 	gdl = page->panels(gdl, &d, &l);

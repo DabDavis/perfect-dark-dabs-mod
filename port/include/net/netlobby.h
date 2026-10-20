@@ -122,6 +122,23 @@ struct netlobbycreate {
 extern s32 g_NetLobbyActive; // the lobby is in use (signed in or in a room): netLobbyTick runs
 extern s32 g_NetLobbyRoom;   // this machine is in a room (a match it plays came from it)
 
+// Where the rooms come from: the online pages' first page (netlobbymenu.c)
+#define NETLOBBY_MODE_ONLINE 0 // pdlobbyd's (Online Lobbies)
+#define NETLOBBY_MODE_LAN    1 // rooms on this LAN, served by their hosts' games (netlan.c)
+#define NETLOBBY_MODE_DIRECT 2 // ... at an address typed (Direct Connect)
+void netLobbySetMode(s32 mode);
+s32 netLobbyMode(void);
+s32 netLobbyLocal(void);             // LAN or Direct Connect
+void netLobbyFinderIdle(void);       // the LAN finder stops asking
+const char *netLobbyPlayName(void);  // the name played as: the account's online, Name Entry's in LAN and Direct Connect
+void netLobbySetLocalName(const char *name); // LAN and Direct Connect's (Net.LanName)
+const char *netLobbyLocalName(void);
+s32 netLobbyConnectAddress(const char *text); // Direct Connect: ask the address typed; 0, else -1 with the message set
+s32 netLobbyConnectWait(void);       // its room's index once it answered; -1 asking; -2 failed (message set); -3 none
+void netLobbyHostAddress(char *out, s32 size); // a Direct Connect host's LAN address and port ("" none)
+s32 netLobbyPort(void);              // Net.Port: the UDP port a LAN or Direct Connect room is hosted on (27100)
+void netLobbySetPort(s32 port);      // ... set on Create Room in Direct Connect, kept in pd.ini
+
 void netLobbyArgs(void);      // --net-lobby-script, --net-lobby
 void netLobbyTick(void);      // main thread, every loop pass while g_NetLobbyActive
 void netLobbyShutdown(void);  // main.c cleanup: leave the room

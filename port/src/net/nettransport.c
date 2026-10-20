@@ -795,3 +795,193 @@ s32 netLocalAddrFor(const char *probe, struct netaddr *out)
 
 	return ok;
 }
+
+/*
+ * The LAN finder's sockets (netlan.c, protocol 33): a dual-stack datagram
+ * socket for a query to one address (the Direct Connect list, loopback), as
+ * ENet's own are made, and a plain IPv4 one for the LAN broadcast - a
+ * dual-stack socket's broadcast to ::ffff:255.255.255.255 is Linux's
+ * behaviour, not a promise Windows keeps. Both non-blocking; the answers are
+ * read off both. Raw datagrams, NET_RAWMAGIC first, as netHostSendRaw's.
+ */
+
+struct netprobe {
+	ENetSocket uni;
+	ENetSocket bcast;
+};
+
+struct netprobe *netProbeOpen(void)
+{
+	struct netprobe *p = calloc(1, sizeof(*p));
+	ENetAddress any;
+
+	if (!p) {
+		return NULL;
+	}
+
+	p->uni = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+	p->bcast = ENET_SOCKET_NULL;
+
+	if (p->uni != ENET_SOCKET_NULL) {
+		memset(&any, 0, sizeof(any));
+		enet_socket_set_option(p->uni, ENET_SOCKOPT_IPV6_V6ONLY, 0);
+
+		if (enet_socket_bind(p->uni, &any) != 0) {
+			enet_socket_destroy(p->uni);
+			p->uni = ENET_SOCKET_NULL;
+		} else {
+			enet_socket_set_option(p->uni, ENET_SOCKOPT_NONBLOCK, 1);
+		}
+	}
+
+	{
+		struct sockaddr_in sin;
+		ENetSocket s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+
+		if (s != ENET_SOCKET_NULL) {
+			memset(&sin, 0, sizeof(sin));
+			sin.sin_family = AF_INET;
+			sin.sin_addr.s_addr = htonl(INADDR_ANY);
+			sin.sin_port = 0;
+
+			if (bind(s, (struct sockaddr *)&sin, sizeof(sin)) != 0) {
+				enet_socket_destroy(s);
+				s = ENET_SOCKET_NULL;
+			} else {
+				enet_socket_set_option(s, ENET_SOCKOPT_NONBLOCK, 1);
+				enet_socket_set_option(s, ENET_SOCKOPT_BROADCAST, 1);
+			}
+		}
+
+		p->bcast = s;
+	}
+
+	if (p->uni == ENET_SOCKET_NULL && p->bcast == ENET_SOCKET_NULL) {
+		free(p);
+		return NULL;
+	}
+
+	return p;
+}
+
+void netProbeClose(struct netprobe *p)
+{
+	if (!p) {
+		return;
+	}
+
+	if (p->uni != ENET_SOCKET_NULL) {
+		enet_socket_destroy(p->uni);
+	}
+
+	if (p->bcast != ENET_SOCKET_NULL) {
+		enet_socket_destroy(p->bcast);
+	}
+
+	free(p);
+}
+
+s32 netProbeSend(struct netprobe *p, const struct netaddr *to, const void *data, s32 len)
+{
+	u8 packet[NET_MTU];
+	ENetAddress addr;
+	ENetBuffer buf;
+
+	if (!p || p->uni == ENET_SOCKET_NULL || !to || len <= 0 || len > NET_MAXRAW) {
+		return -1;
+	}
+
+	memcpy(packet, NET_RAWMAGIC, NET_RAWMAGICLEN);
+	memcpy(packet + NET_RAWMAGICLEN, data, len);
+	addrFromNet(to, &addr);
+	buf.data = packet;
+	buf.dataLength = NET_RAWMAGICLEN + len;
+
+	return enet_socket_send(p->uni, &addr, &buf, 1) == (int)buf.dataLength ? 0 : -1;
+}
+
+// To 255.255.255.255:port, the LAN's broadcast (a router never passes it on)
+s32 netProbeBroadcast(struct netprobe *p, u16 port, const void *data, s32 len)
+{
+	u8 packet[NET_MTU];
+	struct sockaddr_in sin;
+
+	if (!p || p->bcast == ENET_SOCKET_NULL || len <= 0 || len > NET_MAXRAW) {
+		return -1;
+	}
+
+	memcpy(packet, NET_RAWMAGIC, NET_RAWMAGICLEN);
+	memcpy(packet + NET_RAWMAGICLEN, data, len);
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_family = AF_INET;
+	sin.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+	sin.sin_port = htons(port);
+
+	return sendto(p->bcast, (const char *)packet, NET_RAWMAGICLEN + len, 0, (struct sockaddr *)&sin, sizeof(sin))
+		== NET_RAWMAGICLEN + len ? 0 : -1;
+}
+
+/**
+ * One datagram off either socket that starts NET_RAWMAGIC: its payload (the
+ * magic off) in data, its length returned; -1 when nothing is waiting.
+ * Anything else that comes is dropped.
+ */
+s32 netProbeRecv(struct netprobe *p, struct netaddr *from, void *data, s32 size)
+{
+	u8 packet[NET_MTU];
+	s32 len;
+
+	if (!p) {
+		return -1;
+	}
+
+	while (p->uni != ENET_SOCKET_NULL) {
+		ENetAddress addr;
+		ENetBuffer buf;
+
+		buf.data = packet;
+		buf.dataLength = sizeof(packet);
+		len = enet_socket_receive(p->uni, &addr, &buf, 1);
+
+		if (len <= 0) {
+			break;
+		}
+
+		if (len < NET_RAWMAGICLEN || memcmp(packet, NET_RAWMAGIC, NET_RAWMAGICLEN) != 0 || len - NET_RAWMAGICLEN > size) {
+			continue;
+		}
+
+		addrToNet(&addr, from);
+		memcpy(data, packet + NET_RAWMAGICLEN, len - NET_RAWMAGICLEN);
+
+		return len - NET_RAWMAGICLEN;
+	}
+
+	while (p->bcast != ENET_SOCKET_NULL) {
+		struct sockaddr_in sin;
+		socklen_t sinlen = sizeof(sin);
+
+		len = recvfrom(p->bcast, (char *)packet, sizeof(packet), 0, (struct sockaddr *)&sin, &sinlen);
+
+		if (len <= 0) {
+			break;
+		}
+
+		if (sin.sin_family != AF_INET || len < NET_RAWMAGICLEN || memcmp(packet, NET_RAWMAGIC, NET_RAWMAGICLEN) != 0
+				|| len - NET_RAWMAGICLEN > size) {
+			continue;
+		}
+
+		// as ENet keeps an IPv4 address: ::ffff:a.b.c.d
+		memset(from, 0, sizeof(*from));
+		from->ip[10] = 0xff;
+		from->ip[11] = 0xff;
+		memcpy(&from->ip[12], &sin.sin_addr.s_addr, 4);
+		from->port = ntohs(sin.sin_port);
+		memcpy(data, packet + NET_RAWMAGICLEN, len - NET_RAWMAGICLEN);
+
+		return len - NET_RAWMAGICLEN;
+	}
+
+	return -1;
+}

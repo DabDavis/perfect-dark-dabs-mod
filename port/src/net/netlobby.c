@@ -170,6 +170,22 @@ static s32 s_UdpDone = 0;         // action thread only: learnt, or the lobby of
 
 #endif
 
+/**
+ * Where the rooms come from (the online pages' first page, 2026-10-14):
+ * pdlobbyd's (Online Lobbies), or rooms with no server at all that their
+ * hosts' games serve (netlan.c): LAN's, found by a broadcast, and Direct
+ * Connect's, at an address typed. The Briefing Room and the Game Lobby are
+ * the same pages in all three; in LAN and Direct Connect what they ask of
+ * the lobby here goes to netlan.c instead (lobbyLocal()).
+ */
+static s32 s_Mode = NETLOBBY_MODE_ONLINE;
+static s32 s_LocalJoining = 0; // a LAN or Direct Connect join in flight
+
+static s32 lobbyLocal(void)
+{
+	return s_Mode != NETLOBBY_MODE_ONLINE;
+}
+
 // the main thread's copies
 static struct netlobbyroomsum s_Rooms[NETLOBBY_MAXROOMS];
 static s32 s_NumRooms = 0;
@@ -1748,6 +1764,19 @@ static void lobbyComputeContent(void)
 	SDL_AtomicUnlock(&s_ContentLock);
 }
 
+// For netlan.c: the content hash rooms are matched by, made here if not yet
+const char *netLobbyContentHash(void)
+{
+	lobbyComputeContent();
+
+	return s_Content;
+}
+
+s32 netLobbyCompatOf(const struct netlobbyroomsum *r)
+{
+	return lobbyCompat(r);
+}
+
 /**
  * Whether the build has the lobby at all. The Online Game rows ask this
  * rather than testing PD_GHOST_NET themselves: ghostnet.h defines it, and a
@@ -1777,6 +1806,112 @@ const char *netLobbyAccount(void)
 	return g_GhostNetUser;
 }
 
+static int SDLCALL lobbyContentThread(void *arg)
+{
+	lobbyComputeContent();
+	return 0;
+}
+
+/**
+ * The online pages' first page picked a mode (netlobbymenu.c). Not while in
+ * a room: Back from its pages leaves it first. LAN and Direct Connect keep
+ * the lobby's tick running for their rooms, and hash the content off the
+ * frame for the finder's list.
+ */
+void netLobbySetMode(s32 mode)
+{
+	if (mode != NETLOBBY_MODE_LAN && mode != NETLOBBY_MODE_DIRECT) {
+		mode = NETLOBBY_MODE_ONLINE;
+	}
+
+	if (mode == s_Mode) {
+		return;
+	}
+
+	if (s_InRoom || s_LocalJoining || s_CreatePending) {
+		netLobbyLeave();
+	}
+
+	netLanFinderStop();
+	s_Mode = mode;
+	s_MainMessage[0] = '\0';
+	s_NumRooms = 0;
+	sysLogPrintf(LOG_NOTE, "lobby: mode %s", mode == NETLOBBY_MODE_LAN ? "LAN" : mode == NETLOBBY_MODE_DIRECT ? "Direct Connect" : "Online Lobbies");
+
+	if (lobbyLocal()) {
+		g_NetLobbyActive = 1;
+
+		if (!SDL_AtomicGet(&s_ContentReady)) {
+			SDL_Thread *t = SDL_CreateThread(lobbyContentThread, "lobbyhash", NULL);
+
+			if (t) {
+				SDL_DetachThread(t);
+			}
+		}
+	}
+}
+
+s32 netLobbyMode(void)
+{
+	return s_Mode;
+}
+
+s32 netLobbyLocal(void)
+{
+	return lobbyLocal();
+}
+
+// The finder stops asking (the online pages' first page is up again)
+void netLobbyFinderIdle(void)
+{
+	netLanFinderStop();
+}
+
+/**
+ * The name this machine plays as on the online pages: the account's online,
+ * Name Entry's own in LAN and Direct Connect (no account there)
+ */
+const char *netLobbyPlayName(void)
+{
+	return lobbyLocal() ? netLanName() : netLobbyAccount();
+}
+
+void netLobbySetLocalName(const char *name)
+{
+	netLanSetName(name);
+}
+
+const char *netLobbyLocalName(void)
+{
+	return netLanName();
+}
+
+s32 netLobbyConnectAddress(const char *text)
+{
+	return netLanDirectAdd(text, s_MainMessage, sizeof(s_MainMessage));
+}
+
+s32 netLobbyConnectWait(void)
+{
+	return netLanDirectWait(s_MainMessage, sizeof(s_MainMessage));
+}
+
+void netLobbyHostAddress(char *out, s32 size)
+{
+	netLanHostAddress(out, size);
+}
+
+s32 netLobbyPort(void)
+{
+	return netSessionPort();
+}
+
+void netLobbySetPort(s32 port)
+{
+	netSessionSetPort(port);
+	configSave(CONFIG_PATH);
+}
+
 s32 netLobbySignedIn(void)
 {
 #ifdef PD_GHOST_NET
@@ -1796,7 +1931,12 @@ s32 netLobbySignedIn(void)
 
 s32 netLobbyBusy(void)
 {
+	if (lobbyLocal()) {
+		return s_LocalJoining || netLanFinderBusy();
+	}
+
 #ifdef PD_GHOST_NET
+	{
 	s32 busy = 0;
 
 	if (s_Lock) {
@@ -1806,6 +1946,7 @@ s32 netLobbyBusy(void)
 	}
 
 	return busy;
+	}
 #else
 	return 0;
 #endif
@@ -1860,6 +2001,11 @@ s32 netLobbySidesOk(void)
 
 void netLobbyRefresh(void)
 {
+	if (lobbyLocal()) {
+		netLanFinderStart(s_Mode);
+		return;
+	}
+
 	lobbyQueue(JOB_LIST, "", NULL);
 }
 
@@ -1873,7 +2019,7 @@ void netLobbyMainChatWant(void)
 #ifdef PD_GHOST_NET
 	u64 now;
 
-	if (!netLobbyAvailable()) {
+	if (!netLobbyAvailable() || lobbyLocal()) {
 		return;
 	}
 
@@ -1903,6 +2049,10 @@ s32 netLobbyMainChatAvailable(void)
 {
 #ifdef PD_GHOST_NET
 	s32 avail = 0;
+
+	if (lobbyLocal()) {
+		return -1;
+	}
 
 	if (s_Lock) {
 		SDL_LockMutex(s_Lock);
@@ -2156,7 +2306,7 @@ static char s_TriedPin[GHOSTNET_MAXPIN + 2] = "";
 void netLobbySignIn(void)
 {
 #ifdef PD_GHOST_NET
-	if (!netLobbyAvailable() || netLobbySignedIn() || netLobbyBusy()) {
+	if (lobbyLocal() || !netLobbyAvailable() || netLobbySignedIn() || netLobbyBusy()) {
 		return;
 	}
 
@@ -2180,11 +2330,15 @@ void netLobbySignInAgain(void)
 
 s32 netLobbyNumRooms(void)
 {
-	return s_NumRooms;
+	return lobbyLocal() ? netLanNumRooms() : s_NumRooms;
 }
 
 const struct netlobbyroomsum *netLobbyRoomAt(s32 index)
 {
+	if (lobbyLocal()) {
+		return netLanRoomAt(index);
+	}
+
 	return index >= 0 && index < s_NumRooms ? &s_Rooms[index] : NULL;
 }
 
@@ -2401,6 +2555,9 @@ static s32 lobbyEndpointsJson(char *out, s32 size, u16 port)
 	return len;
 }
 
+static void lobbyEnteredReset(void);
+static s32 s_HostTeamWanted;
+
 void netLobbyCreate(const struct netlobbycreate *c)
 {
 	char body[1500];
@@ -2418,6 +2575,34 @@ void netLobbyCreate(const struct netlobbycreate *c)
 	lobbyLeaveForNew();
 
 	s_CreateMaxHumans = maxhumans;
+
+	// LAN or Direct Connect: the room is this machine's own (netlan.c), in
+	// at once
+	if (lobbyLocal()) {
+		struct netlobbycreate lc = *c;
+
+		lc.maxhumans = maxhumans;
+
+		if (netLanHostOpen(&lc, netLobbyPlayName(), s_MainMessage, sizeof(s_MainMessage)) != 0) {
+			s_CreateMaxHumans = 0;
+			return;
+		}
+
+		lobbyEnteredReset();
+		s_InRoom = 1;
+		s_MainIsHost = 1;
+		g_NetLobbyRoom = 1;
+		netLanRoomView(&s_Room);
+		s_SeenRoomSeq = netLanRoomSeq();
+		s_RoomAtMs = lobbyNowMs();
+
+		if (s_HostTeamWanted > 0) {
+			netLobbySetHostTeam(s_HostTeamWanted);
+		}
+
+		s_HostTeamWanted = -1;
+		return;
+	}
 
 	// the room's host is a listen server from the moment the room exists:
 	// its port goes in the endpoints, and joiners arrive at launch
@@ -2452,6 +2637,12 @@ void netLobbyJoin(const char *roomid, const char *password)
 	lobbyLeaveForNew();
 
 	s_CreateMaxHumans = 0;
+
+	if (lobbyLocal()) {
+		s_MainMessage[0] = '\0';
+		s_LocalJoining = netLanJoin(roomid, password, netLobbyPlayName(), s_MainMessage, sizeof(s_MainMessage)) == 0;
+		return;
+	}
 
 	ghostnetJsonEscape(password ? password : "", pw, sizeof(pw));
 	snprintf(path, sizeof(path), "/rooms/%.8s/join", roomid);
@@ -2543,9 +2734,60 @@ s32 netLobbyMyTeam(void)
 	return !m ? 0 : m->spectator ? -1 : m->team;
 }
 
+/**
+ * LAN and Direct Connect: an action the menus made as pdlobbyd's (its JSON
+ * body) made on this machine's room, or sent to its host (netlan.c)
+ */
+static void lobbyLocalAction(const char *what, const char *body)
+{
+	char text[NETLOBBY_MAXCHATTEXT + 1];
+	char why[200];
+	struct jspan o;
+	struct jspan v;
+
+	if (!jsonParse(body, (s32)strlen(body), &o)) {
+		return;
+	}
+
+	if (strcmp(what, "ready") == 0) {
+		netLanAct(NETROOMACT_READY, jsonGetInt(o, "ready", 1) != 0, "");
+	} else if (strcmp(what, "team") == 0) {
+		if (jsonGet(o, "team", &v)) {
+			netLanAct(NETROOMACT_TEAM, (s32)jsonInt(v, 0), "");
+		}
+
+		if (jsonGet(o, "spectator", &v)) {
+			netLanAct(NETROOMACT_SPECTATE, jsonInt(v, 0) != 0, "");
+		}
+	} else if (strcmp(what, "chat") == 0) {
+		jsonGetStr(o, "text", text, sizeof(text));
+		netLanAct(NETROOMACT_CHAT, 0, text);
+	} else if (!s_MainIsHost) {
+		return; // the rest are the host's
+	} else if (strcmp(what, "settings") == 0) {
+		netLanHostSettings(NULL, NULL, 0, 0);
+	} else if (strcmp(what, "kick") == 0) {
+		jsonGetStr(o, "user", text, sizeof(text));
+		netLanHostKick(text);
+	} else if (strcmp(what, "launch") == 0) {
+		if (jsonGetInt(o, "cancel", 0)) {
+			netLanHostCancelLaunch();
+		} else if (netLanHostLaunch(jsonGetInt(o, "force", 0) != 0, why, sizeof(why)) != 0) {
+			snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", why);
+		}
+	} else if (strcmp(what, "reopen") == 0 || strcmp(what, "relaunch") == 0) {
+		netLanHostReopen();
+	}
+}
+
 static void lobbyAction(const char *what, const char *body)
 {
 	if (!s_InRoom) {
+		return;
+	}
+
+	if (lobbyLocal()) {
+		lobbyLocalAction(what, body);
 		return;
 	}
 
@@ -2738,7 +2980,7 @@ void netLobbyCancelLaunch(void)
  */
 void netLobbyLeave(void)
 {
-	if (!s_InRoom && !s_CreatePending) {
+	if (!s_InRoom && !s_CreatePending && !s_LocalJoining) {
 		return;
 	}
 
@@ -2747,8 +2989,15 @@ void netLobbyLeave(void)
 	s_CreateMaxHumans = 0;
 	netCoopCampaignEnd();
 
+	// LAN or Direct Connect: a host's room closes, a member's connection
+	// ends, with the session (below)
+	if (lobbyLocal() || s_LocalJoining) {
+		netLanLeave();
+		s_LocalJoining = 0;
+	}
+
 #ifdef PD_GHOST_NET
-	if (s_InRoom) {
+	if (s_InRoom && !lobbyLocal()) {
 		lobbyQueue(JOB_LEAVE, "leave", "{}");
 	}
 
@@ -2796,7 +3045,7 @@ void netLobbyCancelPending(void)
 {
 	netLobbyTick();
 
-	if (s_InRoom) {
+	if (s_InRoom || s_LocalJoining) {
 		netLobbyLeave();
 		return;
 	}
@@ -2824,7 +3073,7 @@ void netLobbyCancelPending(void)
  */
 static void lobbyLeaveForNew(void)
 {
-	if (s_InRoom || s_CreatePending) {
+	if (s_InRoom || s_CreatePending || s_LocalJoining) {
 		netLobbyLeave();
 	}
 
@@ -2911,12 +3160,20 @@ s32 netLobbyLaunchState(void)
  */
 s32 netLobbyLaunchEnded(void)
 {
+	if (lobbyLocal()) {
+		return netLobbyLaunchState() == 2 && !s_MainIsHost && netLanCanRejoin();
+	}
+
 	return netLobbyLaunchState() == 2 && !s_MainIsHost && s_LaunchEndedAt != 0 && s_LaunchEndedAt == s_Room.launchat
 		&& netSessionLobbyRole() == 0;
 }
 
 const char *netLobbyLaunchEndedText(void)
 {
+	if (lobbyLocal()) {
+		return "You left the match. Pick Back Into the Match to play on.";
+	}
+
 	return s_LaunchEndedText;
 }
 
@@ -2928,11 +3185,24 @@ const char *netLobbyLaunchEndedText(void)
  */
 s32 netLobbyCanRejoin(void)
 {
+	if (lobbyLocal()) {
+		return netLobbyLaunchEnded();
+	}
+
 	return netLobbyLaunchEnded() && s_LaunchEndedLeft;
 }
 
 void netLobbyRejoin(void)
 {
+	if (lobbyLocal()) {
+		if (netLobbyCanRejoin()) {
+			sysLogPrintf(LOG_NOTE, "lobby: back into room %s's match in progress", s_Room.sum.id);
+			netLanRejoin();
+		}
+
+		return;
+	}
+
 	if (!netLobbyCanRejoin()) {
 		return;
 	}
@@ -3036,8 +3306,9 @@ static void lobbyHostTick(void)
 		}
 	}
 
-	// the roster is who may be connected: anyone off it is dropped
-	for (i = 0; ; i++) {
+	// the roster is who may be connected: anyone off it is dropped (a LAN
+	// or Direct Connect room's roster is who is connected)
+	for (i = 0; !lobbyLocal(); i++) {
 		const char *name = netSessionHostClientName(i);
 
 		if (!name) {
@@ -3440,6 +3711,11 @@ s32 netLobbyRoomPingEx(const struct netlobbyroomsum *r, s32 *estimate)
 		*estimate = 0;
 	}
 
+	// LAN and Direct Connect: the finder's own round trip to the host
+	if (lobbyLocal()) {
+		return r ? r->hostrtt : -1;
+	}
+
 	if (echo < 0 && s_HttpRtt >= 0) {
 		echo = s_HttpRtt;
 
@@ -3691,8 +3967,108 @@ static void lobbyStopSession(void)
 
 static void lobbyScriptTick(void);
 
+// A room entered: whatever the last one's launch left goes
+static void lobbyEnteredReset(void)
+{
+	s_LaunchHandled = 0;
+	s_LaunchEndedAt = 0;
+	s_LaunchSeenAt = 0;
+	s_LaunchRetryAt = 0;
+	s_LaunchRetries = 0;
+	s_MatchSeen = 0;
+	s_StopPending = 0;
+	s_HostWaitStart = 0;
+	s_WantRoomMenu = 0;
+	memset(&s_Room, 0, sizeof(s_Room));
+	s_SeenRoomSeq = 0;
+	s_SeenEpoch = 0;
+	s_TakeOver = 0;
+	s_DeclinedEpoch = 0;
+	s_RelaunchDue = 0;
+}
+
+/**
+ * netLobbyTick in LAN and Direct Connect: the room netlan.c serves or is
+ * served (netLanTick), a join's outcome, the way out of it, and the host's
+ * launch and reopening as for a lobby room (lobbyHostTick)
+ */
+static void lobbyLocalTick(void)
+{
+	netLanTick();
+
+	if (s_LocalJoining) {
+		const s32 state = netLanJoinState();
+
+		if (state == 2) {
+			s_LocalJoining = 0;
+			lobbyEnteredReset();
+			s_InRoom = 1;
+			s_MainIsHost = 0;
+			g_NetLobbyRoom = 1;
+			s_SeenRoomSeq = netLanRoomSeq() - 1;
+			s_MainMessage[0] = '\0';
+		} else if (state != 1) {
+			s_LocalJoining = 0;
+			snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", netLanWhy()[0] ? netLanWhy() : "Could not join the room.");
+		}
+	}
+
+	// out: the host closed the room, removed this player, or went
+	if (s_InRoom && !netLanInRoom()) {
+		snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", netLanWhy()[0] ? netLanWhy() : "You are no longer in the room.");
+		sysLogPrintf(LOG_NOTE, "lobby: out of room %s: %s", s_Room.sum.id, s_MainMessage);
+
+		if (netRulesRoomOn()) {
+			s_AdoptEndDue = 1;
+		}
+
+		s_InRoom = 0;
+		s_MainIsHost = 0;
+		g_NetLobbyRoom = 0;
+		memset(&s_Room, 0, sizeof(s_Room));
+		s_StopPending = 1;
+		s_HostWaitStart = 0;
+		s_WantRoomMenu = 0;
+	}
+
+	if (s_InRoom && netLanRoomSeq() != s_SeenRoomSeq) {
+		s_SeenRoomSeq = netLanRoomSeq();
+		netLanRoomView(&s_Room);
+		s_RoomAtMs = lobbyNowMs();
+	}
+
+	if (netSessionMatchLoading()) {
+		s_MatchSeen = 1;
+	}
+
+	if (s_StopPending && !netSessionMatchLoading() && g_MainChangeToStageNum < 0) {
+		s_StopPending = 0;
+		lobbyStopSession();
+	}
+
+	if (s_InRoom && s_Room.valid) {
+		if (s_MainIsHost) {
+			lobbyHostTick();
+		} else if (s_MatchSeen && !netSessionMatchLoading() && g_MainChangeToStageNum < 0) {
+			s_MatchSeen = 0;
+			s_WantRoomMenu = 1;
+			sysLogPrintf(LOG_NOTE, "lobby: back from the match to room %s", s_Room.sum.id);
+		}
+	}
+}
+
 void netLobbyTick(void)
 {
+	if (lobbyLocal()) {
+		lobbyLocalTick();
+
+		if (s_Script) {
+			lobbyScriptTick();
+		}
+
+		return;
+	}
+
 #ifdef PD_GHOST_NET
 	u32 enteredseq;
 	u32 goneseq;
@@ -3946,6 +4322,14 @@ void netLobbyMenuAfterMatch(void)
 
 void netLobbyShutdown(void)
 {
+	// LAN or Direct Connect: the room goes with the session (netShutdown
+	// says goodbye to its members), the finder's sockets close
+	if (lobbyLocal()) {
+		netLanLeave();
+		netLanFinderStop();
+		s_InRoom = 0;
+	}
+
 #ifdef PD_GHOST_NET
 	if (s_InRoom && s_Lock) {
 		char path[48];
@@ -4054,6 +4438,7 @@ void netLobbyShutdown(void)
 
 static s32 s_ScriptMatches = 1;
 static s32 s_ScriptPlayed = 0;
+static s32 s_ScriptMode = -1;        // --net-lobby-mode lan|direct: set once the boot's menus are up
 static s32 s_ScriptEndFrame = 0;
 static s32 s_ScriptMigrateFrame = 0; // --net-lobby-migrate F
 static u64 s_ScriptLostAt = 0;
@@ -4072,6 +4457,11 @@ void netLobbyArgs(void)
 		snprintf(s_LobbyUrl, sizeof(s_LobbyUrl), "%s", url);
 	}
 
+	// netlobbymenu.c's tour of the online pages in LAN and Direct Connect
+	if (sysArgCheck("--net-test-mode-pages")) {
+		g_NetLobbyActive = 1;
+	}
+
 	if (script) {
 		s_Script = strcmp(script, "host") == 0 ? SCRIPT_HOST : strcmp(script, "join") == 0 ? SCRIPT_JOIN : SCRIPT_NONE;
 		s_ScriptLeaveFrame = sysArgGetInt("--net-lobby-leave-frame", 600);
@@ -4085,6 +4475,15 @@ void netLobbyArgs(void)
 
 		if (sysArgGetString("--net-lobby-room")) {
 			s_ScriptRoom = sysArgGetString("--net-lobby-room");
+		}
+
+		// --net-lobby-mode lan|direct: the same script in LAN or Direct
+		// Connect (netlan.c), --net-lobby-name its name there,
+		// --net-lobby-address ADDR the address a joiner asks
+		if (sysArgGetString("--net-lobby-mode")) {
+			const char *mode = sysArgGetString("--net-lobby-mode");
+
+			s_ScriptMode = strcmp(mode, "lan") == 0 ? NETLOBBY_MODE_LAN : strcmp(mode, "direct") == 0 ? NETLOBBY_MODE_DIRECT : -1;
 		}
 
 		if (s_Script) {
@@ -4150,6 +4549,27 @@ static void lobbyScriptTick(void)
 
 	if (s_ScriptAt == 0) {
 		s_ScriptAt = now;
+	}
+
+	// LAN or Direct Connect (--net-lobby-mode), as the online pages' first
+	// page picks it, once the boot has mounted what the content hash reads
+	if (s_ScriptMode >= 0 && g_MenuData.root != 0) {
+		netLobbySetMode(s_ScriptMode);
+		s_ScriptMode = -1;
+
+		if (sysArgGetString("--net-lobby-name")) {
+			netLobbySetLocalName(sysArgGetString("--net-lobby-name"));
+		}
+
+		if (s_Script == SCRIPT_JOIN && sysArgGetString("--net-lobby-address")) {
+			netLobbyConnectAddress(sysArgGetString("--net-lobby-address"));
+		}
+
+		sysLogPrintf(LOG_NOTE, "lobby script: mode %d, playing as \"%s\"", s_Mode, netLobbyPlayName());
+	}
+
+	if (sysArgGetString("--net-lobby-mode") && !lobbyLocal()) {
+		return;
 	}
 
 	// an end screen goes after a moment, as a player's button press would
@@ -4319,6 +4739,11 @@ static void lobbyScriptTick(void)
 				memset(&c, 0, sizeof(c));
 				snprintf(c.name, sizeof(c.name), "%s", s_ScriptRoom);
 				c.maxhumans = sysArgGetInt("--net-lobby-size", 2);
+
+				// --net-lobby-password PW: a locked room (a joiner's --net-lobby-join-password)
+				if (sysArgGetString("--net-lobby-password")) {
+					snprintf(c.password, sizeof(c.password), "%s", sysArgGetString("--net-lobby-password"));
+				}
 				netLobbyCreate(&c);
 				lobbyScriptStep(1, "host: create room");
 			}
@@ -4485,8 +4910,8 @@ static void lobbyScriptTick(void)
 			break;
 		case 1:
 			if (!netLobbyBusy()) {
-				for (i = 0; i < s_NumRooms; i++) {
-					if (strcmp(s_Rooms[i].name, s_ScriptRoom) == 0) {
+				for (i = 0; i < netLobbyNumRooms(); i++) {
+					if (strcmp((*netLobbyRoomAt(i)).name, s_ScriptRoom) == 0) {
 						if (s_ScriptShots && s_ScriptShotStep == 0) {
 							// the Briefing Room up until the room's ping is in (or 30 s),
 							// over the boot's menus once they are up (Choose Your Reality)
@@ -4506,13 +4931,13 @@ static void lobbyScriptTick(void)
 								netLobbyMenuPushBriefing();
 								s_ScriptShotAt = now;
 								sysLogPrintf(LOG_NOTE, "lobby script: Briefing Room up again");
-							} else if ((netLobbyRoomPing(&s_Rooms[i]) >= 0 && now - s_ScriptShotAt > 4000) || now - s_ScriptShotAt > 30000) {
+							} else if ((netLobbyRoomPing(&(*netLobbyRoomAt(i))) >= 0 && now - s_ScriptShotAt > 4000) || now - s_ScriptShotAt > 30000) {
 								s32 est = 0;
-								const s32 ping = netLobbyRoomPingEx(&s_Rooms[i], &est);
+								const s32 ping = netLobbyRoomPingEx(&(*netLobbyRoomAt(i)), &est);
 
 								screenshotRequest();
 								sysLogPrintf(LOG_NOTE, "lobby script: shot the Briefing Room: %d rooms, \"%s\" ping %d%s (lobby echo %d, http %d, host %d)",
-										s_NumRooms, s_Rooms[i].name, ping, est ? " by HTTP" : "", s_ScriptNoEcho ? -1 : netRdvLobbyRtt(), s_HttpRtt, s_Rooms[i].hostrtt);
+										netLobbyNumRooms(), (*netLobbyRoomAt(i)).name, ping, est ? " by HTTP" : "", s_ScriptNoEcho ? -1 : netRdvLobbyRtt(), s_HttpRtt, (*netLobbyRoomAt(i)).hostrtt);
 								s_ScriptShotStep = 2;
 								s_ScriptShotAt = now;
 							} else if (now - s_ScriptAt > 2000) {
@@ -4533,10 +4958,10 @@ static void lobbyScriptTick(void)
 						}
 
 						sysLogPrintf(LOG_NOTE, "lobby script: found room %s \"%s\" by %s, %d/%d, %s, %s, compat %d",
-								s_Rooms[i].id, s_Rooms[i].name, s_Rooms[i].host, s_Rooms[i].humans, s_Rooms[i].maxhumans,
-								s_Rooms[i].stage, s_Rooms[i].scenario, s_Rooms[i].compat);
+								(*netLobbyRoomAt(i)).id, (*netLobbyRoomAt(i)).name, (*netLobbyRoomAt(i)).host, (*netLobbyRoomAt(i)).humans, (*netLobbyRoomAt(i)).maxhumans,
+								(*netLobbyRoomAt(i)).stage, (*netLobbyRoomAt(i)).scenario, (*netLobbyRoomAt(i)).compat);
 						s_ScriptShotStep = 0;
-						netLobbyJoin(s_Rooms[i].id, "");
+						netLobbyJoin((*netLobbyRoomAt(i)).id, sysArgGetString("--net-lobby-join-password") ? sysArgGetString("--net-lobby-join-password") : "");
 						lobbyScriptStep(2, "join: join the room");
 						break;
 					}
@@ -4552,9 +4977,24 @@ static void lobbyScriptTick(void)
 			// READY once the ladder has found the way to the host (or given
 			// up), so the launch never waits on it
 			if (s_InRoom && s_Room.valid && !s_Room.launched
-					&& (netRdvLadder() == NETRDV_LADDER_DONE || netRdvLadder() == NETRDV_LADDER_FAILED || now - s_ScriptAt > 20000)) {
+					&& (lobbyLocal() || netRdvLadder() == NETRDV_LADDER_DONE || netRdvLadder() == NETRDV_LADDER_FAILED || now - s_ScriptAt > 20000)) {
 				// --net-lobby-side N: this member's room team first
 				if (lobbyScriptAwaitSide("join", now)) {
+					break;
+				}
+
+				// --net-lobby-spectate: the member watches the room's match
+				if (sysArgCheck("--net-lobby-spectate")) {
+					if (!s_Room.youspectator) {
+						if (now - s_ScriptAt > 1000) {
+							netLobbySetSpectator(1);
+							s_ScriptAt = now;
+						}
+
+						break;
+					}
+
+					lobbyScriptStep(3, "join: spectating; waiting for the launch");
 					break;
 				}
 

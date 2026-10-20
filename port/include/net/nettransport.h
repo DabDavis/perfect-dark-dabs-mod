@@ -173,6 +173,20 @@ s32 netHostSendRaw(struct nethost *h, const struct netaddr *to, const void *data
 // Sends len bytes (at most NET_MTU) to `to` as they are: a lobby datagram. 0, or -1
 s32 netHostSendDatagram(struct nethost *h, const struct netaddr *to, const void *data, s32 len);
 
+/**
+ * The LAN finder's sockets (netlan.c): one for queries to an address, one for
+ * the LAN broadcast (255.255.255.255), both non-blocking, both read by
+ * netProbeRecv. A datagram sent is NET_RAWMAGIC then len bytes (at most
+ * NET_MAXRAW), as netHostSendRaw's; one read is the payload after the magic,
+ * its length, or -1 with nothing waiting. NULL: no socket would open.
+ */
+struct netprobe;
+struct netprobe *netProbeOpen(void);
+void netProbeClose(struct netprobe *p);
+s32 netProbeSend(struct netprobe *p, const struct netaddr *to, const void *data, s32 len);
+s32 netProbeBroadcast(struct netprobe *p, u16 port, const void *data, s32 len);
+s32 netProbeRecv(struct netprobe *p, struct netaddr *from, void *data, s32 size);
+
 // on: the host accepts no inbound connections, only those it starts with
 // netHostConnect (a socket that only dials out, so strangers cannot hold
 // its peer slots)

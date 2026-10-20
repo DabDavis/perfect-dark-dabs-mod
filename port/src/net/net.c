@@ -213,9 +213,13 @@ s32 netClockPpm(void)
 
 static void netHandleEvent(const struct netevent *ev)
 {
-	// the lobby's rendezvous, relay and punch datagrams on the session's socket
+	// the lobby's rendezvous, relay and punch datagrams on the session's
+	// socket, and a LAN finder's query to a LAN or Direct Connect room's host
 	if (ev->type == NETEVENT_RAW) {
-		netRdvRaw(g_NetHostSocket, ev);
+		if (!netLanRaw(ev)) {
+			netRdvRaw(g_NetHostSocket, ev);
+		}
+
 		return;
 	}
 

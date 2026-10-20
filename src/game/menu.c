@@ -624,9 +624,19 @@ void menuGetItemBlocksRequired(struct menuitem *item, s32 *numwords)
 	case MENUITEMTYPE_PLAYERSTATS:
 		*numwords = 5;
 		break;
+#ifndef PLATFORM_N64
+	case MENUITEMTYPE_KEYBOARD:
+		// its whole buffer: three words held 12 of its 21 bytes, and the
+		// rest ran into the next item's (a Direct Connect address is 63)
+		*numwords = (sizeof(struct menuitemdata_keyboard) + 3) / 4;
+		break;
+	case MENUITEMTYPE_10:
+	case MENUITEMTYPE_16:
+#else
 	case MENUITEMTYPE_KEYBOARD:
 	case MENUITEMTYPE_10:
 	case MENUITEMTYPE_16:
+#endif
 		*numwords = 3;
 		break;
 	}
