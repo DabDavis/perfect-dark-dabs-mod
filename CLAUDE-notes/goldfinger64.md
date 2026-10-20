@@ -1200,3 +1200,24 @@ GoldenEye's knife (it is thrown as slot 186, which is the arena's there).
 - **Crash 20261013-203314 (v3.10.0)**: a `mods/Goldfinger 64` from a later
   build loaded by a binary from before 613ea8fb7; 880e245c7 boots its Offices
   arena (bg_gxdam33, the crash's stage 0x93) clean for 1800 frames.
+
+## F3 pass 40 (2026-10-20, fix/f3-1020-gf64look)
+
+- **Blue caps floating over the crown (F3 20261014-223935, 224039, Plane).**
+  Plane's Korean guards (body 39) wear prop 247 (our model 0x2f7), which is
+  none of get_hat_model()'s twelve (212-223): hatGetType() said -1 and the cap
+  was worn as its model has it, tipped back with its underside showing (the
+  "eye holes"). Goldfinger's get_hat_model() (cartridge RDRAM 0x80676684:
+  `lw v0,4(a0); lh t6,4(v0); li v0,4; ...` and the default `jr ra; nop`) moved
+  `li v0,4` to the top, so every prop off the table is a fur hat and takes that
+  row of headHat_array (heads 63-67, 95, 105: offset -0.09 -0.11 0.69).
+  menu/hattypes.bin now ends with that default kind (0xff for GoldenEye's -1,
+  romlayout.hatother, converter 126) and gexPlusHatType() hands it out for a
+  prop off the table. Checked: ares chrface_ares.py chr 3 against ours from
+  the side, cap down on the head with its peak forward on both.
+- Crab Key's catwalk railings (20261017-012521, macOS GL 4.1): room geometry
+  (xlu lists of rooms 21/22, a TEXEL0/TEXEL1 LOD_FRACTION blend of an I and an
+  IA image), drawn at the tester's camera on the cartridge and in ours (AMD, GL
+  compat and 4.1 core, MSAA 2, detail textures, FOV 75, 120 fps, rooms
+  unloaded and reloaded); the tester's frame had as many triangles as ours, so
+  they were sent and not shown. Unreproduced.

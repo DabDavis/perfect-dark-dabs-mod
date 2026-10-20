@@ -892,7 +892,8 @@ s32 gexPlusHeadHat(s32 headnum, s32 hattype, f32 *out)
 /**
  * menu/hattypes.bin (converter 120): get_hat_model()'s kinds of the twelve hat
  * props as the conversion's ROM deals them, "GHT1", the first prop, how many,
- * then a kind each. Loaded by the stage's mod as headhats.bin is.
+ * then a kind each, then (converter 126) the kind of any other prop, 0xff for
+ * none. Loaded by the stage's mod as headhats.bin is.
  */
 static u8 *g_GeHatTypes;
 static u32 g_GeHatTypesLen;
@@ -936,6 +937,17 @@ s32 gexPlusHatType(s32 propnum)
 	}
 
 	if (propnum < g_GeHatTypes[4] || propnum >= g_GeHatTypes[4] + g_GeHatTypes[5]) {
+		// a hat off the table takes the switch's default where the file
+		// carries it (the byte after the kinds): GoldenEye's is -1, Goldfinger
+		// 64's 4, a fur hat's row - its Plane and Crab Key guards' blue caps
+		// (prop 247) are pulled down onto the head by it on the cartridge
+		// and floated over the crown without it (F3 20261014-223935)
+		const u32 at = 6u + g_GeHatTypes[5];
+
+		if (g_GeHatTypesLen > at && g_GeHatTypes[at] < GEHAT_NUM_TYPES) {
+			return g_GeHatTypes[at];
+		}
+
 		return -2;
 	}
 
