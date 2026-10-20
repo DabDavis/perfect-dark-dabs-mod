@@ -113,6 +113,14 @@ void netSessionLobbySetRoom(const char *roomid, const char *secret);
 void netSessionLobbyClock(s64 offset);
 s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name, struct nethost *sock, s32 windowms); // windowms 0: NET_CONNECT_WINDOW_MS
 void netSessionLobbyStop(void);
+// a LAN or Direct Connect room's (netlan.c, protocol 33): its host, a member
+// joining it (password "" none), a member moved between players and spectators
+s32 netSessionLanHost(const char *name);
+s32 netSessionLanConnect(const char *addr, u16 port, const char *password, const char *name, s32 lobbyonly);
+s32 netSessionLocalRoom(void);                  // the session is a LAN or Direct Connect room's
+s32 netSessionHostSetSpectator(s32 peer, s32 on); // 0, or -1 no place of that kind free
+s32 netSessionHostPeerSlot(s32 peer);           // its mpindex, NETSLOT_SPECTATOR, or -1 none
+void netSessionClientSetSlot(s32 slot);         // client: its seat now (ROOM's youslot)
 void netSessionClientNewHost(void); // host migration: the room's host is another now; this client's session ends
 s32 netSessionLobbyRole(void);       // 1 host, 2 client, 0 none
 s32 netSessionClientJoined(void);
@@ -136,6 +144,56 @@ s32 netSessionHostAccountsJson(char *out, s32 size);
 void netSessionHostDropUser(const char *user, const char *why);
 void netSessionLobbyStartMatch(void);
 const char *netSessionNoticeText(void);
+
+// netlan.c: LAN and Direct Connect rooms, served by the host's game (protocol 33)
+struct netevent;
+s32 netLanAdmit(s32 peer, char *name, s32 namesize, const char *password, char *why, s32 whysize); // CONNECT: 0 in (name may change)
+void netLanMemberJoined(s32 peer, const char *name, s32 spectator);
+void netLanMemberGone(s32 peer);
+s32 netLanOnAct(s32 peer, struct netbuf *b); // host: ROOMACT; 0 did not parse
+void netLanOnRoom(struct netbuf *b);         // client: ROOM
+s32 netLanRaw(const struct netevent *ev);    // a raw datagram on the session's socket: 1 taken (a finder's query)
+struct netlobbycreate;
+struct netlobbyroom;
+struct netlobbyroomsum;
+void netLanTick(void);
+const char *netLanName(void);                // the name LAN and Direct Connect play as ("" none yet)
+void netLanSetName(const char *name);
+// the finder (the Briefing Room in LAN or Direct Connect)
+void netLanFinderStart(s32 mode);            // NETLOBBY_MODE_LAN or _DIRECT: up, and asking now
+void netLanFinderStop(void);
+void netLanFind(void);                       // ask again
+s32 netLanFinderBusy(void);
+s32 netLanNumRooms(void);
+const struct netlobbyroomsum *netLanRoomAt(s32 index);
+s32 netLanDirectAdd(const char *text, char *err, s32 errsize); // Connect to Address: 0 asked
+s32 netLanDirectWait(char *err, s32 errsize); // its room's index; -1 asking, -2 failed (err), -3 none
+// the host's room
+s32 netLanHostOpen(const struct netlobbycreate *c, const char *name, char *err, s32 errsize);
+s32 netLanHosting(void);
+void netLanHostKick(const char *user);
+s32 netLanHostLaunch(s32 force, char *why, s32 whysize);
+void netLanHostCancelLaunch(void);
+void netLanHostReopen(void);
+void netLanHostSettings(const char *name, const char *password, s32 maxhumans, s32 withpassword);
+void netLanHostAddress(char *out, s32 size); // "192.168.1.5:27100" for a Direct Connect host's friends
+// a member's
+s32 netLanJoin(const char *roomid, const char *password, const char *name, char *err, s32 errsize);
+s32 netLanJoinState(void);                   // 0 none, 1 connecting, 2 in, 3 failed or out (netLanWhy)
+const char *netLanWhy(void);
+s32 netLanCanRejoin(void);                   // out of the room's running match by its own End Game
+void netLanRejoin(void);                     // ... and back into it
+// either
+void netLanAct(s32 action, s32 value, const char *text); // NETROOMACT_*: the host's own, or to the host
+s32 netLanInRoom(void);
+u32 netLanRoomSeq(void);
+void netLanRoomView(struct netlobbyroom *out);
+void netLanLeave(void);
+// netlobby.c, for netlan.c's summaries
+const char *netLobbyContentHash(void);       // the lobby's "all" hash, as rooms are matched by
+s32 netLobbyCompatOf(const struct netlobbyroomsum *r);
+s32 netSessionPort(void);                    // netsession.c: Net.Port
+void netSessionSetPort(s32 port);
 
 // netplayers.c: remote players on the host, the client's usercmds, the
 // clock (PLANS/netplay/spec-players.md, the wire in netproto.h)

@@ -189,6 +189,25 @@ is OK and Escape is Cancel on every on-screen keyboard. Then:
   press **Space** (or **T**) and type; **Enter** sends, **Escape** cancels.
   On a controller, **Chat...** opens the on-screen keyboard.
 
+**LAN and Direct Connect.** Online Game first asks where to play:
+**Online Lobbies** (the rooms above, on the lobby server), **LAN** or
+**Direct Connect**. The last two need no account and no server, so they
+play when the lobby is down. Name Entry asks only for the name you play as.
+After that the pages are the same Briefing Room and Game Lobby, with the
+host's own game serving the room (its players, teams, ready marks, chat and
+launch). Co-op, counter-op and campaign rooms work too.
+
+- **LAN** lists the rooms on your network by itself. A host's firewall must
+  let the game have UDP ports 27100-27103.
+- **Direct Connect** has **Connect to Address**: type the host's IP (or a
+  name), and its port if it is not 27100 (`1.2.3.4:27105`, or
+  `1.2.3.4 27105` on a pad's keyboard). The addresses you use are kept and
+  listed again. A host picks its UDP port on Create Room (**Port**, 27100
+  unless set, kept as `Net.Port`), and its Game Lobby shows the address
+  friends on its network use. For friends outside its network, the host
+  forwards that UDP port on its router to its computer and gives them its
+  public IP.
+
 **Co-op missions.** A room can be a co-op mission instead of a match: in
 Create Room (or the host's Settings) set **Game** to Co-op Mission, pick
 whose missions under **Missions** (Perfect Dark's, GoldenEye's, Goldfinger

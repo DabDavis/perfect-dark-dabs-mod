@@ -142,7 +142,8 @@ void netProfileLeave(void)
  */
 void netProfileTick(void)
 {
-	const char *account = netLobbyAccount();
+	// (LAN and Direct Connect's own name there: Name Entry's, no account)
+	const char *account = netLobbyPlayName();
 	char *dst = g_PlayerConfigsArray[0].base.name;
 	char name[sizeof(g_PlayerConfigsArray[0].base.name)];
 	s32 n = 0;
@@ -181,7 +182,7 @@ static char *netProfileTextName(struct menuitem *item)
 		return g_PlayerConfigsArray[0].base.name;
 	}
 
-	snprintf(name, sizeof(name), "%s\n", netLobbyAccount());
+	snprintf(name, sizeof(name), "%s\n", netLobbyPlayName());
 
 	return name;
 }
@@ -250,7 +251,7 @@ static MenuDialogHandlerResult dialogProfile(s32 operation, struct menudialogdef
 
 static struct menuitem s_ProfileItems[] = {
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Name\n", (uintptr_t)&netProfileTextName, handlerProfileName },
-	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)"Online you play as your account,\nset on Name Entry.\n", 0, NULL },
+	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)"Online you play as the name\nset on Name Entry.\n", 0, NULL },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_SELECTABLE_OPENSDIALOG, L_MPMENU_031, 0, (void *)&g_MpCharacterMenuDialog }, // "Character"
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_SELECTABLE_OPENSDIALOG, L_MPMENU_033, 0, (void *)&g_MpControlMenuDialog }, // "Control"
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_SELECTABLE_OPENSDIALOG, L_MPMENU_034, 0, (void *)&g_MpPlayerOptionsMenuDialog }, // "Player Options"
