@@ -282,6 +282,9 @@ struct hatobj *hatCreate(bool musthaveprop, bool musthavemodel, struct modeldef 
 struct ammocrateobj *ammocrateAllocate(void);
 struct defaultobj *debrisAllocate(void);
 void playerActivateRemoteMineDetonator(s32 playernum);
+#ifndef PLATFORM_N64
+void propsNetDetonatorsFrameStart(void);
+#endif
 struct weaponobj *weaponFindChildByWeaponNum(s32 weaponnum, struct prop *prop);
 struct weaponobj *weaponFindLanded(s32 weaponnum);
 void weaponRegisterProxy(struct weaponobj *weapon);

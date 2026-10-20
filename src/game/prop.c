@@ -2262,6 +2262,9 @@ void propsTickPlayer(bool islastplayer)
 	// Update the onscreen flags for all props
 	if (g_Vars.currentplayerindex == 0) {
 		// This is the first time propsTickPlayer has been called on this frame
+#ifndef PLATFORM_N64
+		propsNetDetonatorsFrameStart(); // netplay: a detonator pressed in another view (propobj.c)
+#endif
 		prop = g_Vars.props;
 		end = &g_Vars.props[g_Vars.maxprops];
 

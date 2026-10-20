@@ -842,7 +842,9 @@
  *     (a bit per weapon number), u8 dualweapons[32], u16 blurdrug (protocol
  *     20: the chr's blurdrugamount, a tranquilizer's drugged screen), u8
  *     devices (protocol 31: NETLPDEV_CLOAKRCP120 1, NETLPDEV_CLOAKDEVICE 2,
- *     the cloaks on; was 0), u8 0[5],
+ *     the cloaks on; was 0), u8 rocket (protocol 33: 1 while the player
+ *     flies a Slayer rocket, VISIONMODE_SLAYERROCKET; was 0), u8 0, u16
+ *     rocketid, u16 rocketgen (protocol 33: that rocket's entity; were 0),
  *     then the movement state (protocol 5; struct netmove, netsnap.h), the
  *     player after command lastcmd, from which the client replays the
  *     commands after it (netpredict.c): f32 speedtheta, speedverta,

@@ -6374,6 +6374,25 @@ void playerTick(bool arg0)
 				rocket->base.realrot[2][1] = sp2b8[2][1] * sp2a8;
 				rocket->base.realrot[2][2] = sp2b8[2][2] * sp2a8;
 			}
+#ifndef PLATFORM_N64
+			else if (NET_CLIENT) {
+				// netplay: the host's rocket, steered there by this machine's
+				// commands; the camera rides this machine's copy of it, and
+				// the host's local-player block says when it is over
+				// (netEntsClientApplyLocal)
+				s8 contpad1 = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
+
+				rocketok = true;
+
+				if (joyGetButtons(contpad1, START_BUTTON) || inputKeyJustPressed(VK_ESCAPE)) {
+					if (g_Vars.mplayerisrunning == false) {
+						playerPause(MENUROOT_MAINMENU);
+					} else {
+						mpPushPauseDialog();
+					}
+				}
+			}
+#endif
 		}
 
 		if (!rocketok) {

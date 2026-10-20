@@ -59,6 +59,18 @@
 #           the record (protocol 31): the sims come for the client's
 #           player, the sentry fires at them, and the client must draw some
 #           of its shots.
+#   mines   (0x32, no sims, two clients, the first's player invincible) the
+#           first client's player is given remote mines and five times
+#           throws one, turns away, switches to the detonator (the alt mode
+#           button) and fires it: every mine must go off at the press (the
+#           client's detonator had worked only on a frame its player's view
+#           came last of the host's views, F3 20261014-031758).
+#   slayer  (0x32, no sims) the client's player is given the Slayer, switches
+#           to its fly-by-wire rocket and steers it with the mouse: the
+#           client's camera must ride the rocket (its local-player block's
+#           rocket, protocol 33) and the mouse turn the rocket, not the
+#           player (F3 20261014-031918, "the camera does not change to the
+#           missile").
 #
 # Side-by-side screenshots (shots: host and client a moment apart, the
 # host's player stood just behind the client's, both looking at the same
@@ -67,7 +79,7 @@
 #   netpuppettest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: OUT (build/netpuppet-out), PORT (27200; uses PORT..PORT+4), MODDIR
-# (mod_allinone), CASES (skedar lossy doors two alarm laptop cloak held shots; shots only takes the
+# (mod_allinone), CASES (skedar lossy doors two alarm laptop cloak held mines slayer shots; shots only takes the
 # screenshots, its players invincible and moved, so it gates on nothing but a
 # clean run).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
@@ -76,7 +88,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netpuppet-out}; PORT=${PORT:-27200}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-skedar lossy doors two alarm laptop cloak held shots}
+CASES=${CASES:-skedar lossy doors two alarm laptop cloak held mines slayer shots}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -147,6 +159,21 @@ cat > "$OUT/held.script" <<'EOF'
 1360 1361 2000 0 0 0 0 0 0
 1600 1605 0020 0 0 0 0 0 0
 1800 1801 2000 0 0 0 0 0 0
+EOF
+# mines: from tick 600 every 400: throw (fire), turn away, the alt mode
+# button (the detonator), fire 150 ticks after the throw, alt mode back
+for k in 0 1 2 3 4; do
+	t=$((600 + 400 * k)); d=1.0; [ $((k % 2)) = 1 ] && d=-1.0
+	printf '%d %d 2000 0 0 0 0 0 0\n%d %d 0 0 0 0 0 %s 0\n%d %d 0020 0 0 0 0 0 0\n%d %d 2000 0 0 0 0 0 0\n%d %d 0020 0 0 0 0 0 0\n' \
+		$t $((t + 1)) $((t + 60)) $((t + 100)) $d $((t + 120)) $((t + 121)) $((t + 150)) $((t + 151)) $((t + 200)) $((t + 201))
+done > "$OUT/mines.script"
+# slayer: the alt mode button (the fly-by-wire rocket), fire, then the
+# mouse right and up while it flies
+cat > "$OUT/slayer.script" <<'EOF'
+500 501 0020 0 0 0 0 0 0
+540 541 2000 0 0 0 0 0 0
+560 620 0 0 0 0 0 0.6 0
+640 700 0 0 0 0 0 0 -0.4
 EOF
 cat > "$OUT/shots.script" <<'EOF'
 60 300 0008 0 0 0 0 0 0
@@ -286,6 +313,8 @@ run() {
 	[ "$label" = laptop ] && cscript=laptop.script
 	[ "$label" = cloak ] && cscript=cloak.script
 	[ "$label" = held ] && cscript=held.script
+	[ "$label" = mines ] && cscript=mines.script
+	[ "$label" = slayer ] && cscript=slayer.script
 	game "$label-host" 240 --moddir "$MODDIR" --host "$port" --net-test-host "$nclients" --net-test-stage "$stage" \
 		--net-test-sims "$sims" --endless --rng-seed 1 --mp-weapons 1,4,7,9,10,1 \
 		--net-test-input "$OUT/host.script" --net-snap-dump "$OUT/$label-host.dump" \
@@ -561,6 +590,8 @@ check_run() {
 		alarm)  run alarm $((PORT + i)) 0x17 0 1 2400 --chr-trace ;;
 		laptop) run laptop $((PORT + i)) 0x32 2 1 2400 --net-test-give 300,0x0e --net-test-invincible-pad 1 ;;
 		cloak)  run cloak $((PORT + i)) 0x32 0 2 1800 --net-test-give 300,0x0d --net-test-trace 30 ;;
+		mines)  run mines $((PORT + i)) 0x32 0 2 2500 --net-test-give 300,0x22 --net-test-invincible-pad 1 ;;
+		slayer) run slayer $((PORT + i)) 0x32 0 1 1300 --net-test-give 300,0x19 --net-test-trace 20 ;;
 		held)   run held $((PORT + i)) 0x47 0 2 2000 --net-test-give 300,0x0d/700,0x24/1100,0x07/1500,0x06 --net-test-trace 30 ;;
 		esac
 		i=$((i + 1))
@@ -661,6 +692,27 @@ PY
 	        	echo "     laptop: made $1 thrown laptop(s); the host's sentry never fired this run (no sim came by): its shots untested"
 	        fi
 	        compare laptop laptop-client 1 0.5 laptop || status=1 ;;
+	mines)  check_run mines client client2
+	        python3 - "$OUT/mines-client.events" <<'PY' || status=1
+import sys
+ex = [int(l.split()[1]) for l in open(sys.argv[1]) if l.startswith("A ") and " explosion " in l]
+want = [600 + 400 * k + 150 for k in range(5)]
+went = [d for d in want if any(d <= t <= d + 40 for t in ex)]
+print(f"     mines: explosions at {ex}; detonator pressed at {want}")
+if len(went) == len(want):
+    print(f"ok   mines: every one of the {len(want)} presses of the client's detonator set its mine off")
+else:
+    print(f"FAIL mines: {len(want) - len(went)} of {len(want)} presses of the client's detonator set nothing off (went at {went})"); sys.exit(1)
+PY
+	        ;;
+	slayer) check_run slayer client
+	        n=$(grep "net: local block " "$OUT/slayer-client.log" | tail -1 | sed -n 's/.*Slayer rockets ridden \([0-9]*\).*/\1/p')
+	        th=$(grep "net: trace tick" "$OUT/slayer-client.log" | grep "player 1 " | awk '$4 >= 580 && $4 <= 700 {for (i = 1; i < NF; i++) if ($i == "theta") print $(i + 1)}' | sort -u | wc -l)
+	        if [ "${n:-0}" -ge 1 ] && [ "$th" -le 1 ]; then
+	        	pass "slayer: the client's camera rode $n Slayer rocket(s) and the mouse steered the rocket, not the player"
+	        else
+	        	fail "slayer: rockets ridden '${n:-?}' (want 1 or more), the player's facings while it flew $th (want 1)"
+	        fi ;;
 	shots)  check_run shots client
 	        for f in host client; do [ -s "$SHOTDIR/shots-$f.png" ] || fail "shots: no $f screenshot"; done ;;
 	esac
