@@ -189,6 +189,11 @@ struct romlayout {
 	// 0 for GoldenEye's 17 and 18 (menu/getimes.bin, gexfront.c)
 	uint8_t creditsafter;
 	uint8_t advancebelow;
+	// get_hat_model()'s default (7F052684): 1 + the kind it gives a prop off
+	// its table, 0 for GoldenEye's -1. Goldfinger 64 moved a `li v0,4` to
+	// the top and left the default's delay slot empty, so every other hat -
+	// its blue caps, prop 247 - takes the fur hat's row of headHat_array
+	uint8_t hatother;
 };
 
 static const struct romlayout g_Layouts[] = {
@@ -292,6 +297,9 @@ static const struct romlayout g_Layouts[] = {
 		// 0xffffa0f0, the face's ramp (sub_GAME_7F0A33F8) given its green
 		// for its red, the pulses stepped 0x10100000
 		1,
+		// any hat off get_hat_model()'s table is a fur hat (`li v0,4` at
+		// 7F05268C, the default's `jr ra` with a nop)
+		.hatother = 1 + 4,
 	},
 	{
 		// Expanded 06-22 (2022), "TND64_Expanded_06-22.z64": the header keeps
@@ -497,7 +505,8 @@ static const char *const g_MenuRaw[NUM_MENU_RAW] = {
 // guards' hats, it behaves like a soldier's metallic helmet"). The table is
 // read through GoldenEye's case addresses; one that is none of them leaves
 // the file out and the port keeps GoldenEye's kinds. menu/hattypes.bin is
-// "GHT1", the first prop, how many, then a kind each.
+// "GHT1", the first prop, how many, then a kind each, then any other prop's
+// (romlayout.hatother, 0xff for none).
 #define HAT_TYPES_AT 0x800532f4u
 #define HAT_TYPES_FIRST 212
 #define HAT_TYPES_COUNT 12
@@ -10226,7 +10235,7 @@ static void writeHatTypes(const char *outdir)
 		{ 0x7f0526cc, 5 }, { 0x7f0526d4, 0 }, { 0x7f0526dc, 2 },
 	};
 	const size_t at = HAT_TYPES_AT - DATA_VRAM;
-	uint8_t out[4 + 2 + HAT_TYPES_COUNT];
+	uint8_t out[4 + 2 + HAT_TYPES_COUNT + 1];
 
 	if (at + 4 * HAT_TYPES_COUNT > g_DataLen) {
 		return;
@@ -10250,6 +10259,9 @@ static void writeHatTypes(const char *outdir)
 
 		out[6 + i] = cases[k].type;
 	}
+
+	// and any other prop's kind, 0xff for GoldenEye's -1 (romlayout.hatother)
+	out[6 + HAT_TYPES_COUNT] = g_Layout->hatother ? g_Layout->hatother - 1 : 0xff;
 
 	writeFile(outdir, "menu/hattypes.bin", out, sizeof(out));
 }
