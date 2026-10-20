@@ -59,7 +59,7 @@
 
 #define NETSPEC_BACK   170.f
 #define NETSPEC_UP     55.f
-#define NETSPEC_SPEED  14.f
+#define NETSPEC_SPEED  20.f // a tick: the single player's free camera's (g_ModSpectateSpeed)
 
 static s32 s_On = 0;
 static s32 s_Target = -1;
@@ -294,10 +294,42 @@ static void netSpecFly(s32 move)
 	f32 fwd;
 	f32 side;
 
+	fwd = 0;
+	side = 0;
+
+	// The controls of the single player's free camera (Dab's Mod Options'
+	// spectator, modspectate.c), which walks by the player's own Control
+	// Style (F3 20261014-052130: this one had a 1.1 pad's sticks whatever
+	// the style, so a PC style's move stick did nothing and its look stick
+	// flew): PC, the move stick and WASD (the C buttons) move and strafe,
+	// the look stick and the mouse look; the N64 styles, the stick turns and
+	// goes forward, the C buttons strafe and look up and down
 	if (tick) {
+		const struct mpplayerconfig *own = netRulesOwnPlayer();
+		const s32 pc = pad >= 0 && pad < MAX_PLAYERS && g_PlayerConfigsArray[pad].controlmode == CONTROLMODE_PC;
+		const u16 options = own ? own->options : g_PlayerConfigsArray[0].options;
+		const f32 pitchsign = (options & OPTION_FORWARDPITCH) ? 1.f : -1.f;
+		const s32 cup = joyGetButtons(pad, U_CBUTTONS) != 0;
+		const s32 cdown = joyGetButtons(pad, D_CBUTTONS) != 0;
+		const s32 cleft = joyGetButtons(pad, L_CBUTTONS) != 0;
+		const s32 cright = joyGetButtons(pad, R_CBUTTONS) != 0;
+
 		netMouseDelta(g_NetLocalSlot, &mdx, &mdy);
 		s_Yaw -= mdx * 0.01f + joyGetStickX(pad) * 0.0008f;
 		s_Pitch -= mdy * 0.01f;
+		side = (cright ? 1.f : 0) - (cleft ? 1.f : 0);
+
+		if (pc) {
+			s_Pitch += joyGetStickY(pad) * 0.0008f * pitchsign;
+			fwd = joyGetRStickY(pad) / 80.f + (cup ? 1.f : 0) - (cdown ? 1.f : 0);
+			side += joyGetRStickX(pad) / 80.f;
+		} else {
+			fwd = joyGetStickY(pad) / 80.f;
+			s_Pitch += ((cup ? 1.f : 0) - (cdown ? 1.f : 0)) * 0.04f * pitchsign;
+		}
+
+		fwd = fwd < -1.f ? -1.f : fwd > 1.f ? 1.f : fwd;
+		side = side < -1.f ? -1.f : side > 1.f ? 1.f : side;
 	}
 
 	s_Pitch = s_Pitch < -1.4f ? -1.4f : s_Pitch > 1.4f ? 1.4f : s_Pitch;
@@ -305,9 +337,6 @@ static void netSpecFly(s32 move)
 	look.x = sinf(s_Yaw) * cosf(s_Pitch);
 	look.y = sinf(s_Pitch);
 	look.z = cosf(s_Yaw) * cosf(s_Pitch);
-
-	fwd = tick ? joyGetStickY(pad) / 80.f : 0;
-	side = !tick ? 0 : (joyGetButtons(pad, R_CBUTTONS) ? 1.f : 0) - (joyGetButtons(pad, L_CBUTTONS) ? 1.f : 0);
 
 	dst.x = s_CamPos.x + (look.x * fwd - look.z * side) * NETSPEC_SPEED;
 	dst.y = s_CamPos.y + look.y * fwd * NETSPEC_SPEED;

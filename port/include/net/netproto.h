@@ -593,6 +593,9 @@
  *     u8 state                    0 not in the match, 1 the host's, 2 a
  *                                 client's, 3 open, 4 held for a dropped one
  *     str(14) name                the player's name (g_PlayerConfigsArray)
+ *   then (protocol 33) per seat (mpindex 0-11): its character as RULES
+ *   sends one (u8 head, u8 body, s16 headrow, s16 bodyrow): a join in
+ *   progress plays its own, and the others build its body again
  * (protocol 18) also to every client at a match's GO, so a client knows
  * the seats (open ones included) from the start
  *

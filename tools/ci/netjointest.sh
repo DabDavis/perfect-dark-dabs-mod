@@ -137,8 +137,9 @@ waittick() {
 # the shots make the kill table move
 for t in $(seq 60 60 15300); do echo "$t $((t + 20)) 2000 0 40 0 0 0.6 0"; done > "$OUT/play.script"
 
-# the spectator's stick: forward and turning, once its camera flies free
-echo "2500 2700 0 0 70 0 0 0.5 0" > "$OUT/spec.script"
+# the spectator's sticks: forward (the N64 styles' stick, the PC style's move
+# stick) and the mouse turning, once its camera flies free
+echo "2500 2700 0 0 70 0 70 0.5 0" > "$OUT/spec.script"
 
 HINI="[Net]\nRequireTicket=1\nRoomId=$ROOM\nRoomSecret=$SECRET\nJoinInProgress=1\nReconnectHold=30\n[Mod]\nStartArmed=1\n"
 CINI="[Mod]\nStartArmed=1\n"
@@ -157,7 +158,7 @@ if [ "${CHECKONLY:-0}" != 1 ]; then
 
 	echo "== bravo joins at host tick ~500"
 	waittick 500 120
-	game bravo 640 "$CINI" --connect "127.0.0.1:$PORT" --net-ticket "$(ticket bravo)" --net-test-join \
+	game bravo 640 "$CINI" --connect "127.0.0.1:$PORT" --net-ticket "$(ticket bravo)" --net-test-join --net-test-own-char 5,7 \
 		--net-event-log "$OUT/bravo.events" --net-test-input "$OUT/play.script" &
 	BRAVO=$!
 	waitfor "$OUT/bravo.log" "net: match 1: GO, in progress" 120 || echo "     bravo never had GO"
@@ -251,6 +252,16 @@ bslot=$(echo "$jb" | grep -o "slot [0-9]" | awk '{print $2}')
 bline=$(grep "net: slot ${bslot:-9} commands \(so far\|at the match's end\)" "$H" | tail -1)
 bplayed=$(echo "$bline" | grep -o "played [0-9]*" | awk '{print $2}')
 [ "${bplayed:-0}" -ge 3000 ] && pass "host: bravo's commands: $(echo "$bline" | sed 's/.*commands [a-z ]*: //')" || fail "host: bravo's commands played: ${bplayed:-none}"
+# its own character (--net-test-own-char 5,7; F3 20261015-035744: a join in
+# progress played the open seat's): the seat's on the host before RULES, the
+# host's body for it built again, alpha's puppet of it too (the ROSTER)
+grep -q "slot ${bslot:-9} (\"bravo\"): the joiner's own character, head 5 body 7" "$H" \
+	&& grep -q "net: player [0-9]* (seat ${bslot:-9}): its body built again as head 5 body 7" "$H" \
+	&& pass "host: bravo plays its own character: $(grep -m1 -o "its body built again as head 5 body 7.*" "$H")" \
+	|| fail "host: bravo's own character (head 5 body 7) not taken"
+grep -q "net: roster: seat ${bslot:-9} plays head 5 body 7" "$OUT/alpha1.log" \
+	&& grep -q "net: player [0-9]* (seat ${bslot:-9}): its body built again as head 5 body 7" "$OUT/alpha1.log" \
+	&& pass "alpha: bravo's puppet built again in its own character" || fail "alpha: bravo's puppet kept the open seat's character"
 bsn=$(lastline "$B" "net: snap client"); bpu=$(lastline "$B" "net: puppets"); bev=$(lastline "$B" "net: events client")
 if [ "$(echo "$bsn" | grep -o "[0-9]* malformed" | awk '{print $1}')" = 0 ] && [ "$(num "$bpu" "bad anims")" = 0 ] \
 		&& [ "$(num "$bev" malformed)" = 0 ] && [ "$(num "$bev" overflow)" = 0 ]; then

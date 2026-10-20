@@ -315,6 +315,12 @@ s32 netClientInteract(s32 eyespy);
 // to skip lvTickPlayer (keeping its body built); netClientRenderPass 1 to
 // skip the view's pass, and otherwise says whether this pass is the last
 s32 netClientPuppetPlayerTick(s32 playernum);
+// a seat's character changed mid-match (a join in progress): 1 once, as
+// that player (alive) is to have its body built again (playerTickChrBody,
+// the puppet's tick)
+s32 netPlayerBodyStaleTake(s32 playernum);
+s32 netPlayerBodyStaleIs(s32 playernum);
+void netSessionCharStale(s32 mpindex);
 s32 netClientRenderPass(s32 order, s32 count, s32 *islast);
 // after playermgrShuffle: the local player first, so the passes keyed to
 // index 0 (the swirl, propsTickPlayer's frame start, bgTick) run in its

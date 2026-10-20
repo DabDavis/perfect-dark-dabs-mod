@@ -82,7 +82,8 @@
  *     1  u8  flags                1 in_cutscene, 2 countdown running,
  *                                 4 objective checks disabled, 8 GoldenEye's
  *                                 end waits for a press, 16 and fades out
- *                                 (gexplus.c; protocol 16)
+ *                                 (gexplus.c; protocol 16), 32 the
+ *                                 countdown on screen (protocol 33)
  *     2  s16 cutsceneanim         g_CutsceneAnimNum
  *     4  s32 cutsceneframe240     g_CutsceneCurAnimFrame240
  *     8  s16 tween60              g_CutsceneTweenDuration60
@@ -175,6 +176,7 @@
 #define MISF_NOCHECKS   0x04
 #define MISF_GEEXIT     0x08
 #define MISF_GEFADE     0x10
+#define MISF_COUNTDOWNUP 0x20 // F3 20261014-010517: the countdown on screen (the AI's word)
 
 #define MISP_DEAD       0x01
 #define MISP_ABORTED    0x02
@@ -1625,6 +1627,10 @@ void netCoopCapture(u8 *body)
 		flags |= MISF_COUNTDOWN;
 	}
 
+	if (!(g_CountdownTimerOff & COUNTDOWNTIMERREASON_AI)) {
+		flags |= MISF_COUNTDOWNUP;
+	}
+
 	if (g_ObjectiveChecksDisabled) {
 		flags |= MISF_NOCHECKS;
 	}
@@ -2235,8 +2241,13 @@ void netCoopApply(const u8 *body)
 	g_CountdownTimerRunning = (body[MIS_FLAGS] & MISF_COUNTDOWN) != 0;
 	g_CountdownTimerValue60 = getf(body + MIS_COUNTDOWN);
 
-	if (g_CountdownTimerRunning) {
-		g_CountdownTimerOff = false;
+	// on screen as the host's AI has it: a countdown it took away again
+	// stayed up here for the rest of the mission once it had run (F3
+	// 20261014-010517: "00:00:98" under a client's Dam)
+	if (body[MIS_FLAGS] & MISF_COUNTDOWNUP) {
+		g_CountdownTimerOff &= ~COUNTDOWNTIMERREASON_AI;
+	} else {
+		g_CountdownTimerOff |= COUNTDOWNTIMERREASON_AI;
 	}
 
 	{

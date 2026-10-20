@@ -4210,3 +4210,33 @@ netlobbyuitest for the online rooms.
 public IP without a server (the Game Lobby shows the LAN address and says the
 rest); the LAN finder broadcasts on IPv4 only; a LAN/Direct room cannot be
 joined across builds (the session's own check, as any room).
+
+## F3 pass 40 (2026-10-20, netsession; wire change folded into protocol 33)
+
+- **A join in progress plays its own character and options.** The seat it
+  takes had loaded with the open seat's head, body and option bits, and the
+  host sent those back in RULES (Shockwave, dab: "your chosen character is
+  ignored when joining"; a Dam client's options too). `netHostSeatOwnCfg`
+  (netsession.c) puts the joiner's SLOTCFG on the seat before RULES, marks
+  the seat stale (`netSessionCharStale`), and the player's body is built
+  again once alive: on the host in its playerTick (`netPlayerBodyStaleIs` /
+  `Take` in player.c: a multiplayer body is otherwise kept for the match),
+  on a client in the puppet's tick. ROSTER now carries every seat's
+  character (netWriteMpChar, 6 bytes a seat). `--net-test-own-char H,B`
+  (netjointest's bravo) and two checks there.
+- **The countdown on a client.** It was turned on whenever the host's ran
+  and never off, so a countdown the host's AI ran hidden stood on a client's
+  screen at its last figures (Dam, "00:00:98"). The mission block's flags
+  carry the AI's visibility (0x20, `MISF_COUNTDOWNUP`).
+- **Spectate's free camera** moves by the player's Control Style as the
+  single player's spectator (modspectate.c) does; it had a 1.1 pad's sticks
+  whatever the style.
+- **Leaving online.** A campaign host's menus are the Perfect Menu, so a
+  "single player" mission picked there is the room's next match by design
+  (F3 20261014-014524). The Perfect Menu's row says "Online Game: Hosting"
+  / "In a Room" now, and the mode page's close runs `netLobbyEnsureOffline`
+  (session, campaign, room rules) for lobby, LAN and Direct rooms.
+- Checked and not reproduced: a pad in the Game Lobby after End Game from
+  the pause menu (a uinput X360 pad: the D-pad moves, A selects; B does
+  nothing there by design), and Ready after Player Setup by pad, mouse
+  (Xvfb + xdotool) and keyboard.

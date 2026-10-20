@@ -2051,6 +2051,11 @@ void playerTickChrBody(void)
 #ifndef PLATFORM_N64
 	// Or a character picked from the Perfect Menu's Customize Character
 	bodystale = modGhostTakeMenuCharacterStale() || bodystale;
+
+	// Or online, a seat's character changed mid-match (a join in progress)
+	if (g_NetMode != NETMODE_NONE) {
+		bodystale = netPlayerBodyStaleTake(g_Vars.currentplayernum) || bodystale;
+	}
 #endif
 
 	if (bodystale && g_Vars.currentplayer->haschrbody) {
@@ -6418,7 +6423,11 @@ void playerTick(bool arg0)
 		// reached at all with the camera on the eye. Solo falls out of this on
 		// its own - it has no body standing to swap unless it is in third
 		// person, and then the branch below does the work anyway.
-		if (modSpectateBodyIsStale() && g_Vars.currentplayer->haschrbody) {
+		if ((modSpectateBodyIsStale()
+#ifndef PLATFORM_N64
+					|| (g_NetMode != NETMODE_NONE && netPlayerBodyStaleIs(g_Vars.currentplayernum))
+#endif
+					) && g_Vars.currentplayer->haschrbody) {
 			playerTickChrBody();
 		}
 

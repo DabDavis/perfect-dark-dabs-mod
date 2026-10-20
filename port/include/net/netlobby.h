@@ -197,6 +197,7 @@ void netLobbySignInAgain(void);    // and once more (the page opened again)
 void netLobbyWarm(void);           // the Online Game page opened: hash off the frame
 void netLobbyCancelPending(void);  // the create/join page closed before the reply
 void netLobbyRoomRulesBegin(void); // Create Room opened: the room's own Room Rules, from stock
+void netLobbyEnsureOffline(void);   // the online pages closed with no room: nothing of online play left set
 void netLobbyRoomRulesCancel(void); // Create Room closed with no room: this machine's own back
 s32 netLobbyLaunchState(void);       // 0 open, 1 counting down, 2 launched/connecting, 3 in the match, 4 the host went: a new one taking the match over
 s32 netLobbyLaunchEnded(void);       // a member: its session for this launch ended for good (refused, left)

@@ -4988,6 +4988,7 @@ MenuItemHandlerResult menuhandlerMainMenuSoloMissions(s32 operation, struct menu
 
 #ifndef PLATFORM_N64
 MenuItemHandlerResult netLobbyMenuHandlerOnlineMain(s32 operation, struct menuitem *item, union handlerdata *data); // port/src/netlobbymenu.c
+char *netLobbyMenuTextOnlineMain(struct menuitem *item);
 #endif
 
 MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -5531,8 +5532,8 @@ struct menuitem g_MainMenuMenuItems[] = {
 		// netplay: the lobby's rooms, one step from here (port/src/netlobbymenu.c)
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Online Game",
+		MENUITEMFLAG_BIGFONT,
+		(uintptr_t)&netLobbyMenuTextOnlineMain,
 		0x00000010,
 		netLobbyMenuHandlerOnlineMain,
 	},
