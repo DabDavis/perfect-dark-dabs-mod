@@ -509,3 +509,30 @@ is in HANDSTATE_RELOAD or HANDSTATE_CHANGEFUNC (not for GoldenEye's own guns, le
 Probe recipe: gdb on `bgunTickHand` giving the gun (`invGiveSingleWeapon`, `bgunEquipWeapon`), setting
 `loadedammo[0]` and `modenext = HANDMODE_RELOAD`, `insightaimmode = 1` at `bgunTickGameplay` entry, and
 `screenshotRequest()` per frame; frame jitter by rewriting `frametimeApply`'s diffframe240 ($rsi).
+
+## GoldenEye multiplayer: License to Kill, the sight, the watch laser, shells on foot (F3 pass 40)
+
+- **License to Kill** sets `MPOPTION_ONEHITKILLS` (`gexPlusSetScenario()`), but
+  `mpStartMatch()` strips that option unless Perfect Dark's One-Hit Kills
+  challenge unlock is earned, so on a fresh profile GoldenEye's scenario played
+  as Normal. GoldenEye's scenario is exempt now. GoldenEye's own rule
+  (bondview2.c's record_damage_kills()) sets a hit's damage to health plus
+  armour, so body armour is no second life: in `chrDamage()`'s shield branch, a
+  converted stage keeps the damage when it strips the shield.
+- **The sight in a match**: GoldenEye's sight with the gun lowered is Always
+  Show Target (sight.c). A match's players are the Combat Simulator's
+  (`g_PlayerConfigsArray[0..3]`), which `mpPlayerSetDefaults()` starts with
+  that option on and GoldenEye's folder never saves. So the Options menu's
+  choice (the game file's players, `MPINDEX_SOLO`) did not reach a match.
+  gexfront.c's `frontApplyAim()` now copies it in with the Aim row's sight
+  and auto-aim.
+- **The watch laser** (the Moonraker's number on Train, `gegadgetsWatchLaserActive()`)
+  holds nothing in third person. GoldenEye's `getPropForHeldItem()` has no
+  prop for ITEM_WATCHLASER (nor for the taser). It changes only the player's
+  held model (playermgr.c, player.c's spawn). A death still drops the
+  Moonraker pickup, and simulants still hold the host's model.
+- **"Tank" on foot** (All Guns): GoldenEye's gunFireTankShell() with no
+  running tank fires the shell from Bond along the sight. The only shells on
+  foot come from an ammunition cheat (Infinite Ammo fills AMMO_TANK). With
+  them the port now fires too (getank.c `tankFireOnFoot()`). Without the cheat
+  there are none, as on the cartridge.
