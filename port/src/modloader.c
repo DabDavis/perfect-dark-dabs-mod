@@ -130,8 +130,42 @@ struct modmodel {
 	s16 modindex;
 	s16 slot;
 	u16 scale;
+	f32 scalef; // the scale as the converter gave it, in 4096ths with a fraction (0: `scale`)
 	char name[48];
 };
+
+// The remake slots' scales to the fraction the conversion wrote (4096ths),
+// where the model state's u16 had to round it: GoldenEye's own scale is a
+// float, mostly 0.1 - 409.6, which the state keeps as 410. A table drawn and
+// walked 0.1% wide stood Crab Key's chair on it (Goldfinger 64, F3
+// 20261014-191211): its pad lies 0.04 units outside the cartridge's table and
+// 0.46 inside ours. 0 where there is none.
+static f32 g_RemakeModelScale[NUM_REMAKE_MODELS];
+
+static void modloaderSetRemakeSlot(s32 slot, s32 fileid, const struct modmodel *m)
+{
+	g_ModelStates[MODEL_REMAKE_FIRST + slot].fileid = fileid;
+	g_ModelStates[MODEL_REMAKE_FIRST + slot].scale = m->scale;
+	g_RemakeModelScale[slot] = m->scalef;
+}
+
+/**
+ * An object's model scale in 4096ths: `scale` (the model state's, or the
+ * stage's own) to the fraction the conversion gave for a remake slot whose
+ * state still holds that slot's rounded scale.
+ */
+f32 modloaderRemakeModelScale(s32 modelnum, s32 scale)
+{
+	const s32 slot = modelnum - MODEL_REMAKE_FIRST;
+
+	if (slot >= 0 && slot < NUM_REMAKE_MODELS && g_RemakeModelScale[slot] > 0.0f
+			&& scale == g_ModelStates[modelnum].scale
+			&& (s32)(g_RemakeModelScale[slot] + 0.5f) == scale) {
+		return g_RemakeModelScale[slot];
+	}
+
+	return (f32)scale;
+}
 
 static struct modmodel *g_ModModels;
 static s32 g_NumModModels;
@@ -1390,11 +1424,15 @@ static void modloaderReadModels(s32 modIndex, const char *dir, char *data)
 			char name[UTIL_MAX_TOKEN + 1];
 			const s32 slot = atoi(token);
 			u16 scale;
+			f32 scalef;
 
 			p = strParseToken(p, token, NULL);
 			snprintf(name, sizeof(name), "%s", strUnquote(token));
 			p = strParseToken(p, token, NULL);
-			scale = (u16)atoi(token);
+			// 4096ths, with a fraction since converter 126 (GoldenEye's 0.1 is 409.6)
+			scalef = strtof(token, NULL);
+			scale = (u16)(scalef + 0.5f);
+			scalef = strchr(token, '.') ? scalef : 0.0f;
 			p = strParseToken(p, token, NULL);
 
 			if (slot < 0 || slot >= NUM_REMAKE_MODELS || !name[0] || !modloaderModHasFile(modIndex, "%s", name)) {
@@ -1412,6 +1450,7 @@ static void modloaderReadModels(s32 modIndex, const char *dir, char *data)
 			g_ModModels[g_NumModModels].modindex = modIndex;
 			g_ModModels[g_NumModModels].slot = slot;
 			g_ModModels[g_NumModModels].scale = scale;
+			g_ModModels[g_NumModModels].scalef = scalef;
 			snprintf(g_ModModels[g_NumModModels].name, sizeof(g_ModModels[g_NumModModels].name), "%s", name);
 			g_NumModModels++;
 			count++;
@@ -1588,6 +1627,7 @@ void modloaderApplyStageModels(s32 stagenum)
 		g_ModelStates[MODEL_REMAKE_FIRST + i].fileid = 0;
 		g_ModelStates[MODEL_REMAKE_FIRST + i].scale = 0;
 		g_ModelStates[MODEL_REMAKE_FIRST + i].modeldef = NULL;
+		g_RemakeModelScale[i] = 0.0f;
 	}
 
 	for (s32 i = 0; modindex >= 0 && i < g_NumModModels; i++) {
@@ -1600,8 +1640,7 @@ void modloaderApplyStageModels(s32 stagenum)
 		const s32 fileid = modloaderRegister(modindex, "%s", m->name);
 
 		if (fileid > 0) {
-			g_ModelStates[MODEL_REMAKE_FIRST + m->slot].fileid = fileid;
-			g_ModelStates[MODEL_REMAKE_FIRST + m->slot].scale = m->scale;
+			modloaderSetRemakeSlot(m->slot, fileid, m);
 			filled++;
 		}
 	}
@@ -1652,8 +1691,7 @@ s32 modloaderLendRemakeModelFrom(s32 slot, s32 modindex)
 			const s32 fileid = modloaderRegister(m->modindex, "%s", m->name);
 
 			if (fileid > 0) {
-				g_ModelStates[MODEL_REMAKE_FIRST + slot].fileid = fileid;
-				g_ModelStates[MODEL_REMAKE_FIRST + slot].scale = m->scale;
+				modloaderSetRemakeSlot(slot, fileid, m);
 				g_ModelStates[MODEL_REMAKE_FIRST + slot].modeldef = NULL;
 				sysLogPrintf(LOG_NOTE, "modloader: stage 0x%02x: %s's %s lent", g_Vars.stagenum,
 						fsGetModDirAt(m->modindex), m->name);
@@ -1671,8 +1709,7 @@ s32 modloaderLendRemakeModelFrom(s32 slot, s32 modindex)
 			const s32 fileid = modloaderRegister(m->modindex, "%s", m->name);
 
 			if (fileid > 0) {
-				g_ModelStates[MODEL_REMAKE_FIRST + slot].fileid = fileid;
-				g_ModelStates[MODEL_REMAKE_FIRST + slot].scale = m->scale;
+				modloaderSetRemakeSlot(slot, fileid, m);
 				g_ModelStates[MODEL_REMAKE_FIRST + slot].modeldef = NULL;
 				sysLogPrintf(LOG_NOTE, "modloader: stage 0x%02x: the remake's %s lent", g_Vars.stagenum, m->name);
 

@@ -1054,6 +1054,13 @@ s32 gegadgetsPropModel(s32 weaponnum)
 			return MODEL_REMAKE_FIRST + prop;
 		}
 		break;
+	case 48: // ITEM_MICROCAMERA, Goldfinger 64's Mini-Homer on Ranch (converter 126)
+		prop = 246; // PROP_CHRMICROCAMERA
+
+		if (g_ModelStates[MODEL_REMAKE_FIRST + prop].fileid) {
+			return MODEL_REMAKE_FIRST + prop;
+		}
+		break;
 	}
 
 	switch (weaponnum) {

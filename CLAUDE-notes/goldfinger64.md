@@ -1221,3 +1221,55 @@ GoldenEye's knife (it is thrown as slot 186, which is the arena's there).
   compat and 4.1 core, MSAA 2, detail textures, FOV 75, 120 fps, rooms
   unloaded and reloaded); the tester's frame had as many triangles as ours, so
   they were sent and not shown. Unreproduced.
+
+## F3 pass 40 (2026-10-20, fix/f3-1020-gf64, converter 126)
+
+- **Crab Key's armour (F3 20261014-192229)**: record 171 on pad 265 is a type 3
+  prop with GoldenEye's armour model (0x74) - scenery on the cartridge too
+  (records are one for one); Crab Key has no type 21 armour at all.
+- **Crab Key's ending (F3 20261014-193127).** Bond's list 0x40a walks him to
+  pad 0x33, down the ramp to the grate. GoldenEye's cutscene Bond is a chr
+  built by init_GUARDdata_with_set_values() (bondview2.c), chrwidth 20; ours
+  walked the player's chr at bond2.radius 30, which does not fit the ramp: he
+  sidestepped round the room for good (ares: down the ramp in ~360 ticks, the
+  mission over ~930 ticks after the list starts). playerTickChrBody() gives
+  the body radius 20 on a converted mission; the player's own moves and every
+  other body's test of him use bond2.radius (playerGetBbox()). GE Dam/Complex
+  replays unchanged by it. Probe: `~/wt/f3-1020-gf64-run/probe/end.py`, `end2.py`
+  (RADIUS=), cartridge `view/outrocam_ares.py --env GF_LIST=0x409`.
+- **Ranch's Mini-Homer (F3 20261017-093500).** Ranch starts Bond with items 48
+  (GoldenEye's micro camera, its "Mini-Homer") and 57 (the watch
+  communicator); neither had a weapon, so the watch showed Unarmed. Objective
+  d is the Mini-Homer thrown onto Oddjob's car (tag 0; IFKeyDropped 48,
+  IFItemIsAttachedToObject 48), and list 0x1001 wants 57 equipped at the
+  phone. soloGadgetWeapon(): 48 on the covert modem's 0x77 (placed and stuck,
+  PROP_CHRMICROCAMERA 246, gegadgetsPropModel()), 57 on 0x7c (used on the
+  object). Igx048Z is written only for a hack whose mission names 48
+  (soloGadgetNamed()): an extra item model moves a variant's later texture
+  numbers (TND64's 0c0c on would all have shifted). Probe: `probe/throw.py`
+  (DIFF=1 TAG=0): objective d completes.
+- **Vaults' lower flight (F3 20261017-012919).** Going down the flight from
+  301 to 179 (tiles 708/707) the player "falls" at every step, and the street
+  (342) over the stairwell was more than GESTAN_RISE over the flight halfway
+  down: geStanPlayerFloor()'s airborne rule took it as landed on, and he stood
+  in the street, walled in. A floor over the feet (vv_manground) is none a
+  body comes down on. Probe: `probe/walk.py` (WP= waypoints; 60 and 120 fps).
+- **Crab Key's chair on the table (F3 20261014-191211).** The model state's
+  scale is a u16 in 4096ths; GoldenEye's 0.1 is 409.6, kept as 410, so every
+  such prop was 0.1% large. Chair 158's pad lies 0.04 units outside the
+  cartridge's table 155 (collision_data read on ares) and 0.46 inside ours, so
+  it was stood on it. modconfig.txt's scale has its fraction since converter
+  126 (`409.6000`; integral ones unchanged); modloaderRemakeModelScale() hands
+  objInit and the door matrix the exact one. 184 of GoldenEye's models change;
+  GE Plus replays (gematch, gesolo) differ from frame 100 because of it.
+  Probes: `tools/gefidelity/scratch-gf64b/coll_ares.py`, `rec.py` (untracked).
+- **Not fixed.** Crab Key arena doors 30/31 (Pgx172Z as type 5 swinging,
+  maxfrac 0.95, clip flag) draw lying flat while their realrot and collision
+  are upright; Offices arena door 35 (one-way swinging, opens toward room 46)
+  never opens with a body in its arc - the "pane"; the cartridge's arenas
+  cannot be booted by the toolkit (ares boots solo missions). Converted arenas
+  carry no waypoints (GoldenEye's MP setups have none), so stock simulants go
+  straight at what they want: on Offices all four stand in MAINLOOP for good
+  (Junkyard's go for items).
+- get_hat_model()'s default (gf64look's hatother): TND64 keeps GoldenEye's
+  `li v0,-1` (ares, 0x80676684), so its layout stays 0.

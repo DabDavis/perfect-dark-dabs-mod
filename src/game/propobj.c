@@ -2309,8 +2309,9 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 		obj->model->unk01 = 0;
 
 #ifndef PLATFORM_N64
-		modelSetScale(obj->model, modloaderGetStageModelScale(g_Vars.stagenum, obj->modelnum,
-					g_ModelStates[obj->modelnum].fileid, g_ModelStates[obj->modelnum].scale) * (1.0f / 4096.0f));
+		modelSetScale(obj->model, modloaderRemakeModelScale(obj->modelnum,
+					modloaderGetStageModelScale(g_Vars.stagenum, obj->modelnum,
+						g_ModelStates[obj->modelnum].fileid, g_ModelStates[obj->modelnum].scale)) * (1.0f / 4096.0f));
 #else
 		modelSetScale(obj->model, g_ModelStates[obj->modelnum].scale * (1.0f / 4096.0f));
 #endif
@@ -22276,7 +22277,11 @@ struct prop *doorInit(struct doorobj *door, struct coord *pos, Mtxf *mtx, RoomNu
 		}
 
 		mtx4Copy(mtx, &sp38);
+#ifndef PLATFORM_N64
+		mtx00015f04(modloaderRemakeModelScale(door->base.modelnum, g_ModelStates[door->base.modelnum].scale) * (1.0f / 4096.0f), &sp38);
+#else
 		mtx00015f04(g_ModelStates[door->base.modelnum].scale * (1.0f / 4096.0f), &sp38);
+#endif
 		mtx4ToMtx3(&sp38, door->base.realrot);
 
 		door->frac = (door->base.flags & OBJFLAG_DOOR_KEEPOPEN) ? door->maxfrac : 0;

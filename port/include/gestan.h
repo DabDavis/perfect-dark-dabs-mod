@@ -252,7 +252,7 @@ s32 geStanTeleportSpot(struct coord *pos, s32 padroom, f32 facing, f32 radius, s
  * found (`geo`) is a tile their walk does not reach and is over it (GoldenEye's
  * height is the walked tile's). False: keep `found`.
  */
-bool geStanPlayerFloor(s32 playernum, const struct geo *geo, struct coord *pos, f32 radius, f32 found, bool airborne,
+bool geStanPlayerFloor(s32 playernum, const struct geo *geo, struct coord *pos, f32 radius, f32 found, bool airborne, f32 feet,
 		f32 *ground);
 
 /**

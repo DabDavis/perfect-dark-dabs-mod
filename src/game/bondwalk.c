@@ -1490,7 +1490,7 @@ void bwalkUpdateVertical(void)
 					&& geStanPlayerFloor(g_Vars.currentplayernum, floorgeo, &testpos,
 						g_Vars.currentplayer->bond2.radius, ground,
 						g_Vars.currentplayer->isfalling || g_Vars.currentplayer->bdeltapos.y > 0.0f,
-						&tileground)) {
+						g_Vars.currentplayer->vv_manground, &tileground)) {
 				struct coord over = testpos;
 				f32 again;
 

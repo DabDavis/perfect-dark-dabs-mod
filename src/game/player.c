@@ -2444,6 +2444,17 @@ void playerTickChrBody(void)
 		chr->radius = g_Vars.currentplayer->bond2.radius;
 
 #ifndef PLATFORM_N64
+		// GoldenEye's cutscene Bond is a chr like the guards, 20 wide
+		// (bondview2.c builds him with init_GUARDdata_with_set_values()),
+		// not the player's 30. The body's radius is what a mission's AI
+		// walks him with (walk_to_pad on the player's chr): at 30 Goldfinger
+		// 64's Crab Key ending could not take the ramp down to the grate and
+		// he wandered the room for good (F3 20261014-193127). The player's
+		// own moves and every other body's test of him use bond2.radius.
+		if (geRoomActive() && modloaderStageIsMission(g_Vars.stagenum)) {
+			chr->radius = 20;
+		}
+
 		// The spectator's CamSpy body (modSpectateGetBodyNum()) is a player's,
 		// not a deployed CamSpy. As RACE_EYESPY, chrTick() would take it for
 		// one lying undeployed in the inventory and never pose or draw it, and

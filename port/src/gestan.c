@@ -1777,7 +1777,7 @@ static s32 stanFloorTile(const struct geo *geo)
  * `*ground` set; false where there is no graph, no tile remembered for the
  * player, or nothing to correct.
  */
-bool geStanPlayerFloor(s32 playernum, const struct geo *geo, struct coord *pos, f32 radius, f32 found, bool airborne,
+bool geStanPlayerFloor(s32 playernum, const struct geo *geo, struct coord *pos, f32 radius, f32 found, bool airborne, f32 feet,
 		f32 *ground)
 {
 	s32 walked, floortile;
@@ -1825,8 +1825,14 @@ bool geStanPlayerFloor(s32 playernum, const struct geo *geo, struct coord *pos, 
 	// height (up to 30 over the slope) was taken as the floor landed on;
 	// all its walls then stood round him and he could not move, door open or
 	// shut, at all six silos walking out of the silo (F3
-	// 20261010-220602; the airborne rule came with Vaults' stairs)
-	if (airborne && found > surface + GESTAN_RISE) {
+	// 20261010-220602; the airborne rule came with Vaults' stairs). And a
+	// floor over the feet is none a body comes down on: going down Vaults'
+	// lower flight (301 to 179) the player "falls" at every step too, and
+	// the street over the stairwell at 342 was more than a rise over the
+	// flight halfway down - taken as landed on, he stood in the street, its
+	// room, walled in, "teleported outside" (F3 20261017-012919). `feet` is
+	// the body's foot (vv_manground), which a jump of ours carries up
+	if (airborne && found > surface + GESTAN_RISE && found <= feet + 1.0f) {
 		g_StanPlayerTile[playernum] = floortile;
 		g_StanPlayerFromTile[playernum] = floortile;
 		return false;
