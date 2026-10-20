@@ -51,6 +51,7 @@
 #include "game/player.h"
 #ifndef PLATFORM_N64
 #include "gewatch.h"
+#include "gegadgets.h"
 #include "optionsmenu.h"
 #include "gehud.h"
 #include "net/net.h"
@@ -2197,6 +2198,13 @@ void playerTickChrBody(void)
 #endif
 
 		weaponmodelnum = playermgrGetModelOfWeapon(weaponnum);
+
+#ifndef PLATFORM_N64
+		// GoldenEye's watch laser: nothing in the hand (playermgr.c)
+		if (gegadgetsWatchLaserActive(weaponnum)) {
+			weaponmodelnum = -1;
+		}
+#endif
 
 		if (IS4MB()) {
 			bodynum = MOD_PLAYER_BODY;

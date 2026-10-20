@@ -907,6 +907,15 @@ void playermgrCreateWeapon(s32 hand)
 			modelnum = -1;
 		}
 
+#ifndef PLATFORM_N64
+		// GoldenEye's watch laser is the watch: nothing in the hand
+		// (player.c's getPropForHeldItem() has no prop for it), not the
+		// Moonraker whose number it rides (F3 20261016-211659)
+		if (gegadgetsWatchLaserActive(weaponnum)) {
+			modelnum = -1;
+		}
+#endif
+
 		if (modelnum >= 0) {
 			u32 flags;
 
