@@ -223,3 +223,18 @@ from the page's `contentwidth` placed as `dialogCalculatePosition()` would (its
 `dstx` is off screen while it swipes in). Small rows need a newline in their
 literal text or they measure no height and draw on top of each other, so the text
 pointers are swapped too. Logged as `ghostmenu: Ghost Trials rows small/big`.
+
+**The other pages move out from under the plaque (F3 pass 40, 20261014-030520/-030626).**
+`ghostmenuPlaceDialog()` runs from `dialogCalculatePosition()` (after the online pages'
+placer) for every dialog while the plaque shows, except Ghost Trials' own page: a page
+that would reach the plaque's corner goes below it if it fits as it is, else left of it,
+else below it and shorter (a list takes the leftover height, so it scrolls). The plaque's
+corner is cached by `menuGhostRenderPlaque()` (left edge with the alignment offset added),
+for the same view-units reason as above. The plaque's ceiling is 124 so a twelve-letter
+name fits in the small font (it hit the old 108 and ran into the border, -104553);
+longer names drop to the extra small font (capitals only), and the name is centred in
+the room right of the head. Customize Character (both pages) frames its model in the
+name + carousels band only (`ghostmenuModelBottom()`, menu.c narrows `g_MenuScissorY2`
+before `menuRenderModel()`), with the arena page's carousel heights (0x22/0x1b): the
+model is sized by the viewport, which had been the whole taller body, so it stood behind
+the filter rows (-104844).

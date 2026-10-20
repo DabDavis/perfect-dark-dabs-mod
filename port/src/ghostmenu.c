@@ -469,7 +469,7 @@ struct menuitem g_GhostCharacterMenuItems[] = {
 		0,
 		0,
 		0,
-		0x00000016, // shorter than the arena page's, so the filter rows fit
+		0x00000022, // the arena page's: the model stands in these two (ghostmenuModelBottom())
 		menuhandlerGhostCharacterHead,
 	},
 	{
@@ -477,7 +477,7 @@ struct menuitem g_GhostCharacterMenuItems[] = {
 		0,
 		0,
 		0,
-		0x00000016, // shorter than the arena page's, so the filter rows fit
+		0x0000001b,
 		menuhandlerGhostCharacterBody,
 	},
 	{
@@ -618,7 +618,7 @@ struct menuitem g_CiCharacterMenuItems[] = {
 		0,
 		0,
 		0,
-		0x00000016, // shorter than the arena page's, so the filter rows fit
+		0x00000022, // the arena page's: the model stands in these two (ghostmenuModelBottom())
 		menuhandlerCiCharacterHead,
 	},
 	{
@@ -626,7 +626,7 @@ struct menuitem g_CiCharacterMenuItems[] = {
 		0,
 		0,
 		0,
-		0x00000016, // shorter than the arena page's, so the filter rows fit
+		0x0000001b,
 		menuhandlerCiCharacterBody,
 	},
 	{
@@ -657,6 +657,43 @@ struct menudialogdef g_CiCharacterMenuDialog = {
 	MENUDIALOGFLAG_0002 | MENUDIALOGFLAG_LITERAL_TEXT,
 	NULL,
 };
+
+/**
+ * The bottom of the band the character model stands in on the two Customize
+ * Character pages, or 0 for any other dialog.
+ *
+ * menuRenderModel() frames the model in a viewport the size of the dialog's
+ * body. On the arena page that body is the name and the two carousels, the
+ * band the model is made for; these pages add Match Head to Body, the filter
+ * rows and Mission Default below, and the model grew with the taller body
+ * and stood behind those rows (F3 20261014-104844). Cut to the name and the
+ * carousels, the viewport is the arena page's again and so is the model.
+ */
+s32 ghostmenuModelBottom(struct menudialog *dialog)
+{
+	struct menuitem *items;
+	s32 y;
+	s32 i;
+
+	if (dialog->definition != &g_CiCharacterMenuDialog
+			&& dialog->definition != &g_GhostCharacterMenuDialog) {
+		return 0;
+	}
+
+	items = dialog->definition->items;
+	y = dialog->y + LINEHEIGHT + dialog->scroll;
+
+	// the name and the two carousels
+	for (i = 0; i < 3; i++) {
+		s16 width;
+		s16 height;
+
+		menuCalculateItemSize(&items[i], &width, &height, dialog);
+		y += height;
+	}
+
+	return y;
+}
 
 static const s32 g_GhostAlphaValues[] = { 60, 110, 170, 230 };
 
@@ -2907,9 +2944,15 @@ struct menudialogdef g_GhostBoardMenuDialog = {
 // accounts are called dab and dnx. The floor is a plaque that still reads as
 // one when the dialog underneath leaves no corner to sit in; the ceiling stops
 // a fifteen character name from becoming a banner across the top of the
-// screen.
+// screen: a name that would need more is written in the extra small font.
+// Room for a twelve letter name in the small one ("Shockwave508", F3
+// 20261014-104553); pages that would then reach the plaque move out from under
+// it (ghostmenuPlaceDialog()).
 #define MODGHOST_PLAQUEMINW  54
-#define MODGHOST_PLAQUEMAXW  108
+#define MODGHOST_PLAQUEMAXW  124
+// The name's room beyond its own width: three before it, past the head, and
+// the rest after it so its last letter stays off the border
+#define MODGHOST_PLAQUETEXTPAD 9
 // The body below the title bar: tall enough for a head with a name beside it.
 #define MODGHOST_PLAQUEBODYH 26
 // The square the head is drawn in, at the left of the body. It is the model's
@@ -3382,6 +3425,12 @@ static Gfx *menuGhostRenderRules(Gfx *gdl)
  * account still goes in the ghosts directory and still carries the
  * character, so the plaque has something true to say either way.
  */
+// The name's font and measured width, as menuGhostPlaqueWidth() last chose
+// them, for menuGhostRenderPlaque() to draw with
+static struct fontchar *g_GhostPlaqueChars;
+static struct font *g_GhostPlaqueFont;
+static s32 g_GhostPlaqueTextW;
+
 static s32 menuGhostPlaqueWidth(void)
 {
 	s32 width;
@@ -3391,10 +3440,27 @@ static s32 menuGhostPlaqueWidth(void)
 	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s\n",
 			ghostnetHasAccount() ? ghostnetGetAccountName() : "No Account");
 
+	g_GhostPlaqueChars = g_CharsHandelGothicSm;
+	g_GhostPlaqueFont = g_FontHandelGothicSm;
+
 	textMeasure(&textheight, &textwidth, g_GhostRowText, g_CharsHandelGothicSm,
 			g_FontHandelGothicSm, 0);
 
-	width = MODGHOST_PLAQUEHEADW + textwidth + 9;
+	// A name too long for the ceiling in the small font goes to the extra
+	// small one rather than running into the plaque's right edge and losing
+	// its last letter (F3 20261014-104553: "Shockwave508" on a Steam Deck)
+	if (MODGHOST_PLAQUEHEADW + textwidth + MODGHOST_PLAQUETEXTPAD > MODGHOST_PLAQUEMAXW
+			&& g_CharsHandelGothicXs != NULL) {
+		g_GhostPlaqueChars = g_CharsHandelGothicXs;
+		g_GhostPlaqueFont = g_FontHandelGothicXs;
+
+		textMeasure(&textheight, &textwidth, g_GhostRowText, g_CharsHandelGothicXs,
+				g_FontHandelGothicXs, 0);
+	}
+
+	g_GhostPlaqueTextW = textwidth;
+
+	width = MODGHOST_PLAQUEHEADW + textwidth + MODGHOST_PLAQUETEXTPAD;
 
 	if (width < MODGHOST_PLAQUEMINW) {
 		width = MODGHOST_PLAQUEMINW;
@@ -3413,6 +3479,11 @@ static s32 menuGhostPlaqueWidth(void)
  * every part of this sets its own and the model's viewport is put back before
  * anything else is drawn through it.
  */
+// The plaque's left and bottom edges in the dialogs' units (its alignment
+// offset added), as last drawn; 0 until it has been
+static s32 g_GhostPlaqueLeft = 0;
+static s32 g_GhostPlaqueBottom = 0;
+
 static Gfx *menuGhostRenderPlaque(Gfx *gdl)
 {
 	const struct menucolourpalette *colours = &g_MenuColours[MENUDIALOGTYPE_DEFAULT];
@@ -3476,6 +3547,10 @@ static Gfx *menuGhostRenderPlaque(Gfx *gdl)
 
 	lastdialog[g_MpPlayerNum] = g_Menus[g_MpPlayerNum].curdialog->definition;
 
+	// where it lands among the dialogs, for ghostmenuPlaceDialog()
+	g_GhostPlaqueLeft = x1 + menuGhostPlaqueAlignOffset();
+	g_GhostPlaqueBottom = y2;
+
 	// Against the right of the screen, out of the middle where the dialog is.
 	gdl = menuGhostAlign(gdl, G_ASPECT_RIGHT_EXT);
 
@@ -3491,10 +3566,18 @@ static Gfx *menuGhostRenderPlaque(Gfx *gdl)
 
 	gdl = text0f153628(gdl);
 
-	x = headx + MODGHOST_PLAQUEHEADW + 3;
-	y = bodytop + 9;
-	gdl = textRenderProjected(gdl, &x, &y, g_GhostRowText, g_CharsHandelGothicSm,
-			g_FontHandelGothicSm, colours->item_unfocused,
+	// The name centred in the room right of the head, so a short name in the
+	// plaque's minimum width does not sit against the head with a gap after it
+	x = headx + MODGHOST_PLAQUEHEADW;
+	x += (x2 - x - g_GhostPlaqueTextW) / 2;
+
+	if (x < headx + MODGHOST_PLAQUEHEADW + 1) {
+		x = headx + MODGHOST_PLAQUEHEADW + 1;
+	}
+
+	y = bodytop + (g_GhostPlaqueChars == g_CharsHandelGothicSm ? 9 : 10);
+	gdl = textRenderProjected(gdl, &x, &y, g_GhostRowText, g_GhostPlaqueChars,
+			g_GhostPlaqueFont, colours->item_unfocused,
 			x2 - x, viGetHeight(), 0, 0);
 
 	gdl = text0f153780(gdl);
@@ -3604,6 +3687,58 @@ static Gfx *menuGhostRenderPlaque(Gfx *gdl)
  * visit that says Online shares them.
  */
 static bool g_GhostOnline = false;
+
+/**
+ * Keep the pages under Ghost Trials out from under the plaque (F3
+ * 20261014-030520 and -030626: on a 16:10 Steam Deck the Leaderboards' Mission
+ * row and the Accounts page's header line ran under it).
+ *
+ * The plaque sits in the top right corner and every one of these pages is
+ * placed by dialogCalculatePosition() in the middle of the view, which at
+ * 16:9 leaves the corner clear and at 16:10 or 4:3 does not. A page that
+ * would reach it goes below it if it fits there as it is, beside it to the
+ * left if that fits, and otherwise below it and shorter - a page's list
+ * takes the height that is left, so it shows fewer rows and scrolls.
+ * Ghost Trials' own page is left alone: menuGhostTrialsFit() picks its font
+ * so that it fits beside the plaque.
+ *
+ * Called from dialogCalculatePosition() every tick with the plaque's corner
+ * as it was last drawn, because the view in menu units is the render's.
+ */
+void ghostmenuPlaceDialog(struct menudialog *dialog)
+{
+	s32 xmin, ymin, xmax, ymax;
+	s32 top;
+
+	if (dialog->definition == &g_GhostTrialsMenuDialog
+			|| g_GhostPlaqueBottom <= 0
+			|| !menuGhostPlaqueVisible()) {
+		return;
+	}
+
+	if (dialog->dstx + dialog->dstwidth + 2 <= g_GhostPlaqueLeft
+			|| dialog->dsty >= g_GhostPlaqueBottom + 2) {
+		return;
+	}
+
+#if VERSION >= VERSION_JPN_FINAL
+	menuFindAvailableSize(&xmin, &ymin, &xmax, &ymax, dialog);
+#else
+	menuFindAvailableSize(&xmin, &ymin, &xmax, &ymax);
+#endif
+
+	top = g_GhostPlaqueBottom + 3;
+
+	if (top + dialog->dstheight <= ymax) {
+		// below it, centred in what is left under it
+		dialog->dsty = (top + ymax - dialog->dstheight) / 2;
+	} else if (g_GhostPlaqueLeft - 3 - dialog->dstwidth >= xmin) {
+		dialog->dstx = g_GhostPlaqueLeft - 3 - dialog->dstwidth;
+	} else if (ymax - top > LINEHEIGHT * 4) {
+		dialog->dsty = top;
+		dialog->dstheight = ymax - top;
+	}
+}
 
 /**
  * Ghost Trials' rows in the main menu's big font only when the plaque and the
