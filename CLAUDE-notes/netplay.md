@@ -4278,3 +4278,25 @@ joined across builds (the session's own check, as any room).
   on-screen room that the dome's box reaches (`roomFlashLighting`). That is
   PD's own effect offline too, and so is the ship hum, which is not
   positional. Left as needinfo: which of these the owner meant.
+
+## F3 pass 40: a view a tick past its command (2026-10-20, no wire change)
+
+- **Lag compensation went off for a client whose clock settled a tick
+  "ahead" (found by netlagcomptest's blast case in the pass's merge gate).**
+  A command carries the host tick its machine drew the others at as a delta
+  from the command's own tick (`netCmdPack`: `tick - viewtick`, u32). The
+  host plays a client's command for tick T some 13-17 host ticks later, and
+  the client's view V sits anywhere from about 7 ticks before T to a little
+  after it, by how its clock settled at the join (the C lines' `cmd - view`
+  ran 0.1-7.6 over 15 runs). With floor(V) = T + 1 the delta is 0xffffffff,
+  which is `NETCMD_NOVIEW`: the host saw no view, `netLcViewFor` gave 0, and
+  neither shots nor blasts were rewound for as long as the clock stayed
+  there (one run: 21 of 22 rockets unrewound from tick 581 to the end;
+  another 5 in a row). `netPlayersClientCapture` now claims such a view as
+  T + 255/256 (at most a tick early; the host caps a claim anyway) and
+  counts it in the commands codec line ("views moved off the no-view mark").
+  The case's other ways to fail are its geometry: a spawn against a wall
+  (the shooter's own rocket hurts it) or blasts near the target both ways
+  (one run: 8.06 against 7.33, under the half-again bar). Before the fix the
+  base passed 7 runs of 7 and the merge 6 of 8 (one the no-view state, one
+  that bar).

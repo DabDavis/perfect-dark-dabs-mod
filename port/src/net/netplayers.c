@@ -146,6 +146,7 @@ static u32 s_HostTick = 0;
 static u32 s_AcksHeard = 0;
 static u32 s_CmdsSent = 0;
 static u32 s_ZPresses = 0;
+static u32 s_ViewsOffMark = 0; // views a tick past their command's, moved off NETCMD_NOVIEW's delta
 static u32 s_PrevButtons = 0;
 static s32 s_MenuUp = 0;          // this machine's menu was up at the last command
 static u32 s_MenuCmds = 0;        // commands sent while it was up
@@ -2148,6 +2149,7 @@ void netPlayersClientMatchStart(s32 pad)
 	s_AcksHeard = 0;
 	s_CmdsSent = 0;
 	s_ZPresses = 0;
+	s_ViewsOffMark = 0;
 	s_PrevButtons = 0;
 	s_MenuUp = 0;
 	s_EquipPending = 0;
@@ -2441,6 +2443,17 @@ static void netPlayersClientCapture(void)
 			c->viewtick = (u32)floor(view);
 			c->viewfrac = (u8)((view - floor(view)) * 256.0);
 			c->viewdelay = (u8)(delay * 8.f > 255.f ? 255 : delay < 0 ? 0 : delay * 8.f);
+
+			// a view one tick past this command's own packs as a delta of
+			// 0xffffffff, which is NETCMD_NOVIEW (netCmdPack): the host had
+			// no view for it and rewound nothing, so a client whose clock
+			// settled there had no lag compensation (netlagcomptest's blast
+			// case, F3 pass 40). Claimed as the end of this tick instead.
+			if (g_NetTick - c->viewtick == NETCMD_NOVIEW) {
+				c->viewtick = g_NetTick;
+				c->viewfrac = 255;
+				s_ViewsOffMark++;
+			}
 		} else {
 			c->viewtick = NETCMD_NOVIEW;
 			c->viewfrac = 0;
@@ -2561,9 +2574,9 @@ static void netPlayersClientSend(void)
 	}
 
 	if (g_NetTick % 1800 == 0 && s_CmdCount) {
-		sysLogPrintf(LOG_NOTE, "net: commands codec so far (tick %u): %llu commands in %u packets, %llu bytes of packets; commands %.1f bytes each as deltas (field masks would be %.1f, whole 25)",
+		sysLogPrintf(LOG_NOTE, "net: commands codec so far (tick %u): %llu commands in %u packets, %llu bytes of packets; commands %.1f bytes each as deltas (field masks would be %.1f, whole 25); views moved off the no-view mark %u",
 				g_NetTick, (unsigned long long)s_CmdCount, s_CmdsSent, (unsigned long long)s_CmdPktBytes,
-				(f64)s_CmdBytesDelta / s_CmdCount, (f64)s_CmdBytesMask / s_CmdCount);
+				(f64)s_CmdBytesDelta / s_CmdCount, (f64)s_CmdBytesMask / s_CmdCount, s_ViewsOffMark);
 	}
 }
 
