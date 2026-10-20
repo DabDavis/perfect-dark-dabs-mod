@@ -137,8 +137,9 @@ waittick() {
 # the shots make the kill table move
 for t in $(seq 60 60 15300); do echo "$t $((t + 20)) 2000 0 40 0 0 0.6 0"; done > "$OUT/play.script"
 
-# the spectator's stick: forward and turning, once its camera flies free
-echo "2500 2700 0 0 70 0 0 0.5 0" > "$OUT/spec.script"
+# the spectator's sticks: forward (the N64 styles' stick, the PC style's move
+# stick) and the mouse turning, once its camera flies free
+echo "2500 2700 0 0 70 0 70 0.5 0" > "$OUT/spec.script"
 
 HINI="[Net]\nRequireTicket=1\nRoomId=$ROOM\nRoomSecret=$SECRET\nJoinInProgress=1\nReconnectHold=30\n[Mod]\nStartArmed=1\n"
 CINI="[Mod]\nStartArmed=1\n"
