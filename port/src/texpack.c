@@ -365,6 +365,17 @@ static s32 scanningSelected;
  */
 #define TEXPACK_MOD_ID_BASE (TEXPACK_XBLA_ID_BASE + TEXPACK_XBLA_RECORDS)
 
+/**
+ * A file matched by the texels drawn (texpackLoadReplacementForTexels()) is
+ * decoded on the worker like the rest, under the id of its slot in the stock
+ * table or, past that, the running stage's mod's. Decoded on the render
+ * thread, a pack of large pictures named by checksum (a GoldenEye pack made
+ * for an emulator, 1.8 GB) stood the game still for seconds as a level came
+ * in, and again every time the renderer dropped one (F3 20261016-054658).
+ */
+#define TEXPACK_UNPLACED_ID_BASE (TEXPACK_MOD_ID_BASE + TEXPACK_MOD_TEXTURES)
+#define TEXPACK_UNPLACED_IDS (2 * TEXPACK_UNPLACED_SLOTS)
+
 static char **modReplacePaths;      // TEXPACK_MOD_TEXTURES entries, or NULL for no pack
 static char **modReplaceAlphaPaths;
 static u8 *modReplaceKinds;
@@ -441,7 +452,7 @@ static struct texpacknumbered texpackNumbered(s32 mod)
  * the same sizes, and a stage's and a mesh's compete for the same memory. A
  * glyph is -1: fontDecoded keeps those, being small and wanted constantly.
  */
-#define TEXPACK_KEPT_SLOTS (NUM_TEXTURES + TEXPACK_XBLA_RECORDS + TEXPACK_MOD_TEXTURES)
+#define TEXPACK_KEPT_SLOTS (NUM_TEXTURES + TEXPACK_XBLA_RECORDS + TEXPACK_MOD_TEXTURES + TEXPACK_UNPLACED_IDS)
 
 static s32 texpackKeptIndex(s32 id)
 {
@@ -455,6 +466,10 @@ static s32 texpackKeptIndex(s32 id)
 
 	if (id >= TEXPACK_MOD_ID_BASE && id < TEXPACK_MOD_ID_BASE + TEXPACK_MOD_TEXTURES) {
 		return NUM_TEXTURES + TEXPACK_XBLA_RECORDS + (id - TEXPACK_MOD_ID_BASE);
+	}
+
+	if (id >= TEXPACK_UNPLACED_ID_BASE && id < TEXPACK_UNPLACED_ID_BASE + TEXPACK_UNPLACED_IDS) {
+		return NUM_TEXTURES + TEXPACK_XBLA_RECORDS + TEXPACK_MOD_TEXTURES + (id - TEXPACK_UNPLACED_ID_BASE);
 	}
 
 	return -1;
@@ -1376,28 +1391,70 @@ static void texpackAddTwin(u32 crc, char *path)
 	texpackAddUnplacedTo(crc, path, scanningMod ? &numModTwins : &numTwins);
 }
 
-static const char *texpackFindUnplacedIn(const struct texpackunplaced *table, u32 crc)
+static s32 texpackFindUnplacedSlot(const struct texpackunplaced *table, u32 crc)
 {
 	u32 slot;
 	u32 i;
 
 	if (!table) {
-		return NULL;
+		return -1;
 	}
 
 	slot = crc & (TEXPACK_UNPLACED_SLOTS - 1);
 
 	for (i = 0; i < TEXPACK_UNPLACED_SLOTS; i++, slot = (slot + 1) & (TEXPACK_UNPLACED_SLOTS - 1)) {
 		if (!table[slot].path) {
-			return NULL;
+			return -1;
 		}
 
 		if (table[slot].crc == crc) {
-			return table[slot].path;
+			return (s32)slot;
 		}
 	}
 
-	return NULL;
+	return -1;
+}
+
+static const char *texpackFindUnplacedIn(const struct texpackunplaced *table, u32 crc)
+{
+	const s32 slot = texpackFindUnplacedSlot(table, crc);
+
+	return slot >= 0 ? table[slot].path : NULL;
+}
+
+/** The job id of the file for these texels (TEXPACK_UNPLACED_ID_BASE), or -1. */
+static s32 texpackFindUnplacedId(u32 crc)
+{
+	s32 slot = texpackFindUnplacedSlot(unplaced, crc);
+
+	if (slot >= 0) {
+		return TEXPACK_UNPLACED_ID_BASE + slot;
+	}
+
+	slot = texpackFindUnplacedSlot(modUnplaced, crc);
+
+	return slot >= 0 ? TEXPACK_UNPLACED_ID_BASE + TEXPACK_UNPLACED_SLOTS + slot : -1;
+}
+
+/** The table entry a texel-matched job id names. */
+static struct texpackunplaced *texpackUnplacedForId(s32 id)
+{
+	const s32 n = id - TEXPACK_UNPLACED_ID_BASE;
+
+	if (n < 0 || n >= TEXPACK_UNPLACED_IDS) {
+		return NULL;
+	}
+
+	if (n < TEXPACK_UNPLACED_SLOTS) {
+		return unplaced ? &unplaced[n] : NULL;
+	}
+
+	return modUnplaced ? &modUnplaced[n - TEXPACK_UNPLACED_SLOTS] : NULL;
+}
+
+s32 texpackIsTexelJobId(s32 id)
+{
+	return id >= TEXPACK_UNPLACED_ID_BASE && id < TEXPACK_UNPLACED_ID_BASE + TEXPACK_UNPLACED_IDS;
 }
 
 /**
@@ -3413,7 +3470,7 @@ void texpackDumpTextureNums(const char *list)
 				}
 				texpackTraceMatches = 1;
 				rep = texpackLoadReplacementForTexels(tex->data, size, texGetWidthAtLod(tex, 0), texGetHeightAtLod(tex, 0),
-						tex->depth, stride, &rw, &rh);
+						tex->depth, stride, &rw, &rh, NULL);
 				if (rep) {
 					sysLogPrintf(LOG_NOTE, "texpack: texture %ld is replaced by a pack image when drawn (%dx%d)", n, rw, rh);
 					free(rep);
@@ -3446,11 +3503,17 @@ s32 texpackHaveUnplacedFiles(void)
 	return texpackHaveReplacements() && (numUnplaced > 0 || numModUnplaced > 0 || numTwins > 0 || numModTwins > 0);
 }
 
+static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight);
+
 u8 *texpackLoadReplacementForTexels(const u8 *data, u32 size, s32 width, s32 height,
-		s32 siz, s32 stride, s32 *outWidth, s32 *outHeight)
+		s32 siz, s32 stride, s32 *outWidth, s32 *outHeight, s32 *outJob)
 {
 	const char *path;
 	u32 crc;
+
+	if (outJob) {
+		*outJob = -1;
+	}
 
 	if (!data || !size || size > TEXPACK_RICE_SCRATCH
 			|| width <= 0 || height <= 0 || stride <= 0) {
@@ -3481,6 +3544,22 @@ u8 *texpackLoadReplacementForTexels(const u8 *data, u32 size, s32 width, s32 hei
 	}
 
 	numTexelMatched++;
+
+	if (texpackTraceMatches < 0) {
+		texpackTraceMatches = sysArgCheck("--texpack-trace");
+	}
+
+	// Drawn: queued for the worker, and the game's own texels until it lands
+	// (texpackPollDecoded() reports the id, and the renderer drops the entry
+	// it gave it). Without the --texpack-trace look, which wants it now
+	if (outJob && texpackTraceMatches <= 0) {
+		const s32 id = texpackFindUnplacedId(crc);
+
+		if (id >= 0) {
+			*outJob = id;
+			return texpackClaimDecoded(id, outWidth, outHeight);
+		}
+	}
 
 	{
 		u8 *rgba = texpackLoadImage(path, 0, outWidth, outHeight);
@@ -3662,7 +3741,7 @@ static struct texpackkept *texpackJobKeep(struct texpackjob *job)
  * the queue as slots free up - from texpackPollDecoded(), once a frame. Order
  * is by id rather than by request, which nothing depends on.
  */
-#define TEXPACK_NUM_JOB_IDS (TEXPACK_MOD_ID_BASE + TEXPACK_MOD_TEXTURES)
+#define TEXPACK_NUM_JOB_IDS (TEXPACK_UNPLACED_ID_BASE + TEXPACK_UNPLACED_IDS)
 
 static u8 jobBacklog[(TEXPACK_NUM_JOB_IDS + 7) / 8];
 static s32 jobBacklogCount;
@@ -3764,7 +3843,17 @@ static int texpackDecodeWorker(void *arg)
 		// itself - it stops this thread first, but only between jobs.
 		// Highest base first: every test below is "at or above", so a mod's id
 		// would otherwise be read as a record of the release's.
-		if (jobs[found].texturenum >= TEXPACK_MOD_ID_BASE) {
+		if (jobs[found].texturenum >= TEXPACK_UNPLACED_ID_BASE) {
+			const struct texpackunplaced *u = texpackUnplacedForId(jobs[found].texturenum);
+
+			if (u && u->path) {
+				path = strdup(u->path);
+			}
+
+			// as texpackLoadReplacementForTexels() decoded it on the spot
+			kind = TEXPACK_KIND_NATIVE;
+			flip = 0;
+		} else if (jobs[found].texturenum >= TEXPACK_MOD_ID_BASE) {
 			const s32 num = jobs[found].texturenum - TEXPACK_MOD_ID_BASE;
 			const struct texpacknumbered n = texpackNumbered(1);
 
@@ -4094,7 +4183,10 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 			jobs[i].reported = 1;
 			// The renderer drops its cached original by texture number, and a
 			// mod's id is that number in another space.
+			// A texel-matched file is reported by its own id, which the
+			// renderer remembers on the entry it drew the game's texels to.
 			out[count++] = jobs[i].texturenum >= TEXPACK_MOD_ID_BASE
+					&& jobs[i].texturenum < TEXPACK_UNPLACED_ID_BASE
 				? jobs[i].texturenum - TEXPACK_MOD_ID_BASE
 				: jobs[i].texturenum;
 
@@ -4113,7 +4205,16 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 			// on every cache miss would log it forever. Drop it and draw the
 			// original. Done here rather than on the worker because the index
 			// belongs to this thread.
-			if (jobs[i].texturenum >= TEXPACK_MOD_ID_BASE) {
+			if (jobs[i].texturenum >= TEXPACK_UNPLACED_ID_BASE) {
+				struct texpackunplaced *u = texpackUnplacedForId(jobs[i].texturenum);
+
+				// The path is the slot's, which the probe walks past: it
+				// stays, and the crc is spoilt instead so nothing matches it
+				if (u && u->path && u->crc != 0) {
+					sysLogPrintf(LOG_WARNING, "texpack: could not decode %s, dropping it", u->path);
+					u->crc = 0;
+				}
+			} else if (jobs[i].texturenum >= TEXPACK_MOD_ID_BASE) {
 				const s32 num = jobs[i].texturenum - TEXPACK_MOD_ID_BASE;
 				const struct texpacknumbered n = texpackNumbered(1);
 

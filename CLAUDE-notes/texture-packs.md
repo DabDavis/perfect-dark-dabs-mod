@@ -910,3 +910,17 @@ that is the game thread's.
   943f660e6 before this pass. Check: pack on, pop the Institute's file select
   at frame 302 (`menuPopDialog()`), look at the marble at frame 760
   (~/wt/f3-0928b-packs-run/fl2.py, tp.py; `pd.117a093` is the CI binary).
+
+## Texel-matched files decode on the worker (F3 pass 40, 2026-10-20, fix/f3-1020-hdlook)
+
+F3 20261016-054658 (Windows, "GE HD Textures IB", 1.8 GB, an emulator pack named by checksum):
+27 files took a number and 1263 were matched by their texels when drawn, and
+`texpackLoadReplacementForTexels()` decoded its file on the render thread every time - the
+trace said "decode thread not running" (nothing had ever asked the numbered queue) and the
+worst frame was 8 s. A texel-matched file now has a job id of its own
+(`TEXPACK_UNPLACED_ID_BASE` + its slot in the stock table, or past that the stage mod's) and
+goes through `texpackClaimDecoded()` like a numbered one: kept store, backlog, failure drop
+(the slot's crc is spoilt, since the open-addressed table cannot lose a path). The renderer
+remembers the id on the cache entry it gives the game's texels to (`TextureCacheValue::
+texel_job`) and `gfx_texpack_poll()` drops that entry when the id is reported. The
+`--texpack-trace` look and the texture-number debug dump still decode on the spot (outJob NULL).

@@ -15389,3 +15389,24 @@ built-in had swapped for the release's headneil (curly hair, goatee, glasses) on
   `autoadvance_on_deplete_all_ammo()` is the cycle forward requiring ammo, else back; Perfect Dark's preference
   list has no GoldenEye guns and gave fists. `bgunAutoSwitchWeapon()` uses the mines' GoldenEye rule for every
   gun on a conversion stage. Probe `probe/autosw.py` (PP7 emptied with a KF7 held: 0x1 before, 0x62 now).
+
+## F3 pass 40 (hdlook, 2026-10-20, fix/f3-1020-hdlook): the backdrop's fog by distance, the Cradle's ramp railing
+
+- **Surface 2's daylit peaks at the edges of a wide screen** (F3 20261016-210711): the backdrop
+  was fogged by the linear fog line at its eye depth, and a band all round the level is as far
+  away at the screen's edges as in its middle while its depth there is a cosine of that - at
+  16:10 and fovy 75 the panorama 22000 out came out of Surface 2's dark red fog (whole at
+  10000) in the corners. `gebeanStageRenderBackdrop()` now gives each vertex the fog at its
+  own distance from the eye: the fog line's slope 0 and its offset the vertex's factor, set
+  before each vertex is loaded (the renderer takes `fog_mul`/`fog_offset` per vertex at the
+  G_VTX and carries them perspective-correct). Dam's and Surface's backdrops barely change.
+- **The Cradle's ramp railing a grey sheet** (F3 20261016-214844): the ramp's railing quad (a
+  cut-out, `_0x0A498EC5`) runs 90 units into the platform's railing in the same plane, and
+  `decalPick()`'s strip rule made the whole ramp railing the decal of it - drawn in
+  `G_RM_AA_ZB_XLU_DECAL`, its bars became a blended grey sheet. Two cut-outs overlapping along
+  a strip are no longer a decal pair. HDCACHE 25; of the 25 HD levels only the Cradle's build
+  changes (186 -> 175 decals). Probe used: `PD_HDPICK="x,y,z,r"` (log lines `hdpick`).
+- Test traps: `--savedir` relative is resolved against the base dir (`./data/<name>`), so a
+  run dir's own pd.ini is only read with an absolute path. Teleporting the player by gdb needs
+  `prop->pos`, `prop->rooms[]` and `vv_ground`/`vv_manground`; the trace's `theta` is
+  `vv_theta` as stored.
