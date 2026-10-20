@@ -152,10 +152,20 @@ s32 texpackHaveReplacements(void);
  * taken for pack files the texture-number pass could not place.
  *
  * data is the N64 texel bytes; the tile geometry is what the renderer is about
- * to draw them under. Returns NULL when there is nothing to swap in.
+ * to draw them under. Returns NULL when there is nothing to swap in - or, with
+ * outJob, while the file's decode is queued on the worker: *outJob is then
+ * its id, which texpackPollDecoded() reports when it lands. Without outJob it
+ * decodes on the spot.
  */
 u8 *texpackLoadReplacementForTexels(const u8 *data, u32 size, s32 width, s32 height,
-		s32 siz, s32 stride, s32 *outWidth, s32 *outHeight);
+		s32 siz, s32 stride, s32 *outWidth, s32 *outHeight, s32 *outJob);
+
+/**
+ * Whether an id texpackPollDecoded() reports is a texel-matched file's (the
+ * one texpackLoadReplacementForTexels() put in *outJob), rather than a
+ * texture number's.
+ */
+s32 texpackIsTexelJobId(s32 id);
 
 /** Whether any pack file is waiting to be matched that way. */
 s32 texpackHaveUnplacedFiles(void);
