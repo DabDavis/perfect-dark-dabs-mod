@@ -8614,8 +8614,10 @@ Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
 	Vtx *vtx;
 	Col *col;
 	s32 curtex = -2;
-	f32 fm, fo;
+	f32 fogstart, fogend;
 	u8 rgb[3];
+	s32 fogged;
+	u8 *fogs;
 
 	// The clock GoldenEye XBLA's animated pictures are shown by
 	// (xblaTexBindAnimation()): the level's, as the frame is drawn
@@ -8655,10 +8657,13 @@ Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
 	vtx = gfxAllocateVertices(numvtx);
 	col = gfxAllocateColours(numvtx);
 	mtx = gfxAllocateMatrix();
+	fogs = gfxAllocate(numvtx);
 
-	if (far2 <= 1.0f || !vtx || !col || !mtx) {
+	if (far2 <= 1.0f || !vtx || !col || !mtx || !fogs) {
 		return gdl;
 	}
+
+	fogged = gebeanStageFog(&fogstart, &fogend, rgb) && fogend > fogstart;
 
 	k = BACKDROP_EXTENT / sqrtf(far2);
 
@@ -8685,6 +8690,20 @@ Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
 			col[i].g = (argb >> 8) & 0xff;
 			col[i].b = argb & 0xff;
 			col[i].a = argb >> 24;
+
+			// The fog at the vertex's distance from the eye, not at its eye
+			// depth: a band all round the level, it is as far away at the
+			// screen's edges as in its middle, where its depth is a cosine
+			// of that - Surface 2's daylit peaks came out of the dark red
+			// fog at the edges of a wide screen (F3 20261016-210711)
+			if (fogged) {
+				const f32 dx = tri->pos[j][0] - cam->x;
+				const f32 dy = tri->pos[j][1] - cam->y;
+				const f32 dz = tri->pos[j][2] - cam->z;
+				const f32 f = (sqrtf(dx * dx + dy * dy + dz * dz) - fogstart) * 255.0f / (fogend - fogstart);
+
+				fogs[i] = f <= 0.0f ? 0 : f >= 255.0f ? 255 : (u8)f;
+			}
 		}
 	}
 
@@ -8715,12 +8734,12 @@ Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
 
 	// Fogged as the level's rooms are, by where it really stands: it is part
 	// of the level's file and the release draws it with the level's shaders.
-	// A world unit of its distance is k * scale of the eye depth it is drawn at
-	if (gebeanStageFogLine(k * scale, &fm, &fo, rgb)) {
+	// Each vertex carries its own factor (fogs[], the line's offset as the
+	// vertex is loaded, with no slope), carried across the triangle
+	if (fogged) {
 		gDPSetRenderMode(gdl++, G_RM_FOG_SHADE_A, G_RM_XLU_SURF2);
 		gDPSetFogColor(gdl++, rgb[0], rgb[1], rgb[2], 0xff);
-		gSPFogLineEXT(gdl++, G_FOGLINE_LINEAR_EXT, fm);
-		gSPFogLineEXT(gdl++, G_FOGLINE_LINEAR_EXT | G_FOGLINE_OFFSET_EXT, fo);
+		gSPFogLineEXT(gdl++, G_FOGLINE_LINEAR_EXT, 0.0f);
 		gSPSetGeometryMode(gdl++, G_FOG);
 	} else {
 		gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
@@ -8751,7 +8770,15 @@ Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
 
 			if (t == 0) {
 				gSPColor(gdl++, osVirtualToPhysical(&col[first]), count);
-				gSPVertex(gdl++, osVirtualToPhysical(&vtx[first]), count, 0);
+
+				if (fogged) {
+					for (s32 j = 0; j < count; j++) {
+						gSPFogLineEXT(gdl++, G_FOGLINE_LINEAR_EXT | G_FOGLINE_OFFSET_EXT, (f32)fogs[first + j]);
+						gSPVertex(gdl++, osVirtualToPhysical(&vtx[first + j]), 1, j);
+					}
+				} else {
+					gSPVertex(gdl++, osVirtualToPhysical(&vtx[first]), count, 0);
+				}
 			}
 
 			gSPTri1(gdl++, t, t + 1, t + 2);
