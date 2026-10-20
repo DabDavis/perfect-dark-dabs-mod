@@ -4652,6 +4652,25 @@ bool bgunChangeGunMem(s32 newowner)
 	}
 
 	if (player->gunctrl.gunlocktimer < 0) {
+#ifndef PLATFORM_N64
+		// The handover counts down in calls, and every party that wants the
+		// memory calls each tick: the gun's loader (bgunTickMasterLoad) every
+		// frame, the player's body (playerStartCutscene() from a stage's
+		// camera_movement) from an AI list, which runs on the frames that
+		// hold a 60th. At 60 FPS the list asked, the gun's call took the count
+		// to -2 and the list's next call won it. Above 60 the gun's call on the
+		// frame between took it to -3 and won it back, the list took it again
+		// on its frame, and so on for ever: the outro never started and the
+		// screen stayed black (Extraction, Defection at 120/144 FPS; F3
+		// 20261016-204838, 20261013-203106). The count now moves only on a
+		// frame that holds a 60th, so it is the same handover as at 60. At 60
+		// and 30 FPS lvupdate60 is 0 only with lvupdate240 0 (paused, a 0/0
+		// present pass), which still counts as before.
+		if (g_Vars.lvupdate240 > 0 && g_Vars.lvupdate60 == 0) {
+			return false;
+		}
+#endif
+
 		player->gunctrl.gunlocktimer--;
 
 		if (player->gunctrl.gunlocktimer < -2) {

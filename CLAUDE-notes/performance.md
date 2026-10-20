@@ -667,3 +667,20 @@ stops the count, so both runs end at the timeout. randrun is not repeatable
 there: one of five runs of 82b7a71a9 hashed another value at frame 300 than
 the other four (2026-10-10, fix/highfps-bgturns, six instances running at
 once), so a DIFF in it alone is rerun before it is believed.
+
+## Mission outros hung above 60 FPS: the gun memory handover (F3 pass 40, fix/f3-1020-pdending)
+
+A stage's outro starts with `camera_movement` (aiSetCameraAnimation -> playerStartCutscene), which needs the
+player's body; in one-player solo the body is built in the gun's memory, taken with
+`bgunChangeGunMem(GUNMEMOWNER_CHRBODY)`. That handover is a countdown in **calls** (gunlocktimer -1, -2, then the
+caller that takes it past -2 wins), and the gun's loader asks for the memory back every frame. At 60 FPS the AI
+list asked, the gun's call made -2 and the list's next call won. Above 60 the list only runs on frames that hold a
+60th (background lists always did), so the gun's call on the frame between made -3 and took it back, the list
+took it again, and so on: tickmode stayed 1, the AI list sat on its camera_movement (sleep -1, haschrbody 0) and
+the screen stayed black at 120/144/240 - every mission whose outro starts from play (Extraction and Defection were
+reported; F3 20261016-204838, 20261013-203106). The F3 dialog's pause + one big step let the list win. The
+countdown now moves only on frames with `lvupdate60 > 0` when `lvupdate240 > 0` (60/30 and paused/0-0 passes
+unchanged). Probe: ~/wt/f3-1020-pdending-run/probe/end.py (gdb Python on lvTick; at TRIG it points a background
+chr's list at the stage's outro via g_StageSetup.ailists - never call inferior functions from a Breakpoint.stop(),
+it hangs - and prints tickmode/in_cutscene/aioffset/sleep/haschrbody). Defection's outro: 415 60ths at 60, 414.5 at
+120, 415.9 at 144, 414.5 at 240 with the fix.
