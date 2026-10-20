@@ -42,8 +42,9 @@
  *
  * Bond climbs onto it as GoldenEye has him do (geTankBoard()): a tank he walks
  * into lifts him onto its hull, and its turret from there. Not GoldenEye's: he
- * can get in from close beside it as well as from on top of the turret, and
- * gets out beside it where GoldenEye leaves him standing on it. The shells are a weapon as GoldenEye's are (WEAPON_GE_TANKSHELLS,
+ * can get in from close beside it as well as from on top of the turret. He
+ * gets out on top of it, as GoldenEye leaves him (beside it only when a death
+ * or an ending pushes him out). The shells are a weapon as GoldenEye's are (WEAPON_GE_TANKSHELLS,
  * on the Data Uplink as the gadgets with nothing in the hand are): given and
  * held as he climbs in, taken as he climbs out, their trigger the cannon, and
  * anything else he switches to in there fires as it always does.
@@ -612,8 +613,22 @@ s32 geTankBoard(void)
 		// he is taken across to the seat
 		const f32 remain = g_Tank[g_Vars.currentplayernum].state == TANK_ENTERING
 			? (cosf(g_Tank[g_Vars.currentplayernum].entert * M_BADTAU * 0.5f) + 1.0f) * 0.5f : 0.0f;
+		const f32 was = player->bondonground;
 
 		player->bondonground = g_Tank[g_Vars.currentplayernum].enterclimb * remain;
+
+		// and he is lowered with it, as GoldenEye sets his height outright
+		// (g_PlayerTankYOffset). Left to the walk, the ground went out from
+		// under him and he fell after it, lagging and then landing hard: the
+		// eye went down past the seat and bounced back up to it (F3
+		// 20261014-224847)
+		if (was > player->bondonground && !player->isfalling
+				&& player->vv_manground >= player->vv_ground - 1.0f) {
+			player->vv_manground -= was - player->bondonground;
+			player->vv_ground = player->vv_manground;
+			player->bdeltapos.y = 0.0f;
+		}
+
 		return 0;
 	}
 
@@ -1014,6 +1029,58 @@ static s32 tankExit(s32 force)
 	}
 
 	tankSize(tank, &halfwidth, &halflength, &height, &bottom);
+
+	// GoldenEye's way out (bondview2.c, B in the tank): he stands up where he
+	// sits, on the turret, and climbs the 37 out of the hatch as he does onto
+	// the hull (geTankBoard()), now that the tank is under him and not
+	// round him. The eye is where it was in the seat - the hull's top and the
+	// turret's, 37 and a half crouch's 60 down (geTankEyeHeight()) - and goes
+	// on up from there. Pushed out by a death or an ending he is put down
+	// beside it, as is a tank whose model has no boxes to stand on
+	if (!force && !g_Vars.currentplayer->isdead && tankPartBbox(tank, TANK_PART_HULLBOX)) {
+		struct modelrodata_bbox *hull = tankPartBbox(tank, TANK_PART_HULLBOX);
+		struct modelrodata_bbox *turret = tankPartBbox(tank, TANK_PART_TURRETBOX);
+		struct player *player = g_Vars.currentplayer;
+		f32 top = (hull->ymax - hull->ymin) * tankScale(tank);
+		f32 climb;
+
+		if (turret) {
+			top += (turret->ymax - turret->ymin) * tankScale(tank);
+		}
+
+		climb = top - 37.0f - 60.0f;
+
+		if (climb < 0.0f) {
+			climb = 0.0f;
+		}
+
+		tank->shells = bgunGetReservedAmmoCount(TANK_AMMOTYPE);
+		bgunSetAmmoQuantity(TANK_AMMOTYPE, 0);
+		tankGiveBackHands();
+		tank->firing = 0;
+		tank->speed = 0;
+		tank->turnspeed = 0;
+		tank->base.hidden &= ~OBJHFLAG_MOUNTED;
+
+		tankStopSounds(tank->base.prop);
+
+		g_Tank[p].state = TANK_OUT;
+		player->unk1af0 = NULL;
+
+		// solid again to everyone else; to him it is what he stands on, and
+		// the walk leaves it out of his moves while it is `tank`
+		propSetPerimEnabled(tank->base.prop, true);
+		player->tank = tank->base.prop;
+		player->bondonground = climb;
+		player->vv_manground += climb;
+		player->vv_ground = player->vv_manground;
+		player->sumground = player->vv_manground / (PAL ? 0.054400026798248f : 0.045499980449677f);
+		player->bdeltapos.y = 0.0f;
+		player->speedforwards = 0;
+		player->speedsideways = 0;
+
+		return 1;
+	}
 
 	// the tank is solid again for the test, and the player is not in it
 	propSetPerimEnabled(tank->base.prop, true);
