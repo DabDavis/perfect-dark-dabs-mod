@@ -200,7 +200,13 @@
 //    join in progress takes its room team's), u8 antispawns[12] (each
 //    counter-op's guards taken), u8 antiradius[12] (the guard's radius),
 //    s16 antibody[12], s16 antihead[12] (the guard's body and head it wears)
-#define NET_PROTOCOL_VERSION 32
+// 33 (LAN and Direct Connect, 2026-10-14: CLAUDE-notes/netplay.md "LAN and
+//    Direct Connect"): a room with no lobby server, served by its host's game
+//    over the session: ROOM (host -> client) is the room as pdlobbyd's state
+//    reply has it, ROOMACT (client -> host) a member's action on it; CONNECT's
+//    ticket is the room's password in such a room; the LAN finder's query and
+//    answer are raw datagrams (netlan.c, "LAN finder" below)
+#define NET_PROTOCOL_VERSION 33
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -233,6 +239,9 @@
 #define NETMSG_EVFX          25 // host -> client, NET_CHAN_EVFX, reliable: as EVENTS
 #define NETMSG_EVSHOT        26 // host -> client, NET_CHAN_EVSHOT, unreliable unsequenced: as EVENTS
 // 27 was MARKS (protocol 29 only): the marks block in SNAP since 30
+// protocol 33: a LAN or Direct Connect room, served by its host (netlan.c)
+#define NETMSG_ROOM          28 // host -> client, reliable: the room as this member sees it
+#define NETMSG_ROOMACT       29 // client -> host, reliable: a member's action on the room
 
 /**
  * Refusal and leave reasons: REFUSE's and LEAVE's code byte, and the u32
@@ -337,7 +346,11 @@
  *   u16     ticketlen         0, or <= NET_MAXTICKET
  *   bytes   ticket            the lobby's join ticket, ASCII (README.md)
  *   u8      flags             (protocol 9) NETCONN_SPECTATE: a spectator,
- *                             never a player's seat
+ *                             never a player's seat; (protocol 33)
+ *                             NETCONN_LOBBY: a LAN or Direct Connect room's
+ *                             member that left the running match (End Game)
+ *                             and stays in the room: no seat of the match,
+ *                             in for the next (ACCEPT says NETACC_NEXTMATCH)
  *
  * VALUE
  *   u8 type                   CONFIG_TYPE_S32/F32/U32/STR (config.h)
@@ -618,6 +631,59 @@
  *     u8 view                     12-13
  *     str(14) name
  *     u16 ping
+ *
+ * ROOM (host -> client, RELIABLE; protocol 33) - a LAN or Direct Connect
+ * room (netlan.c), which its host's game serves in place of pdlobbyd: sent
+ * to each member when the room changes and while a countdown runs, never
+ * for its pings alone mid-match. The fields are pdlobbyd's state reply's
+ * (tools/pdlobbyd/README.md), which the Game Lobby already reads.
+ *   u8      NETMSG_ROOM
+ *   u32     version               moves at every change
+ *   summary (as the LAN finder's answer has it):
+ *     str(8) id, str(32) name, str(15) host, str(32) stage,
+ *     str(32) scenario, str(127) mod, str(15) ge
+ *     u8 state                    NETROOM_OPEN, _COUNTDOWN, _LAUNCHED
+ *     u8 humans, u8 maxhumans, u8 spectators, u8 maxspectators, u8 sims,
+ *     u8 locked                   1 a password
+ *   u8      nrules                <= NETLOBBY_MAXRULES
+ *     str(24) key, str(32) value  the room's rules (stage_key, teams, ...)
+ *   u8      nmembers              <= NETLOBBY_MAXMEMBERS
+ *     str(15) user
+ *     u8 team                     0-7
+ *     u8 flags                    NETROOMM_READY, _SPECTATOR, _HOST
+ *     u8 path                     NETROOMPATH_*: how it reaches the host
+ *     u16 ping                    ms, 0xffff none
+ *   u8      nchat                 <= NETLOBBY_MAXCHAT, oldest first
+ *     u32 v, str(15) user, str(120) text, u8 system
+ *   s32     countdownms           the launch's countdown left, -1 none
+ *   u32     launchat              0, or the launch's number while launched
+ *   str(15) you                   the member's name in the room (a name
+ *                                 already there was given a number)
+ *   u8      youflags              NETROOMM_SPECTATOR
+ *   u8      youslot               its seat (mpindex), or NETSLOT_SPECTATOR:
+ *                                 a member moved between the players and the
+ *                                 spectators keeps its connection, and the
+ *                                 next STAGE_LOAD's player is counted from it
+ *
+ * ROOMACT (client -> host, RELIABLE; protocol 33) - a member's action on its
+ * LAN or Direct Connect room (the host's own are made on the spot)
+ *   u8      NETMSG_ROOMACT
+ *   u8      action                NETROOMACT_*
+ *   s8      value                 READY 0/1; TEAM 0-7; SPECTATE 0/1
+ *   str(120) text                 CHAT's line, "" otherwise
+ *   pdlobbyd's rules: no team change or spectating once the countdown has
+ *   begun, nothing but chat once launched, a chat line every half second.
+ *
+ * LAN finder (raw datagrams, protocol 33; netlan.c). A query goes to UDP
+ * Net.Port (27100 unless set) and the three after it, as a LAN broadcast and
+ * to 127.0.0.1, or to an address typed for Direct Connect; a game hosting a
+ * LAN or Direct Connect room answers it from its session socket. The query
+ * is padded to NETLAN_QUERYLEN and the answer is never longer, so the
+ * answer amplifies nothing; a host answers at most NETLAN_ANSWERS a second.
+ *   query:  NET_RAWMAGIC, "LANQ", u8 1, u32 nonce, zeros to NETLAN_QUERYLEN
+ *   answer: NET_RAWMAGIC, "LANA", u8 1, u32 nonce, u16 port (the session's),
+ *           u16 proto, str(40) build, str(16) content (the lobby's "all"
+ *           hash), the summary as ROOM's
  *
  * MATCH_END (host -> client; also to a client still loading or at the
  * barrier, which then runs on to its end screen without a GO)
@@ -1043,11 +1109,30 @@
 #define NETORDER_SIM       0x80 // ... a sim's: 0x80 + its bot config slot (below it a player's playernum)
 
 #define NETCONN_SPECTATE   0x01 // CONNECT's flags
+#define NETCONN_LOBBY      0x02 // protocol 33: a LAN or Direct Connect room's member back from its own End Game: in the room, not the running match
 #define NETACC_INPROGRESS  0x01 // ACCEPT's flags
 #define NETACC_RESUMED     0x02
 #define NETACC_SPECTATOR   0x04
 #define NETACC_NEXTMATCH   0x08 // protocol 26
 #define NETSLOT_SPECTATOR  0xff // ACCEPT's slot, STAGE_LOAD's yourplayer
+
+// ROOM and ROOMACT (protocol 33)
+#define NETROOM_OPEN       0
+#define NETROOM_COUNTDOWN  1
+#define NETROOM_LAUNCHED   2
+#define NETROOMM_READY     0x01
+#define NETROOMM_SPECTATOR 0x02
+#define NETROOMM_HOST      0x04
+#define NETROOMPATH_NONE   0
+#define NETROOMPATH_LAN    1
+#define NETROOMPATH_DIRECT 2
+#define NETROOMACT_READY    1
+#define NETROOMACT_TEAM     2
+#define NETROOMACT_SPECTATE 3
+#define NETROOMACT_CHAT     4
+#define NETLAN_QUERYLEN    640 // a LAN finder's query, padded: no answer is longer
+#define NETLAN_ANSWERS     40  // answers a host sends a second at most
+#define NETLAN_PORTS       4   // the finder asks Net.Port and the three after it
 #define NET_MAXSPECS       2    // spectators a host takes
 
 #define NETCHAT_PLAYER     0    // CHAT's kind

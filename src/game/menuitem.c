@@ -1203,6 +1203,10 @@ static s32 menuitemKeyboardCharset(struct menuitem *item)
 		return INPUT_TEXT_NAME;
 	}
 
+	if (item->param2 & KEYBOARDFLAG_ADDRESS) {
+		return INPUT_TEXT_ADDRESS;
+	}
+
 	return INPUT_TEXT_OSK;
 }
 

@@ -1937,6 +1937,7 @@ s32 langpackIsCjk(void);
 #define KEYBOARDFLAG_NAME   0x01 // an account name: letters, digits, _ . -
 #define KEYBOARDFLAG_DIGITS 0x02 // a PIN: digits only
 #define KEYBOARDFLAG_MASKED 0x04 // drawn as *s
+#define KEYBOARDFLAG_ADDRESS 0x08 // a host's address: letters, digits . : - [ ] and a space before a port
 #endif
 
 #define MENUMODELFLAG_HASSCALE    0x01

@@ -45,6 +45,13 @@
   taken, by chrnum); which converted guard may be taken; Guards Alerted!'s
   guards as bodies too; `netantitest.sh`; a lobby host counter-op's launch
   ended the match on the old stage's last frame and crashed (2026-10-13).
+- **LAN and Direct Connect (protocol 33, 2026-10-14)** — the section of that
+  name: the online pages' first page (Online Lobbies, LAN, Direct Connect),
+  Name Entry without an account, rooms with no lobby server served by their
+  host's game (`netlan.c`: ROOM/ROOMACT over the session, the LAN finder's
+  raw query and answer, Direct Connect's addresses and port), the session as
+  the room (`s_LocalRoomOn`), Spectate and End Game kept in place
+  (`NETCONN_LOBBY`), the keyboard item that ran into the next item's words.
 - **A long link's walk (F3 pass 38, 2026-10-12, no wire change)** — the
   section "F3 pass 38": the host walks a client's player by its commands
   alone (a dry tick waits, a fold walks each folded command first:
@@ -279,6 +286,7 @@ run follows the deploy in the background.
 | `netlobbyuitest.sh` | 0.7 min | the Briefing Room and Game Lobby screenshotted, PING measured (and by HTTP for a lister with the echo mute), the advertised endpoints tried in turn, the host named by its account on the wire and in its own match, no Save Player prompt |
 | `netlobbywinetest.sh` | 0.5 min | the Windows build (WinHTTP) as a lobby member under wine against a Linux host |
 | `netnattest.sh` | 1 min | punch, relay, direct, LAN, mute rendezvous in user-namespace NATs; a punch through both games frozen after PEER (s) |
+| `netlantest.sh` | 8 min | LAN and Direct Connect rooms with no pdlobbyd (protocol 33): found by loopback and by broadcast alone, by address, a password, End Game kept in the room and Back Into the Match, a spectator and a name taken twice |
 | `netpredicttest.sh` | 6.5 min | prediction at 0/150 ms, loss, wine client, sims, a time limit |
 | `netlagcomptest.sh` | 9 min | hits at 150 ms with and without lag compensation (on and loss: 8400 frames, at least 30 shots), loss, soak |
 | `netscenariotest.sh` | 21 min | every scenario, two lossy |
@@ -4113,3 +4121,92 @@ sims?".
   the kill feed is told around the match branch's hit (`killfeedSetSentry`).
 - **The Mauler's charge** reaches the host (same charge and magazine as the client, traced); Perfect
   Dark draws the charge only on the first person gun, so other players never see it (notabug).
+
+## LAN and Direct Connect (protocol 33, 2026-10-14)
+
+The owner: "when entering online add an extra menu before name screen. LAN,
+Direct Connect, Online Lobbies. So even if Lobbies browser goes offline players
+can still play LAN and Direct Connect"; then "they can reuse the Lobby Browser
+screen for those modes", "may have to build the server into the client", "let
+there also be a name screen for LAN and Direct Connect" and "should we add custom
+port option so anyone should be able to connect to each other".
+
+**The pages.** Online Game opens `g_NetModeMenuDialog` (the "ONLINE" page,
+netlobbymenu.c: three cards, Player Setup, Back). It is now the online pages'
+root: the online profile is entered and left there (`dialogMode`), it is what
+`netLobbyMenuHandlerOnlineMain`/`netLobbyMenuHandlerOnline` open, and the stack
+rebuilt after a match (`netLobbyMenuPushRoomAfterMatch`, `netLobbyMenuFrame`) is
+mode page > Name Entry > Briefing Room > Game Lobby. A card sets
+`netLobbySetMode()` and pushes Name Entry. In LAN and Direct Connect, Name
+Entry's box opens a plain name keyboard (`Net.LanName`, the Ghost Trials
+account's until typed) and Next goes straight to the Briefing Room, no sign-in.
+The Briefing Room and Game Lobby are the same dialogs: their title is the mode's
+(`localtitle`), the main menu chat window becomes a how-to window, Players Online
+is off, and Direct Connect adds a Connect to Address card (keyboard with
+`KEYBOARDFLAG_ADDRESS`: "host", "host:port", "host port" - the pad's grid has a
+space and no colon). Create Room has a Port row in Direct Connect (`Net.Port`).
+
+**The server built into the game (netlan.c).** The host's game keeps the room
+as pdlobbyd keeps a lobby room (members, teams, ready marks, chat with
+pdlobbyd's 6-in-10 s limit, the 5 s countdown, kicked names, wrong passwords
+per address) and sends each member ROOM, the room as pdlobbyd's state reply
+has it, member by member (`you`, `youslot`). A member's actions come back as
+ROOMACT. netlobby.c is the switch: with `lobbyLocal()` its list, create, join,
+actions (`lobbyLocalAction` reads the pdlobbyd JSON bodies the menus already
+build and calls `netLanAct`), leave and tick (`lobbyLocalTick`) go to netlan.c,
+and `lobbyHostTick` runs unchanged for the launch (the members are connected
+already, so it starts at once), the teams onto slots, and the reopen. No HTTP,
+no rendezvous, no tickets, no host migration.
+
+The session is the room: a host listens from Create Room on (`netSessionLanHost`,
+which tries Net.Port and the three after it), a member connects as it joins
+(`netSessionLanConnect`, the password in CONNECT's ticket field), and a member
+whose connection ends is out of the room. In netsession.c `s_LocalRoomOn` rides
+with `s_LobbyRoomOn` (a room's seats, its host's name, handicaps, waits) and
+turns off the ticket check, the roster check, the migration keeps and the
+heartbeat's accounts. Two things a lobby room did by reconnecting at a launch
+had to be done in place:
+- **Spectate/Play** moves a JOINED client between a seat and a spectator view
+  (`netSessionHostSetSpectator`); ROOM's `youslot` tells the client
+  (`netSessionClientSetSlot`) and STAGE_LOAD counts its player from it.
+- **End Game** by a member ends its session (LEAVE), which would end its room
+  membership. netlan.c reconnects it at once with `NETCONN_LOBBY` (protocol 33):
+  the host takes it as NETACC_NEXTMATCH, no seat of the running match, and the
+  Game Lobby offers Back Into the Match, which reconnects without the flag
+  (a join in progress). The host remembers a leaver's team by name.
+
+**Finding rooms.** The finder's query and the host's answer are raw datagrams
+(netproto.h "LAN finder"); the host answers on its session socket (`netLanRaw`,
+before `netRdvRaw`). The query is padded to 640 bytes and the answer is never
+longer (no amplification), 40 answers a second at most. The finder's sockets
+(`netProbe*`, nettransport.c): a dual-stack one for an address and loopback,
+and a plain IPv4 one with SO_BROADCAST for 255.255.255.255 - a dual-stack
+socket's v4-mapped broadcast works on Linux, not a promise Windows makes.
+Direct Connect's addresses are `Net.DirectRecent`, newest first; a name is
+looked up on a thread (`struct lanresolve` on the heap, CAS'd state, freed by
+whichever side lets go last: the list moves under a lookup). The answer's round
+trip is the list's ping.
+
+**Trap found on the way: the keyboard item's words.** `menuGetItemBlocksRequired`
+gave MENUITEMTYPE_KEYBOARD 3 words of `menu->blocks` while its data was 21 bytes
+(string[18] + col, row, caps): every keyboard ran 9 bytes into the next item's
+words. The buffer is `MENU_KEYBOARD_MAXLEN + 1` (63) now and the count is the
+struct's size; the N64 build keeps both as they were.
+
+**Tests.** `tools/ci/netlantest.sh` (cases lan, broadcast, direct, password,
+endgame, spectate; in netallgates.sh). The lobby script runs in either mode: `--net-lobby-mode lan|direct`
+(set once the boot's menus are up), `--net-lobby-name`, `--net-lobby-address`
+(a joiner's Direct Connect address), `--net-lobby-password` /
+`--net-lobby-join-password`, `--net-lobby-spectate`, `--net-test-lan-broadcast`
+(no loopback query: the broadcast alone). `--net-test-mode-pages` (with
+`--net-test-mode-address`) tours the pages in both modes and screenshots each.
+Checked 2026-10-14 on this box: LAN (loopback and broadcast alone), Direct
+Connect, a wrong and a right password, End Game + Back Into the Match, a
+spectator and a name taken twice ("Hosty 2"), the port fallback (27301 when
+27300 was another game's); replaytest 8/8 same; netlobbytest pairs and
+netlobbyuitest for the online rooms.
+
+**Not done:** no UPnP/NAT-PMP port mapping, and no way to learn the host's
+public IP without a server (the Game Lobby shows the LAN address and says the
+rest); the LAN finder broadcasts on IPv4 only; a LAN/Direct room cannot be
+joined across builds (the session's own check, as any room).

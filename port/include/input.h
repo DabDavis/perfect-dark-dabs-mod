@@ -305,6 +305,7 @@ char inputGetLastTextChar(void);
 #define INPUT_TEXT_OSK    1 // what the on screen keyboard has: letters, digits, space ? ! .
 #define INPUT_TEXT_NAME   2 // an account name: letters, digits, _ . -
 #define INPUT_TEXT_DIGITS 3 // a PIN
+#define INPUT_TEXT_ADDRESS 4 // a host's address (Direct Connect): letters, digits . : - [ ] space
 
 // Types into out; 1 when Enter is pressed with something in it, -1 for Escape
 s32 inputTextHandler(char *out, const u32 outSize, s32 *curCol, s32 charset);

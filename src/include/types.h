@@ -3592,8 +3592,14 @@ struct menuitemdata_dropdown {
 	u16 unk0e; // unused
 };
 
+#ifdef PLATFORM_N64
+#define MENU_KEYBOARD_MAXLEN MPSETUP_MAXNAME
+#else
+#define MENU_KEYBOARD_MAXLEN 63 // a Direct Connect address and its port (netlobbymenu.c)
+#endif
+
 struct menuitemdata_keyboard {
-	char string[MPSETUP_MAXNAME+1];
+	char string[MENU_KEYBOARD_MAXLEN+1];
 	s8 col;
 	s8 row;
 	u8 capslock : 1;      // Pressed A on caps button

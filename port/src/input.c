@@ -1986,6 +1986,8 @@ s32 inputTextCharAllowed(const char ch, const s32 charset)
 		return isalnum((u8)ch) || ch == '_' || ch == '.' || ch == '-';
 	case INPUT_TEXT_DIGITS:
 		return ch >= '0' && ch <= '9';
+	case INPUT_TEXT_ADDRESS:
+		return isalnum((u8)ch) || ch == '.' || ch == ':' || ch == '-' || ch == '[' || ch == ']' || ch == ' ';
 	default:
 		return isprint((u8)ch);
 	}
