@@ -205,7 +205,13 @@
 //    over the session: ROOM (host -> client) is the room as pdlobbyd's state
 //    reply has it, ROOMACT (client -> host) a member's action on it; CONNECT's
 //    ticket is the room's password in such a room; the LAN finder's query and
-//    answer are raw datagrams (netlan.c, "LAN finder" below)
+//    answer are raw datagrams (netlan.c, "LAN finder" below). Also in 33 (F3
+//    pass 40, 2026-10-20): ROSTER ends with each seat's character (a join in
+//    progress plays its own, "ROSTER" below); the co-op mission block's flags
+//    gain 0x20, MISF_COUNTDOWNUP (the countdown on screen as the host's AI has
+//    it, netcoop.c); the local player's SNAP block uses its free bytes
+//    203-207 for the rocket it flies (u8 rocket, u8 0, u16 rocketid, u16
+//    rocketgen: a client's Slayer fly-by-wire camera)
 #define NET_PROTOCOL_VERSION 33
 
 #define NETMSG_CONNECT    1
