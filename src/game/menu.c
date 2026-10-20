@@ -6565,7 +6565,10 @@ Gfx *menuRender(Gfx *gdl)
 			s32 textheight;
 			s32 textwidth;
 			bool renderit;
-			char text[32];
+			// 32 was enough for English; "Player %d: " + "Press START!" runs past
+			// it in French, and a fortified sprintf aborts the game (crash report
+			// 20261016-195906)
+			char text[128];
 			s32 tmp1;
 			s32 tmp2;
 			s32 x;
@@ -6585,7 +6588,7 @@ Gfx *menuRender(Gfx *gdl)
 					// or similar. Show "Ready" in their corner.
 					renderit = true;
 					// "Player %d: " and "Ready!"
-					sprintf(text, "%s%s", langGet(L_MPMENU_482), langGet(L_MISC_461));
+					snprintf(text, sizeof(text), "%s%s", langGet(L_MPMENU_482), langGet(L_MISC_461));
 				} else {
 					if (g_MenuData.root == MENUROOT_4MBMAINMENU) {
 						if (g_Vars.mpsetupmenu == MPSETUPMENU_GENERAL) {
@@ -6604,7 +6607,7 @@ Gfx *menuRender(Gfx *gdl)
 					}
 
 					// "Player %d: " and "Press START!"
-					sprintf(text, "%s%s", langGet(L_MPMENU_482), langGet(L_MPMENU_483));
+					snprintf(text, sizeof(text), "%s%s", langGet(L_MPMENU_482), langGet(L_MPMENU_483));
 				}
 
 				if (renderit) {
@@ -6646,7 +6649,7 @@ Gfx *menuRender(Gfx *gdl)
 						u32 weight = menuGetSinOscFrac(20) * 255.0f;
 
 						// "Player %d: "
-						sprintf(text, langGet(L_MPMENU_482), i + 1);
+						snprintf(text, sizeof(text), langGet(L_MPMENU_482), i + 1);
 
 						if (i < 2) {
 							y = viewtop + 2;
@@ -6666,15 +6669,15 @@ Gfx *menuRender(Gfx *gdl)
 							// "Ready!"
 #if VERSION >= VERSION_JPN_FINAL
 							colour = L_MISC_461;
-							strcpy(text, langGet(colour));
+							snprintf(text, sizeof(text), "%s", langGet(colour));
 							colour = 0xffffffff;
 #else
-							strcpy(text, langGet(L_MISC_461));
+							snprintf(text, sizeof(text), "%s", langGet(L_MISC_461));
 							colour = g_MenuData.playerjoinalpha[i] | 0xd00020ff;
 #endif
 						} else {
 							// "Press START!"
-							strcpy(text, langGet(L_MPMENU_483));
+							snprintf(text, sizeof(text), "%s", langGet(L_MPMENU_483));
 							colour = colourBlend(g_ModColours[MODCOLOUR_JOINBLEND], 0xffffff00, weight) | g_MenuData.playerjoinalpha[i];
 						}
 
