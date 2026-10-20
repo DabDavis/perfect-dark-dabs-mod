@@ -380,6 +380,18 @@ Gfx *menuRenderBanner(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, bool big, s32 ms
 		L_MPMENU_494, // "Auto Camera Adjustment"
 	};
 
+#ifndef PLATFORM_N64
+	// A PC has no Controller Pak (osPfsInitPak() answers NOPACK, or DEVICE
+	// for a rumble pad), yet paksInit() still queues the boot check of all
+	// four ports and paksTick() puts this banner up for its few frames, so
+	// every launch flashed "Checking Controller Pak... Please Wait"
+	// (F3 20261014-103817). Only the drawing is left out: the check, the
+	// banner's state and the input it holds back run as before.
+	if (msgnum == MENUBANNER_CHECKINGPAK) {
+		return gdl;
+	}
+#endif
+
 	chars = g_CharsHandelGothicSm;
 	font = g_FontHandelGothicSm;
 
@@ -3433,11 +3445,29 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 			}
 #endif
 
+#ifndef PLATFORM_N64
+			// Customize Character's model in the band of its carousels rather
+			// than the whole page (ghostmenu.c)
+			s32 bandbottom = ghostmenuModelBottom(dialog);
+
+			if (bandbottom > g_MenuScissorY1 + LINEHEIGHT && bandbottom < g_MenuScissorY2) {
+				g_MenuScissorY2 = bandbottom;
+				gdl = menuApplyScissor(gdl);
+			}
+#endif
+
 			gSPSetGeometryMode(gdl++, G_ZBUFFER);
 
 			gdl = menuRenderModel(gdl, &g_Menus[g_MpPlayerNum].menumodel, MENUMODELTYPE_DEFAULT);
 
 			gSPClearGeometryMode(gdl++, G_ZBUFFER);
+
+#ifndef PLATFORM_N64
+			if (bandbottom != 0 && g_MenuScissorY2 != savedy2) {
+				g_MenuScissorY2 = savedy2;
+				gdl = menuApplyScissor(gdl);
+			}
+#endif
 
 			viSetViewPosition(g_Vars.currentplayer->viewleft, g_Vars.currentplayer->viewtop);
 			viSetFovAspectAndSize(g_Vars.currentplayer->fovy, g_Vars.currentplayer->aspect,
@@ -4162,6 +4192,9 @@ void dialogCalculatePosition(struct menudialog *dialog)
 	// A dialog that places itself: the Game Lobby's buttons under its chat
 	// (netlobbymenu.c), in the space of the side of the screen it is held to
 	netLobbyMenuPlaceDialog(dialog);
+
+	// Ghost Trials' pages out from under its nameplate (ghostmenu.c)
+	ghostmenuPlaceDialog(dialog);
 #endif
 
 	if (dialog->swipedir != 0) {
