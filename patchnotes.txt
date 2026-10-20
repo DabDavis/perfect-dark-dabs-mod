@@ -41,6 +41,7 @@ Online: while you host a campaign room the Perfect Menu says so (Online Game: Ho
 Online: your remote mines now always go off when you press the detonator (thanks dab)
 Online: the Slayer's fly-by-wire rocket takes your camera along, and you steer it as offline (thanks dab)
 Online: matches on big mod maps no longer crash a few seconds in; the game now makes room for everything the map draws
+Online: lag compensation no longer switches itself off for some players, so your shots and rockets count where you saw your target
 GoldenEye: guards keep moving and shooting while the watch comes up and goes down; the game only stops once the watch face fills the screen, as on the cartridge (thanks Odeyseis)
 GoldenEye: climbing into the tank, the view goes straight down into the seat without dipping and bouncing back (thanks Odeyseis)
 GoldenEye: getting out of the tank leaves you standing on top of it, as in GoldenEye (thanks Odeyseis)
