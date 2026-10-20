@@ -8001,6 +8001,8 @@ static bool gfx_readable(const void *ptr, size_t len) {
     return true;
 }
 
+extern "C" void gfxDescribeAddress(const void *ptr, char *buf, int32_t size);
+
 static void gfx_refuse_vertex_load(const Gfx *cmd, const Gfx *list, const void *src, size_t count) {
     char text[1536];
     int len;
@@ -8031,6 +8033,36 @@ static void gfx_refuse_vertex_load(const Gfx *cmd, const Gfx *list, const void *
 
     sysLogPrintf(LOG_ERROR, "%s", text);
 
+    // The crash report's log ring keeps 191 characters a line, which cut the
+    // line above before it said whose list it was (20261018-162450, Caverns:
+    // three of these, then a crash in gfx_sp_vertex). The same again in
+    // pieces that fit, with whose memory the source and the list are.
+    {
+        char where[120];
+        char line[192];
+
+        gfxDescribeAddress(src, where, sizeof(where));
+        sysLogPrintf(LOG_ERROR, "F3D:  source %p (%u vertices) is %s", src, (unsigned)count, where);
+        gfxDescribeAddress(list, where, sizeof(where));
+        sysLogPrintf(LOG_ERROR, "F3D:  command %lld at depth %d of list %p, %s", (long long)(cmd - list), gfx_dl_depth,
+                (const void *)list, where);
+        sysLogPrintf(LOG_ERROR, "F3D:  w0 %016llx w1 %016llx", (unsigned long long)cmd->words.w0,
+                (unsigned long long)cmd->words.w1);
+
+        for (int k = 6; k >= 1; k -= 3) {
+            int n = snprintf(line, sizeof(line), "F3D:  before it:");
+
+            for (int j = k; j > k - 3 && n > 0 && n < (int)sizeof(line); j--) {
+                if (cmd - j >= list) {
+                    n += snprintf(line + n, sizeof(line) - n, " %016llx:%016llx",
+                            (unsigned long long)cmd[-j].words.w0, (unsigned long long)cmd[-j].words.w1);
+                }
+            }
+
+            sysLogPrintf(LOG_ERROR, "%s", line);
+        }
+    }
+
     if (gfx_bad_vertex_loads == 1) {
         crashReportSave(text);
     }
@@ -8053,7 +8085,6 @@ struct GfxDlDepth {
 static const Gfx *gfx_dl_lists[GFX_DL_TRACK];
 static const Gfx *gfx_dl_calls[GFX_DL_TRACK];
 
-extern "C" void gfxDescribeAddress(const void *ptr, char *buf, int32_t size);
 
 static int gfx_unknown_opcodes;
 
