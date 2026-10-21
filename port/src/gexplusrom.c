@@ -1120,6 +1120,20 @@ static void gexPlusRomConvertVariants(void)
 	static const char *const dirs[] = { FS_ADDED_CONTENT_SEARCH };
 	char seen[ARRAYCOUNT(dirs)][FS_MAXPATH + 1];
 
+	// what a hack's conversion that did not finish left, as GoldenEye's
+	// (gexPlusRomConvertGoldenEye()): listed as a mod otherwise, and entered
+	// from the PD Mods menu (F3 20261020-235605, "Goldfinger 64.converting")
+	for (s32 i = 0; geconvertVariantNameAt(i); ++i) {
+		for (u32 c = 0; c < ARRAYCOUNT(g_VariantContainers); ++c) {
+			char temp[FS_MAXPATH + 1];
+
+			snprintf(temp, sizeof(temp), "%s/%s.converting", g_VariantContainers[c], geconvertVariantNameAt(i));
+			if (fsFileSize(temp) >= 0) {
+				modRemoveDirTree(temp);
+			}
+		}
+	}
+
 	variantAdoptFromMods();
 
 	for (u32 d = 0; d < ARRAYCOUNT(dirs); ++d) {

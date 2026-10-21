@@ -31,6 +31,18 @@
 #pragma STDC FP_CONTRACT OFF
 #endif
 
+// On Windows a longjmp that does not unwind. mingw's setjmp otherwise hands
+// msvcrt the frame to unwind to, and the unwind reads each frame's saved
+// registers back from its SEH table - where GCC records geconvertRun()'s xmm6
+// from the stack pointer while the unwinder counts from the frame pointer the
+// prologue set first, 8 KB higher, past the top of the converter's thread's
+// stack. The thread died at fail()'s first longjmp (Goldfinger 64's character
+// 108 left out, "24/27") and the game waited for it forever. Nothing between a
+// fail() and its setjmp has anything to unwind
+#ifdef _WIN32
+#define __USE_MINGW_SETJMP_NON_SEH
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
