@@ -6,6 +6,7 @@ The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
 - **The Windows build, wine, the pd.ini format** — [windows-build.md](CLAUDE-notes/windows-build.md): mingw prefix, WinHTTP, and why `Mod.LoadTextures=1` on its own line does nothing
+- **A longjmp that kills its thread on Windows only** — [windows-build.md](CLAUDE-notes/windows-build.md), "longjmp unwinds on Windows": mingw's setjmp makes msvcrt's longjmp an SEH unwind, which trusts GCC's unwind tables; geconvert.c defines `__USE_MINGW_SETJMP_NON_SEH` since the Goldfinger 64 24/27 freeze (v3.15.0)
 
 
 The Windows build is worth doing before pushing anything that touches files,
@@ -72,3 +73,50 @@ Two dialogs from two releases that name the same function at slightly different
 offsets are a real crash, not a coincidence: the frames agreed because both were
 builds of the same source, and the faulting instruction was the same store in
 both (see chrs-and-memory.md, the heads Area 51 crash).
+
+## longjmp unwinds on Windows
+
+mingw's `setjmp(buf)` is `_setjmp(buf, __builtin_frame_address(0))`, and handing
+msvcrt a frame makes its `longjmp` an SEH unwind: `RtlUnwindEx` walks every
+frame between the `longjmp` and that frame, restoring each one's saved
+registers from its `.pdata`/`.xdata` unwind codes. On Linux a longjmp just
+reloads registers. So on Windows a longjmp is only as good as GCC's unwind
+tables, and those can be wrong.
+
+The one we met (v3.15.0, "CONVERTING GOLDFINGER 64 ONCE ONLY - 24/27" frozen on
+every Windows machine, F3 20261020-235605): `geconvertRun()` has an 8.7 KB frame,
+so GCC sets `rbp` at the top of the prologue (`push %rbp; mov %rsp,%rbp`, then
+the pushes and `sub`). Converter 126's prop-scale code gave it an `xmm6` save at
+`-0x50(%rbp)`; GCC wrote `.seh_savexmm %xmm6, 0x21e0` - from the final `rsp` -
+while the unwinder counts a frame function's save offsets from the frame
+register (`rbp` - offset * 16, here `rbp`). The unwind read `xmm6` 8 KB above
+the frame, past the top of the converter's thread's stack, and the thread
+vanished at `fail()`'s first longjmp (Goldfinger's character 108, the first one
+left out) while the main thread drew the notice and waited for it forever. The
+CI exe of the build before (3ee8ed0) had the same prologue with no `xmm6`, and
+converted Goldfinger fine: any function edit can tip a function into this.
+GoldenEye's own conversion never calls `fail()`, so it was never hit there.
+
+`#define __USE_MINGW_SETJMP_NON_SEH` before `<setjmp.h>` makes `setjmp` pass
+NULL, and `longjmp` then restores the registers itself without unwinding
+(geconvert.c, a8c2ab2d7). Safe there because nothing between a `fail()` and its
+`setjmp` has a `__finally` or C++ destructor to run. Do the same for any new
+setjmp/longjmp, or avoid longjmp altogether.
+
+Reading this kind of failure:
+
+- The thread just disappears. Under wine `gdb -p` showed the main thread in
+  `NtDelayExecution` (the notice loop's `SDL_Delay`) and no converter thread;
+  on real Windows it may crash the game instead ("it seemed to crash").
+- `x86_64-w64-mingw32-objdump -x pd.x86_64.exe` lists `.pdata` rows
+  (begin, end, unwind info address) but does not decode the codes. Read the
+  UNWIND_INFO bytes at the row's address (file offset = address - section VMA +
+  section file offset, from `objdump -h`): version/flags, prologue size, code
+  count, frame register/offset, then two bytes a code (op 8 = SAVE_XMM128 with
+  its offset / 16 in the next slot).
+- A quick test of a fix on the shipped exe: patch the `mov %rbp,%rdx` before
+  each `call *__imp__setjmp` to `xor %edx,%edx; nop` (`48 89 ea` -> `31 d2 90`)
+  and run it under wine. The local mingw (Debian GCC 14) did not reproduce the
+  bug at all: the release is built by MSYS2's GCC 16, whose code and unwind
+  tables are its own, so test the CI exe itself (`gh run download <run> -n
+  pd-dabs-mod-x86_64-windows`).

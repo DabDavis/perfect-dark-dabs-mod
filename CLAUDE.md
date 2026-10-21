@@ -14,7 +14,7 @@ topic it covers (these used to live here). Read the digest first, then the
 section it names. The notes are large (`ge-bean.md` is 850KB): grep the digest
 or a section heading, don't read one whole.
 
-- [windows-build.md](CLAUDE-notes/windows-build.md) — The Windows build, wine, the pd.ini format
+- [windows-build.md](CLAUDE-notes/windows-build.md) — The Windows build, wine, the pd.ini format; a longjmp that unwinds through GCC's SEH tables on Windows only (the Goldfinger 64 24/27 freeze)
 - [chrs-and-memory.md](CLAUDE-notes/chrs-and-memory.md) — chrs, bodies, heads, simulants, memory pools, mpconfig; Simulants running on the spot at the head of a ladder; A head on a body it was not made for; A simulant's stat sliders, and what the player count really changes; A head past the Combat Simulator's list; Chrs above 60 FPS (AI lists and off-screen props' turns once per 60th)
 - [save-format.md](CLAUDE-notes/save-format.md) — Saves, eeprom, where pd.ini lives, the migration
 - [text-rendering.md](CLAUDE-notes/text-rendering.md) — Menu text, `textMeasure()`, reaching the widescreen pillars
