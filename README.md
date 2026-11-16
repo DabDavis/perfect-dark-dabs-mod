@@ -1,5 +1,7 @@
 # Dab's Mod
 
+<a href="https://recomplauncher.com/game/perfect-dark-dabs-mod"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
+
 **[Download](https://github.com/DabDavis/perfect-dark-dabs-mod/releases/latest)**
 — Windows, Linux and macOS. You supply the ROM; see [You need a ROM](#you-need-a-rom).
 There is also a [rolling dev build](https://github.com/DabDavis/perfect-dark-dabs-mod/releases/tag/dabs-mod-dev)

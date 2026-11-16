@@ -1,0 +1,153 @@
+{
+    "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+    "format": 1,
+    "repo": "DabDavis/perfect-dark-dabs-mod",
+    "name": "Dab's Mod",
+    "game": {
+        "kind": "iso",
+        "label": "Your Perfect Dark (USA) (Rev 1) N64 ROM, ntsc-final (US V1.1), as a .z64, .n64 or .v64 file. PAL and JPN ROMs are not supported."
+    },
+    "start": {
+        "program": [
+            "pd.x86_64.exe",
+            "pd.x86_64"
+        ],
+        "args": [
+            "--rom-file",
+            "{game}"
+        ]
+    },
+    "config": [
+        {
+            "id": "main",
+            "format": "ini",
+            "file": [
+                {
+                    "path": "{install}/pd.ini"
+                }
+            ]
+        }
+    ],
+    "settings": [
+        {
+            "id": "fullscreen",
+            "label": "Full Screen",
+            "choices": [
+                {
+                    "label": "Off",
+                    "set": {
+                        "Video/DefaultFullscreen": "0"
+                    }
+                },
+                {
+                    "label": "On",
+                    "set": {
+                        "Video/DefaultFullscreen": "1"
+                    }
+                }
+            ],
+            "defaults": {
+                "Video/DefaultFullscreen": "0"
+            }
+        },
+        {
+            "id": "vsync",
+            "label": "V-Sync",
+            "choices": [
+                {
+                    "label": "Off",
+                    "set": {
+                        "Video/VSync": "0"
+                    }
+                },
+                {
+                    "label": "On",
+                    "set": {
+                        "Video/VSync": "1"
+                    }
+                }
+            ],
+            "defaults": {
+                "Video/VSync": "1"
+            }
+        },
+        {
+            "id": "fps",
+            "label": "Frame Rate Limit",
+            "choices": [
+                {
+                    "label": "No Limit",
+                    "set": {
+                        "Video/FramerateLimit": "0"
+                    }
+                },
+                {
+                    "label": "60",
+                    "set": {
+                        "Video/FramerateLimit": "60"
+                    }
+                },
+                {
+                    "label": "120",
+                    "set": {
+                        "Video/FramerateLimit": "120"
+                    }
+                },
+                {
+                    "label": "144",
+                    "set": {
+                        "Video/FramerateLimit": "144"
+                    }
+                },
+                {
+                    "label": "240",
+                    "set": {
+                        "Video/FramerateLimit": "240"
+                    }
+                }
+            ],
+            "defaults": {
+                "Video/FramerateLimit": "0"
+            }
+        },
+        {
+            "id": "msaa",
+            "label": "Anti-Aliasing",
+            "help": "Smoother edges; higher needs a faster graphics card.",
+            "choices": [
+                {
+                    "label": "Off",
+                    "set": {
+                        "Video/MSAA": "1"
+                    }
+                },
+                {
+                    "label": "2x",
+                    "set": {
+                        "Video/MSAA": "2"
+                    }
+                },
+                {
+                    "label": "4x",
+                    "set": {
+                        "Video/MSAA": "4"
+                    }
+                },
+                {
+                    "label": "8x",
+                    "set": {
+                        "Video/MSAA": "8"
+                    }
+                }
+            ],
+            "defaults": {
+                "Video/MSAA": "1"
+            }
+        }
+    ],
+    "requires": [
+        "start",
+        "settings.ini",
+        "settings.choices"
+    ]
+}
